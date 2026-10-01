@@ -1,0 +1,19 @@
+# Go build output
+/council
+/council.exe
+*.exe
+*.test
+*.out
+
+# Go workspace file (machine specific)
+go.work
+go.work.sum
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Council runtime data lives outside the repo (see docs/00_DECISIONS.md D-9),
+# so there is nothing to ignore for it here.
