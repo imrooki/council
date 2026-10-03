@@ -2491,3 +2491,18 @@ Go 这边对应的是 bubbletea 系。
       - 云端会话留下的远端分支 `claude/clever-pascal-jq28k2` 已经全部合进旧 main，一起删了。
     - **对读文档的影响**：各文档里引用的提交号（`4202b6c`、`883a1cd` 之类）在 GitHub 上查不到了，要在本地备份分支里 `git show`。
     - **还没解决的**：被强推覆盖掉的旧提交，在 GitHub 上按提交号直接访问可能还能看到一段时间，要等 GitHub 自己清理，或者请 GitHub 支持清除。将来要公开时，更稳的做法是新建一个仓库推过去，而不是把这个仓库直接改成公开。
+
+52. **Griffin 自用版收尾：真机用过之后说「可以 ok 了」；他的配置里 Opus 5.0 换成 Opus 5.5 max 与 Sonnet 5.5 max（2026-10-03，Griffin）** —— **已改配置（不在仓库里），代码没动，仍是 `council 0.2.0-1001b`**
+
+    Griffin 定的用途是「我自己用」。主代理给了 A3、M6、M7、M8 的精简复验步骤，他在真机上用过之后说「我觉得可以 ok 了」。
+    - **验证等级**：他没有逐项回报。能核对的只有一条：他配置旁边多了 `config.toml.bak-add-20261003-210359`，配置末尾多了 `gpt-6.1-sol-xhigh`，说明 M7 第 2 步（按名字加、自动识别、写配置前备份）做过、而且写对了。其余各项按他的总体判断记，不算逐项复验通过。
+    - **配置改动**（`C:\Users\25142\.council\config.toml`，改前原样在同目录的 `config.toml.bak-20261003-opus55max-sonnet55`）：
+      - 删掉 `opus-5.0`（`model = 'opus'`，high）与 `opus-5.0-max`；
+      - 加 `opus-5.5-max`（`claude-opus-5-5`，max）与 `sonnet-5.5-max`（`claude-sonnet-5-5`，max）；
+      - `teams.all` 与 `teams.max` 里的 opus-5.0 换成这两个。原有的 `opus-5.5`（xhigh）不动。
+      - 主代理用配置的一份拷贝（data_dir 指到隔离目录）启动 council，`/agents` 列出 9 个 agent、2 个 team，加载与校验都过了。
+    - **改之前查的**：用 claude CLI 2.1.283 的初始化握手（与 `/add` 识别同一套，不推理、不花钱）：
+      - 别名 `opus` 已经解析成 `claude-opus-5-5`，所以原来叫 `opus-5.0` 的两个成员其实早就在跑 Opus 5.5；
+      - Opus 5.5 支持 low/medium/high/xhigh/max；
+      - 别名 `sonnet` 解析成 `claude-sonnet-5`，列表里**没有 Sonnet 5.5**。`sonnet-5.5-max` 照他的要求写了 `claude-sonnet-5-5`，**[未验证]**：第一次 `/ask sonnet-5.5-max` 才知道 CLI 认不认；不认会报错、不会问错模型，那时改成 `'sonnet'`（当天是 Sonnet 5）。
+    - **对旧会话的影响**：旧会话里的 `opus-5.0`、`opus-5.0-max` 成员还在，但配置里没有了，`/ask` 它们会被拒，不花钱。

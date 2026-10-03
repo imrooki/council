@@ -2792,3 +2792,13 @@ Griffin 要求不用云额度、用本地订阅继续开发，先把 GitHub 上�
   1. 同上一条：等 Griffin 真机复验（M7、M6、A3、M8），定 MVP 范围；改公开前还要定许可证。
   2. CL2（上一条列的小修补）他定先不做。
 - **注意**：本地 main 与备份分支没有共同祖先。以后只在 main 上工作、只推 main；文档里的旧提交号要到本地备份分支里查。
+
+## 2026-10-03 21:10 · 会话 #11 续 · Griffin 说自用版可以了（#52）；他的配置换成 Opus 5.5 max、Sonnet 5.5 max
+
+- **目标**：按 Griffin 的话收尾自用版：配置里的 Opus 5.0 换成 Opus 5.5 max 与 Sonnet 5.5 max，记下来推上 GitHub。
+- **状态锚点**：branch `main`，本条所在的提交在 `893f1d2` 之后，已推到 origin/main，工作树干净。代码没动，已装的仍是 `council 0.2.0-1001b`，没有重跑测试。
+- **已完成**：
+  - Griffin 在真机上用过之后说「我觉得可以 ok 了」，没有逐项回报；能核对的只有 M7 第 2 步（他配置旁的 `config.toml.bak-add-20261003-210359`）。详见 #52。
+  - 他的 `config.toml`：删 `opus-5.0`、`opus-5.0-max`，加 `opus-5.5-max`、`sonnet-5.5-max`，两个队伍跟着换；改前备份 `config.toml.bak-20261003-opus55max-sonnet55`；拷贝加载验证过（9 个 agent、2 个 team）。
+- **卡住的问题**：`claude-sonnet-5-5` [未验证]：本机 claude CLI 2.1.283 的模型列表里没有它（`sonnet` 解析成 Sonnet 5）。第一次 `/ask sonnet-5.5-max` 才知道。
+- **下一步**：没有排定的开发。Griffin 用的时候报问题再修；CL2 他定先不做；发给别人之前的事项（MVP 范围、许可证、新建仓库）他没要求。
