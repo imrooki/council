@@ -2504,5 +2504,5 @@ Go 这边对应的是 bubbletea 系。
     - **改之前查的**：用 claude CLI 2.1.283 的初始化握手（与 `/add` 识别同一套，不推理、不花钱）：
       - 别名 `opus` 已经解析成 `claude-opus-5-5`，所以原来叫 `opus-5.0` 的两个成员其实早就在跑 Opus 5.5；
       - Opus 5.5 支持 low/medium/high/xhigh/max；
-      - 别名 `sonnet` 解析成 `claude-sonnet-5`，列表里**没有 Sonnet 5.5**。`sonnet-5.5-max` 照他的要求写了 `claude-sonnet-5-5`，**[未验证]**：第一次 `/ask sonnet-5.5-max` 才知道 CLI 认不认；不认会报错、不会问错模型，那时改成 `'sonnet'`（当天是 Sonnet 5）。
+      - 别名 `sonnet` 解析成 `claude-sonnet-5`，列表里**没有 Sonnet 5.5**。`sonnet-5.5-max` 照他的要求写了 `claude-sonnet-5-5`。**同日他在终端里实跑 `claude -p … --model claude-sonnet-5-5 --effort max`，回了 OK，能用**（CLI 只警告「这个版本的目录里没有这个型号」，不拒绝）。实跑前他的 claude 登录曾过期（`OAuth session expired`），他重新登录后才通；Council 里是否走同一条路没有另测，第一次 `/ask sonnet-5.5-max` 即是。
     - **对旧会话的影响**：旧会话里的 `opus-5.0`、`opus-5.0-max` 成员还在，但配置里没有了，`/ask` 它们会被拒，不花钱。

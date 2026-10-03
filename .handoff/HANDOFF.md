@@ -2800,5 +2800,5 @@ Griffin 要求不用云额度、用本地订阅继续开发，先把 GitHub 上�
 - **已完成**：
   - Griffin 在真机上用过之后说「我觉得可以 ok 了」，没有逐项回报；能核对的只有 M7 第 2 步（他配置旁的 `config.toml.bak-add-20261003-210359`）。详见 #52。
   - 他的 `config.toml`：删 `opus-5.0`、`opus-5.0-max`，加 `opus-5.5-max`、`sonnet-5.5-max`，两个队伍跟着换；改前备份 `config.toml.bak-20261003-opus55max-sonnet55`；拷贝加载验证过（9 个 agent、2 个 team）。
-- **卡住的问题**：`claude-sonnet-5-5` [未验证]：本机 claude CLI 2.1.283 的模型列表里没有它（`sonnet` 解析成 Sonnet 5）。第一次 `/ask sonnet-5.5-max` 才知道。
+- **已验证**：`claude-sonnet-5-5` 能用。Griffin 在终端里实跑 `claude -p … --model claude-sonnet-5-5 --effort max` 回了 OK；CLI 2.1.283 的列表里没有它，只警告。第一次实跑前他的 claude 登录过期，重新登录后才通。Council 里 `/ask sonnet-5.5-max` 没另测。
 - **下一步**：没有排定的开发。Griffin 用的时候报问题再修；CL2 他定先不做；发给别人之前的事项（MVP 范围、许可证、新建仓库）他没要求。
