@@ -673,7 +673,8 @@ func TestTui1bAcc7CtrlJInsertsNewlineWithoutSubmitting(t *testing.T) {
 
 // ═══ 验收 8 ═══════════════════════════════════════════════════════
 
-// 验收 8：busy 时 Ctrl-C 取消本轮、不退出。
+// 验收 8：busy 时连按两次 Ctrl-C 取消本轮、不退出。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里按两次。
 //
 // 【判别力】契约 5.1 的 Options 里没有 ctx 这一项，5.4 第 4 步却写
 // context.WithCancel(m.ctx)，所以「注入的 cancel」其实没地方注入。
@@ -700,9 +701,16 @@ func TestTui1bAcc8BusyCtrlCCancelsWithoutQuitting(t *testing.T) {
 		t.Fatalf("Ctrl-C 之前 Submit 拿到的 ctx 就已经是 %v，本条断言会恒真，前提没控制住", err)
 	}
 
+	m, cmdArm := tui1bStep(t, m, tui1bCtrl('c'))
+	if err := ctx.Err(); err != nil {
+		t.Errorf("busy 时第一次 Ctrl-C 之后，本轮 ctx 的 Err() 是 %v，应当仍是 nil", err)
+	}
+	if cmdArm == nil || reflect.ValueOf(cmdArm).Pointer() == reflect.ValueOf(tea.Quit).Pointer() {
+		t.Errorf("busy 时第一次 Ctrl-C 应当只武装、不退出（cmd == nil：%v）", cmdArm == nil)
+	}
 	_, cmd2 := tui1bStep(t, m, tui1bCtrl('c'))
 	if err := ctx.Err(); !errors.Is(err, context.Canceled) {
-		t.Errorf("busy 时按 Ctrl-C 之后，本轮 ctx 的 Err() 是 %v，应当是 context.Canceled", err)
+		t.Errorf("busy 时连按两次 Ctrl-C 之后，本轮 ctx 的 Err() 是 %v，应当是 context.Canceled", err)
 	}
 	tr := tui1bRun(t, cmd2)
 	if tr.hasQuit() {
@@ -712,7 +720,8 @@ func TestTui1bAcc8BusyCtrlCCancelsWithoutQuitting(t *testing.T) {
 
 // ═══ 验收 9 ═══════════════════════════════════════════════════════
 
-// 验收 9：不忙时 Ctrl-C 退出。
+// 验收 9：不忙时连按两次 Ctrl-C 退出。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里按两次。
 //
 // 【判别力】这条钉的是「跑到最后产出 QuitMsg」。直接比 Cmd 与 tea.Quit
 // 在 Go 里编译不过（函数不可比较），所以必须把 Cmd 跑开。
@@ -721,24 +730,29 @@ func TestTui1bAcc8BusyCtrlCCancelsWithoutQuitting(t *testing.T) {
 func TestTui1bAcc9IdleCtrlCQuits(t *testing.T) {
 	m, _, _ := tui1bSized(t, nil)
 
+	m, cmdArm := tui1bStep(t, m, tui1bCtrl('c'))
+	if cmdArm == nil || reflect.ValueOf(cmdArm).Pointer() == reflect.ValueOf(tea.Quit).Pointer() {
+		t.Fatalf("不忙时第一次 Ctrl-C 应当只武装、不退出（cmd == nil：%v）", cmdArm == nil)
+	}
 	_, cmd := tui1bStep(t, m, tui1bCtrl('c'))
 	if cmd == nil {
-		t.Fatalf("不忙时按 Ctrl-C 返回了 nil Cmd，契约 5.2 要求返回 quitCmd()")
+		t.Fatalf("不忙时第二次 Ctrl-C 返回了 nil Cmd，契约 5.2 要求返回 quitCmd()")
 	}
 	tr := tui1bRun(t, cmd)
 	if !tr.hasQuit() {
-		t.Errorf("不忙时按 Ctrl-C 返回的 Cmd 跑到最后没有产出 tea.QuitMsg；跑出来的是 %v", tr.log)
+		t.Errorf("不忙时连按两次 Ctrl-C 返回的 Cmd 跑到最后没有产出 tea.QuitMsg；跑出来的是 %v", tr.log)
 	}
 	// 缓冲空、Drainer 什么都不吐，按契约 5.3 就只该有一条 tea.Quit。
 	// 多出来的东西说明退出路上还顺手干了别的。
 	if want := []string{"quit"}; !reflect.DeepEqual(tr.log, want) {
-		t.Errorf("缓冲是空的，不忙时按 Ctrl-C 跑出来是 %v，应当只有 %v", tr.log, want)
+		t.Errorf("缓冲是空的，不忙时连按两次 Ctrl-C 跑出来是 %v，应当只有 %v", tr.log, want)
 	}
 }
 
 // ═══ 验收 10 ═══════════════════════════════════════════════════════
 
 // 验收 10：退出前把缓冲吐干净，而且吐在 Quit 之前。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里按两次。
 //
 // 【判别力，本刀唯一能抓「用了 Batch 而不是 Sequence」的一条】
 // 三种坏实现分别被三句抓住：
@@ -760,9 +774,13 @@ func TestTui1bAcc10QuitDrainsBufferBeforeQuitting(t *testing.T) {
 		t.Fatalf("往 LineWriter 里写失败: %v", err)
 	}
 
+	m, cmdArm := tui1bStep(t, m, tui1bCtrl('c'))
+	if cmdArm == nil || reflect.ValueOf(cmdArm).Pointer() == reflect.ValueOf(tea.Quit).Pointer() {
+		t.Fatalf("不忙时第一次 Ctrl-C 应当只武装、不退出（cmd == nil：%v）", cmdArm == nil)
+	}
 	_, cmd := tui1bStep(t, m, tui1bCtrl('c'))
 	if cmd == nil {
-		t.Fatalf("不忙时按 Ctrl-C 返回了 nil Cmd，缓冲里还有东西没吐")
+		t.Fatalf("不忙时第二次 Ctrl-C 返回了 nil Cmd，缓冲里还有东西没吐")
 	}
 	tr := tui1bRun(t, cmd)
 

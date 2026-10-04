@@ -143,7 +143,7 @@ func runWith(p program, out *LineWriter, final io.Writer) error {
 //
 // 四道门，全部满足才写：
 //  1. Run 返回的是本包的 Model。Run 自己 recover 住 panic 时返回 nil，挡在这里。
-//  2. err 为 nil，也就是正常退出（空闲 Ctrl-C、/quit、出错退出都走 QuitMsg）：
+//  2. err 为 nil，也就是正常退出（空闲时 2 秒内连按两次 Ctrl-C、/quit、出错退出都走 QuitMsg）：
 //     退出前 bubbletea 一定先把最终帧画出来，光标停在帧末行。
 //     任何非 nil 的 err 都不写：早退时一帧都没画；被杀（取消 ctx、SIGTERM、tty 读错误）时
 //     若还没 flush 过，屏幕上也没有帧，而 termHeight > 0 只说明 Update 跑过，不是帧已上屏的证据；

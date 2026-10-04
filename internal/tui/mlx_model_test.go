@@ -313,7 +313,8 @@ func TestMlxBusyEnterUnchanged(t *testing.T) {
 	m = mlxPaste(t, m, mlxJ2)
 	m, cmd = tui1bStep(t, m, tui1bEnter())
 	mlxWantNilCmd(t, "忙时回车", cmd)
-	mlxWantHeader(t, "忙时回车", m, "council t   一轮正在跑，先等它回来或按 Ctrl-C 取消  0s")
+	// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，忙时回车的提示跟着改。
+	mlxWantHeader(t, "忙时回车", m, "council t   一轮正在跑，先等它回来或连按两次 Ctrl-C 取消  0s")
 	mlxWantValue(t, "忙时回车", m, mlxJ2)
 
 	m, _ = tui1bStep(t, m, submitDoneMsg{})
@@ -372,9 +373,10 @@ func TestMlxFinalizeWindowUnchanged(t *testing.T) {
 	mlxWantValue(t, "收口之后回车", m, mlxJ2)
 }
 
-// TestMlxIdleCtrlCQuitsAfterBlock：挡下之后空闲 Ctrl-C 照旧退出（契约 §2.2 M7）。
+// TestMlxIdleCtrlCQuitsAfterBlock：挡下之后空闲连按两次 Ctrl-C 照旧退出（契约 §2.2 M7）。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里按两次。
 //
-// 【判别力】提示挂着时空闲 Ctrl-C 只清提示、不退出（Z4）→ 表头是空闲、叶子是空的，两句都红。
+// 【判别力】提示挂着时空闲第一次 Ctrl-C 只清提示、不武装（Z4）→ 表头回到空闲而不是「再按一次 Ctrl-C 退出」，第一次的断言红；第二次不再是退出，叶子里没有 quit，红。
 // HEAD 上红在前提那一句（回车照样提交，表头是正在运行  0s）。
 func TestMlxIdleCtrlCQuitsAfterBlock(t *testing.T) {
 	m, _, _ := mlxNew(t)
@@ -383,8 +385,13 @@ func TestMlxIdleCtrlCQuitsAfterBlock(t *testing.T) {
 	if got := mlxHeader(m); got != mlxHDR {
 		t.Fatalf("前提不成立：粘贴 j2 回车之后表头 = %q，应为 %q", got, mlxHDR)
 	}
+	m, cmdArm := tui1bStep(t, m, tui1bCtrl('c'))
+	mlxWantHeader(t, "空闲第一次 Ctrl-C", m, "council t   再按一次 Ctrl-C 退出")
+	if cmdArm == nil || reflect.ValueOf(cmdArm).Pointer() == reflect.ValueOf(tea.Quit).Pointer() {
+		t.Errorf("空闲第一次 Ctrl-C 应当只武装、不退出（cmd == nil：%v）", cmdArm == nil)
+	}
 	m, cmd := tui1bStep(t, m, tui1bCtrl('c'))
-	mlxWantHeader(t, "空闲 Ctrl-C", m, "council t   正在退出")
+	mlxWantHeader(t, "空闲第二次 Ctrl-C", m, "council t   正在退出")
 	tr := tui1bRun(t, cmd)
 	if !tr.hasQuit() {
 		t.Errorf("空闲 Ctrl-C 之后叶子里没有 quit：%q", tr.log)

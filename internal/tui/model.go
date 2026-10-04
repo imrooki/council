@@ -136,8 +136,18 @@ type Model struct {
 	backN int
 	// rosterN 是本次提交里各段名单长度的总和。
 	rosterN int
-	// canceling 为真表示本次提交里忙时按过 Ctrl-C。收尾动词看它，不看 status 文字。
+	// canceling 为真表示本次提交里忙时已连按两次 Ctrl-C、取消生效。收尾动词看它，不看 status 文字。
 	canceling bool
+	// ctrlCArmed 为真表示正在等窗口内的第二次 Ctrl-C。第一次只武装，不退出、不取消。
+	ctrlCArmed bool
+	// ctrlCKind 是这一次武装等的动作：退出或取消本轮。未武装时是 ctrlCNone。
+	ctrlCKind ctrlCKind
+	// ctrlCAt 是这一次武装的第一次按下时刻，跟 ctrlCWindow 比。
+	ctrlCAt time.Time
+	// ctrlCGen 是武装代次。到期消息带装它时的代次，对不上就丢掉。
+	ctrlCGen uint64
+	// ctrlCPrev 是武装前的状态栏。解除时状态栏仍是武装提示才写回去。
+	ctrlCPrev string
 	// finalizing 为真表示处在 submitDone 到收口之间的窗口。窗口里 Ctrl-C 与 Enter 被挡住。
 	finalizing bool
 	// pinCursor 为真时 View 把光标钉在表头行首。
@@ -246,6 +256,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.elapsed = msg.at.Sub(m.runStart)
 		return m, elapsedTickCmd(m.tickGen)
 
+	case ctrlCExpireMsg:
+		// 代次对得上、且还武装着，才解除并恢复状态栏。旧代次或已经解除的丢掉。
+		if !m.ctrlCArmed || msg.gen != m.ctrlCGen {
+			return m, nil
+		}
+		m = m.ctrlCDisarm()
+		return m, nil
+
 	case roundStartMsg:
 		if !m.busy {
 			return m, nil
@@ -343,6 +361,8 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case submitDoneMsg:
+		// 提交结束每条路径都会自己设 status，这里只解除武装，不恢复旧状态栏。
+		m = m.ctrlCClear()
 		m.members = msg.members
 		m.busy = false
 		m.cancel = nil
@@ -370,7 +390,13 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// @ 补全列表在屏幕上时，这六个键归它，不交给下面的既有分支：
 		// Ctrl-C 与 Esc 只收起列表（不退出、不取消、不改状态栏）；上下键移动选中项（到头不回绕）；
 		// Tab 与回车用选中项补全，回车在这里不提交。列表不在屏幕上时一律走既有分支。
+		// 列表在屏幕上时，先解除 Ctrl-C 武装（只在处于武装时才恢复状态栏），再归列表。
+		// 修饰键残影（ctrlCKeepsArm）不算别的键，跳过解除。
+		// Ctrl-C 在这里只收起列表，不武装、不退出、不取消。
 		if m.atVisible() {
+			if !ctrlCKeepsArm(msg) {
+				m = m.ctrlCDisarm()
+			}
 			switch {
 			case msg.Mod.Contains(tea.ModCtrl) && msg.Code == 'c':
 				m.at = atState{}
@@ -394,28 +420,46 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case msg.Mod.Contains(tea.ModCtrl) && msg.Code == 'c':
+			// 列表不在屏幕上时的 Ctrl-C。收口窗口里照旧挡住，不武装。
+			// 其余情况要 2 秒内连按两次：第一次只武装并改状态栏，第二次才退出或取消。
+			// 已经取消过的这一轮再按也不重新武装。
 			if m.finalizing {
 				return m, nil
 			}
 			if m.busy {
-				if m.cancel != nil {
-					m.cancel()
+				if m.canceling {
+					return m, nil
 				}
-				m.status = "正在取消"
-				m.canceling = true
-				return m, nil
+				if m.ctrlCFresh(ctrlCCancel) {
+					m = m.ctrlCDisarm()
+					if m.cancel != nil {
+						m.cancel()
+					}
+					m.status = "正在取消"
+					m.canceling = true
+					return m, nil
+				}
+				m = m.ctrlCArm(ctrlCCancel)
+				return m, ctrlCExpireCmd(m.ctrlCGen)
 			}
-			m.status = "正在退出"
-			return m, m.quitCmd()
+			if m.ctrlCFresh(ctrlCQuit) {
+				m = m.ctrlCDisarm()
+				m.status = "正在退出"
+				return m, m.quitCmd()
+			}
+			m = m.ctrlCArm(ctrlCQuit)
+			return m, ctrlCExpireCmd(m.ctrlCGen)
 
 		case msg.Mod.Contains(tea.ModCtrl) && msg.Code == 'j':
+			m = m.ctrlCDisarm()
 			m.ta.InsertRune('\n')
 			m = m.atRecheck()
 			return m, nil
 
 		case msg.Code == tea.KeyEnter:
+			m = m.ctrlCDisarm()
 			if m.busy {
-				m.status = "一轮正在跑，先等它回来或按 Ctrl-C 取消"
+				m.status = "一轮正在跑，先等它回来或连按两次 Ctrl-C 取消"
 				return m, nil
 			}
 			if m.finalizing {
@@ -424,9 +468,14 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.beginSubmit()
 
 		case msg.Code == tea.KeyEscape:
+			m = m.ctrlCDisarm()
 			return m, nil
 
 		default:
+			// 修饰键残影不算别的键，不解除武装；其余键先解除（只在处于武装时才恢复状态栏）。
+			if !ctrlCKeepsArm(msg) {
+				m = m.ctrlCDisarm()
+			}
 			var cmd tea.Cmd
 			m.ta, cmd = m.ta.Update(msg)
 			m = m.atRecheck()
@@ -437,6 +486,7 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.PasteMsg:
+		m = m.ctrlCDisarm()
 		var cmd tea.Cmd
 		m.ta, cmd = m.ta.Update(msg)
 		m.status = fmt.Sprintf("粘贴了 %d 个字符", utf8.RuneCountInString(msg.Content))
@@ -688,7 +738,8 @@ const oneCommandHint = "一次只能一条命令，逐条回车；整段当消�
 //
 // 多行输入里第 2 行起有斜杠命令时不提交（repl.HasLaterCommandLine）：输入框原样保留、
 // 不回显、不进忙，只把状态栏换成 oneCommandHint。这句提示留到下一次改写状态栏的事件
-// （成功提交、粘贴、@ 补全列表不在屏幕上时的空闲 Ctrl-C）为止；打字、tick、窗口尺寸变化都不动它，
+// （成功提交、粘贴、列表不在屏幕上时的空闲第二次 Ctrl-C）为止。空闲第一次 Ctrl-C 会把它临时换成
+// 「再按一次 Ctrl-C 退出」，到期或按别的键后恢复成这句。打字、tick、窗口尺寸变化都不动它，
 // @ 补全列表在屏幕上时归列表的六个键（Ctrl-C、Esc、上、下、Tab、回车）也不动它。
 func (m Model) beginSubmit() (tea.Model, tea.Cmd) {
 	text := strings.TrimRight(m.ta.Value(), "\r\n")

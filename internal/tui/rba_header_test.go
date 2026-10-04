@@ -114,6 +114,7 @@ func TestRbaT1FormatElapsedTable(t *testing.T) {
 // beginSubmit 不 tickGen++（#34）→ 代次 1 的拍被丢，H3 仍是 0s，红；两处都不清 Run 状态（#35）→ H15 红。
 // H13b 在忠实实现上是空断言（不忙时既不显示段、段也活不到下一次提交），只作回归钉，见 weak 清单。
 // 对照：H3 与 H11c 只差状态文字；H10a 与 H10b 只差 roundID 是否为空。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里按两次。H11b 是第二次，H12 的提示是新文案。
 func TestRbaT2HeaderSequence(t *testing.T) {
 	m := rbaNewModel(t, nil)
 	rbaWantHeader(t, m, "H1", "council t   空闲")
@@ -148,15 +149,16 @@ func TestRbaT2HeaderSequence(t *testing.T) {
 	m, _ = tui1bStep(t, m, roundStartMsg{ev: repl.RoundStartEvent{Label: "发言轮", K: 1, N: 2, Members: 3}})
 	step("H11a", memberDoneMsg{ev: repl.MemberDoneEvent{RoundID: rbaRID}},
 		"council t   正在运行  发言轮 1/2 (688558)  回来 1/3  12s")
+	step("H11a2", tui1bCtrl('c'), "council t   再按一次 Ctrl-C 取消本轮  发言轮 1/2 (688558)  回来 1/3  12s")
 	step("H11b", tui1bCtrl('c'), "council t   正在取消  发言轮 1/2 (688558)  回来 1/3  12s")
 	step("H11c", elapsedTickMsg{gen: 1, at: rbaT0.Add(65 * time.Second)},
 		"council t   正在取消  发言轮 1/2 (688558)  回来 1/3  1m05s")
 
 	m = tui1bType(t, m, "y")
 	step("H12a", tui1bEnter(),
-		"council t   一轮正在跑，先等它回来或按 Ctrl-C 取消  发言轮 1/2 (688558)  回来 1/3  1m05s")
+		"council t   一轮正在跑，先等它回来或连按两次 Ctrl-C 取消  发言轮 1/2 (688558)  回来 1/3  1m05s")
 	step("H12b", elapsedTickMsg{gen: 1, at: rbaT0.Add(3720 * time.Second)},
-		"council t   一轮正在跑，先等它回来或按 Ctrl-C 取消  发言轮 1/2 (688558)  回来 1/3  1h02m")
+		"council t   一轮正在跑，先等它回来或连按两次 Ctrl-C 取消  发言轮 1/2 (688558)  回来 1/3  1h02m")
 
 	step("H13a", submitDoneMsg{}, "council t   空闲")
 	m, _ = tui1bStep(t, m, roundStartMsg{ev: repl.RoundStartEvent{Label: "发言轮", K: 1, N: 2, Members: 3}})

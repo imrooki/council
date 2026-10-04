@@ -82,7 +82,7 @@ func (s *tui1dCtxStore) Conversations(ctx context.Context) ([]conversation.Conve
 //     断言能不能为假：能，而且是确定性的，不是概率问题 ——
 //     Ctx: context.Background()（M-ctx-background）或漏掉 Ctx 字段（M-ctx-missing，New 里退化成
 //     Background）时，runCtx 是 Background 的子孙，取消一个与它无关的根 ctx 对它没有任何影响；
-//     这条路上另一个能取消 runCtx 的是 Model.cancel，只在 Ctrl-C 且 busy 时调用，本用例不发 Ctrl-C。
+//     这条路上另一个能取消 runCtx 的是 Model.cancel，只在忙时 2 秒内连按两次 Ctrl-C 时调用，本用例不发 Ctrl-C。
 //     于是假 Store 一直阻塞到 5 秒截止，红。replAdapter.Submit 把 ctx 换成 Background
 //     （M-adapter-background）同理，红 —— tui1c 文件尾第三条「归人工盯」也由这一句顺带看着。
 //

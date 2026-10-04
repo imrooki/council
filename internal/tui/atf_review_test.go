@@ -288,12 +288,13 @@ func TestAtfModifiedListKeys(t *testing.T) {
 // ═══ F5 ═══════════════════════════════════════════════════════════════
 
 // TestAtfCtrlShiftCClosesList 是 F5（R5）：列表开着时 Ctrl+Shift+C 只收起列表，不退出。
-// 按下之后返回的 Cmd 一律不执行（textarea 的 CopySelection 写剪贴板；空闲 Ctrl-C 分支交回退出）。
+// 按下之后返回的 Cmd 一律不执行（textarea 的 CopySelection 写剪贴板；空闲 Ctrl-C 第一次只交回到期 tick，第二次才退出）。
 //
 // 【判别力】第 2 步的「Cmd == nil」与「行 nil」都能为假：A60（列表分支的 Ctrl-C 收窄成 msg.Mod == tea.ModCtrl）下
-// 这个键掉进空闲的 Ctrl-C 分支，Cmd 是 tea.Quit、行仍 == atxB3，第 2 步两处红。
-// 第 3 步是同装置对照（只差列表开没开）：证明这个键确实到了 Council 的 Ctrl-C 判据、列表不在时就是退出，
+// 这个键掉进空闲的 Ctrl-C 分支，第一次只武装：Cmd 是到期 tick、表头是「再按一次 Ctrl-C 退出」、行仍 == atxB3，第 2 步两处红。
+// 第 3 步是同装置对照（只差列表开没开）：证明这个键确实到了 Council 的 Ctrl-C 判据、列表不在时连按两次就退出，
 // 所以第 2 步的 nil 不是「键没到」。第 3 步比 tea.Quit 的函数指针；Cmd 为 nil 时指针是 0，同样判红。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里按两次。
 // 第 1 步证明这个键在 textarea 里就是 CopySelection。不断言 Submit 次数（Cmd 不执行，计数恒为 0，契约 §2.5 末句）。
 func TestAtfCtrlShiftCClosesList(t *testing.T) {
 	// 第 1 步（前提）。
@@ -318,6 +319,11 @@ func TestAtfCtrlShiftCClosesList(t *testing.T) {
 	m3 = tui1bType(t, m3, "@b")
 	m3, _ = tui1bStep(t, m3, tui1bEsc())
 	atxWantLines(t, "第 3 步（前提）：敲 @b 再按 Esc", m3, nil)
+	m3, cmdArm := tui1bStep(t, m3, atfCtrlShiftC)
+	if cmdArm == nil || reflect.ValueOf(cmdArm).Pointer() == reflect.ValueOf(tea.Quit).Pointer() {
+		t.Errorf("第 3 步：列表不在时第一次 Ctrl+Shift+C 应当只武装、不是退出（cmd == nil：%v）", cmdArm == nil)
+	}
+	atxWantHead(t, "第 3 步：列表不在时第一次 Ctrl+Shift+C", m3, atxH("再按一次 Ctrl-C 退出"))
 	m3, cmd3 := tui1bStep(t, m3, atfCtrlShiftC)
 	if reflect.ValueOf(cmd3).Pointer() != reflect.ValueOf(tea.Quit).Pointer() {
 		t.Errorf("第 3 步：列表不在时按 Ctrl+Shift+C，Cmd 应当是 tea.Quit（只比函数指针，不执行），实际不是（cmd == nil：%v）", cmd3 == nil)
