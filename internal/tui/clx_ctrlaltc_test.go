@@ -30,10 +30,11 @@ var clxCtrlCKeys = []struct {
 
 // TestClxCtrlCModsClosesList 是 C3：列表开着时 Ctrl+C 带上 Alt、NumLock 或 CapsLock，只收起列表，Cmd 为 nil、值不变、
 // 表头仍是「空闲」（不退出、不取消、不提交）。每种键各起新 Model。第 3 步是同装置对照（只差列表开没开）：列表不在时
-// 同一个键交回 tea.Quit、表头是「正在退出」，证明这个键确实到了 Council 的 Ctrl-C 判据，第 2 步的 nil 不是「键没到」。
+// 同一个键连按两次交回 tea.Quit、表头是「正在退出」，证明这个键确实到了 Council 的 Ctrl-C 判据，第 2 步的 nil 不是「键没到」。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里按两次。
 // 【判别力】V15（列表分支的判据写成只放过 Shift：msg.Mod&^tea.ModShift == tea.ModCtrl，19c 文件头审查员的那条）与
-// V16（A60，收窄成 msg.Mod == tea.ModCtrl）下，三种键都掉进空闲的 Ctrl-C 分支：第 2 步 Cmd 非 nil（退出）、行仍是 atxB3、
-// 表头变成「正在退出」，三处红。X4（只放过 Shift 与 Alt：msg.Mod&^(tea.ModShift|tea.ModAlt) == tea.ModCtrl）下
+// V16（A60，收窄成 msg.Mod == tea.ModCtrl）下，三种键都掉进空闲的 Ctrl-C 分支：第 2 步只武装，Cmd 是到期 tick、行仍是 atxB3、
+// 表头变成「再按一次 Ctrl-C 退出」，三处红。X4（只放过 Shift 与 Alt：msg.Mod&^(tea.ModShift|tea.ModAlt) == tea.ModCtrl）下
 // numlock、capslock 两种红，alt 照绿。V15 下 TestAtfCtrlShiftCClosesList 照绿（这正是 19c 头说的缺口）。
 func TestClxCtrlCModsClosesList(t *testing.T) {
 	for _, k := range clxCtrlCKeys {
@@ -59,6 +60,11 @@ func TestClxCtrlCModsClosesList(t *testing.T) {
 			m3 = tui1bType(t, m3, "@b")
 			m3, _ = tui1bStep(t, m3, tui1bEsc())
 			atxWantLines(t, "第 3 步（前提）：敲 @b 再按 Esc", m3, nil)
+			m3, cmdArm := tui1bStep(t, m3, k.key)
+			if cmdArm == nil || reflect.ValueOf(cmdArm).Pointer() == reflect.ValueOf(tea.Quit).Pointer() {
+				t.Errorf("第 3 步：列表不在时第一次按下应当只武装、不是退出（cmd == nil：%v）", cmdArm == nil)
+			}
+			atxWantHead(t, "第 3 步：列表不在时第一次按下", m3, atxH("再按一次 Ctrl-C 退出"))
 			m3, cmd3 := tui1bStep(t, m3, k.key)
 			if reflect.ValueOf(cmd3).Pointer() != reflect.ValueOf(tea.Quit).Pointer() {
 				t.Errorf("第 3 步：列表不在时按下，Cmd 应当是 tea.Quit（只比函数指针，不执行），实际不是（cmd == nil：%v）", cmd3 == nil)

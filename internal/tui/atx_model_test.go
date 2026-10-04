@@ -539,9 +539,10 @@ func TestAtxCloseOnContextLoss(t *testing.T) {
 
 // ═══ M8 ═══════════════════════════════════════════════════════════════
 
-// TestAtxCtrlC 是 M8：列表开着时第一次 Ctrl-C 只收起，第二次才退出。
+// TestAtxCtrlC 是 M8：列表开着时第一次 Ctrl-C 只收起；列表收起后再连按两次才退出。
 //
-// 【判别力】第二次就是对照（列表不在时 Ctrl-C 照旧退出）；A6 让第一次就退出（Cmd 非 nil、表头「正在退出」）。
+// 【判别力】列表不在时的第一次只武装、第二次才退出；A6 让列表开着的那次就掉进空闲分支，只武装（Cmd 是到期 tick、表头「再按一次 Ctrl-C 退出」）。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里按两次。
 func TestAtxCtrlC(t *testing.T) {
 	m, _ := atxNew(t, 80, 24, atxCands(atxMembers))
 	m = tui1bType(t, m, "@")
@@ -553,10 +554,15 @@ func TestAtxCtrlC(t *testing.T) {
 	atxWantValue(t, "第一次 Ctrl-C", m, "@")
 
 	m, cmd = tui1bStep(t, m, tui1bCtrl('c'))
-	if tr := tui1bRun(t, cmd); !tr.hasQuit() {
-		t.Errorf("第二次 Ctrl-C：产出里应当有 QuitMsg，实际 %v", tr.log)
+	if cmd == nil || reflect.ValueOf(cmd).Pointer() == reflect.ValueOf(tea.Quit).Pointer() {
+		t.Errorf("第二次 Ctrl-C：应当只武装、不退出（cmd == nil：%v）", cmd == nil)
 	}
-	atxWantHead(t, "第二次 Ctrl-C", m, atxH("正在退出"))
+	atxWantHead(t, "第二次 Ctrl-C", m, atxH("再按一次 Ctrl-C 退出"))
+	m, cmd = tui1bStep(t, m, tui1bCtrl('c'))
+	if tr := tui1bRun(t, cmd); !tr.hasQuit() {
+		t.Errorf("第三次 Ctrl-C：产出里应当有 QuitMsg，实际 %v", tr.log)
+	}
+	atxWantHead(t, "第三次 Ctrl-C", m, atxH("正在退出"))
 }
 
 // ═══ M9 ═══════════════════════════════════════════════════════════════
@@ -758,6 +764,7 @@ func atxSrcModel(t *testing.T, src *atxSrcSub, root context.Context) Model {
 // TestAtxSubmitCmdFetches 是 M13：submitCmd 在 Submit 无错返回之后用根 ctx 取候选，随 submitDoneMsg 交回；
 // Update 收到 submitDoneMsg 时整份替换候选（含 nil）。
 //
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里按两次。
 // 【判别力】A33（用 runCtx 取）→ 第 1 步 ctx 不等于 root（runCtx 已被 Ctrl-C 取消，也是另一个值）；
 // A34（出错也取）→ 第 2 步被调；A35（不看 err）→ 第 3 步不为 nil；A32（submitDoneMsg 不换候选）→ 第 1 步最后一句；
 // A49（members 为 nil 时不换，旧名单留着）→ 第 4 步最后一句是 ALL。
@@ -772,7 +779,8 @@ func TestAtxSubmitCmdFetches(t *testing.T) {
 		m = tui1bType(t, m, "x")
 		var cmd tea.Cmd
 		m, cmd = tui1bStep(t, m, tui1bEnter())
-		m, _ = tui1bStep(t, m, tui1bCtrl('c')) // 忙时 Ctrl-C：取消本条命令的 ctx
+		m, _ = tui1bStep(t, m, tui1bCtrl('c')) // 忙时第一次 Ctrl-C：只武装
+		m, _ = tui1bStep(t, m, tui1bCtrl('c')) // 窗口内第二次：取消本条命令的 ctx
 		done := atxOneDone(t, tui1bRun(t, cmd))
 		want := []repl.MentionCandidate{{ID: "zz", Name: ""}}
 		if !reflect.DeepEqual(done.members, want) {

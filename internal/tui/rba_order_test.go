@@ -89,7 +89,7 @@ func rbaLast6(s string) string {
 //   - 适配器 RoundEnd 发 roundStartMsg（#22）→ 第 1 条种类序列红；MemberDone 丢 ev（#23）→ 第 4 条红；
 //   - 末 6 位写成前 6 位（#38）→ 第 6 条红。
 //
-// 对照：O2 同一命令只多一次 Ctrl-C。
+// 对照：O2 同一命令连发两次 Ctrl-C。
 func TestRbaO1UpdateOrderRounds2WithJudge(t *testing.T) {
 	g := rbaNewTuiRig(t)
 	pr := rbaStartProg(t, g)
@@ -241,7 +241,8 @@ func TestRbaO1UpdateOrderRounds2WithJudge(t *testing.T) {
 
 // ═══ O2 ═══════════════════════════════════════════════════════════════
 
-// TestRbaO2CancelPath：第 1 段在飞时 Ctrl-C，事件与屏幕按取消路径走。
+// TestRbaO2CancelPath：第 1 段在飞时连按两次 Ctrl-C，事件与屏幕按取消路径走。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里连发两次。
 //
 // 【判别力】能为假，逐条：MD 挪到 askCause 那一行之前（#7）→ 第 3 条块的最后一条不是 "/round X: "，红；
 // MD 只在 rec.Err == nil 时发（#8）→ 第 1 条序列少两个 MD，红；MaybeAdvanced 写死 false（#9）→ 第 2 条红；
@@ -259,6 +260,7 @@ func TestRbaO2CancelPath(t *testing.T) {
 		t.Fatalf("前提不成立：10 秒内日志里没有出现第 1 个 RS；日志:\n%s", rbaLogDump(pr.spy.entries()))
 	}
 	time.Sleep(300 * time.Millisecond)
+	pr.p.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	pr.p.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	pr.waitDone(t, 2, 15*time.Second)
 

@@ -531,7 +531,8 @@ func TestRbbH1ThreeSegmentsBlocksSummaryResubmit(t *testing.T) {
 
 // ═══ H2 ═══════════════════════════════════════════════════════════════
 
-// TestRbbH2CancelPath：第 1 段在飞时 Ctrl-C。
+// TestRbbH2CancelPath：第 1 段在飞时连按两次 Ctrl-C。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里连发两次。
 //
 // 【判别力】能为假：Results 的 Outcome 写死 Spoke（#9）或 MaybeAdvanced 写死 false（#10）→ DeepEqual 与块行红
 // （RB1 抓不到这两个：那条命令里它们本来就是 Spoke / false）；忙时 Ctrl-C 不置 canceling（#65）→ 收尾行印「结束」，红。
@@ -549,6 +550,7 @@ func TestRbbH2CancelPath(t *testing.T) {
 		t.Fatalf("前提不成立：10 秒内没有出现第 1 个 RS；日志:\n%s", rbbLogDump(pr.spy.entries()))
 	}
 	time.Sleep(300 * time.Millisecond)
+	pr.p.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	pr.p.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if !pr.waitFor(15*time.Second, rbbDoneThenFin(2)) {
 		t.Fatalf("前提不成立：15 秒内没有等到第 2 个 DONE 与其后的 FIN；日志:\n%s", rbbLogDump(pr.spy.entries()))

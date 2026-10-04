@@ -120,7 +120,8 @@ func x39eAssertNothingAfterClose(t *testing.T, got, why string) {
 
 // ═══ A1 ═══════════════════════════════════════════════════════════
 
-// A1：空闲 Ctrl-C（正常退出），bubbletea 收尾之后整串恰好是 x39eClear(8)。
+// A1：空闲连按两次 Ctrl-C（正常退出），bubbletea 收尾之后整串恰好是 x39eClear(8)。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里连发两次。
 //
 // 【三句三种红，文案各不相同】
 //  1. 前提钉子 pinTail：bubbletea close() 的收尾形状（\r 加 7 个 \n 走到帧末行、只擦末行）。
@@ -136,8 +137,9 @@ func TestX39eRigIdleCtrlCClearsAfterClose(t *testing.T) {
 	r.waitReady(t)
 
 	r.p.Send(x39eCtrlC())
+	r.p.Send(x39eCtrlC())
 	if err := r.wait(t); err != nil {
-		t.Fatalf("前提没成立：空闲 Ctrl-C 走 QuitMsg，runWith 应当返回 nil，实际是 %v", err)
+		t.Fatalf("前提没成立：空闲连按两次 Ctrl-C 走 QuitMsg，runWith 应当返回 nil，实际是 %v", err)
 	}
 
 	got := buf.String()
@@ -252,7 +254,8 @@ func TestX39eRigPanicWritesNothing(t *testing.T) {
 // A5：final 是管道（*os.File 但不是控制台）时 finalSupportsVT 为假，不写清屏。
 //
 // 【判别力】finalSupportsVT 恒真、或 runWith 不调它时，尾部多出清屏，红。HEAD 上绿。
-// 对照：A1，同样的空闲 Ctrl-C，final 换成缓冲（非 *os.File 当支持），要写清屏。
+// 对照：A1，同样的空闲连按两次 Ctrl-C，final 换成缓冲（非 *os.File 当支持），要写清屏。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里连发两次。
 func TestX39eRigPipeFinalSkipsWithoutVT(t *testing.T) {
 	pr, pw, err := os.Pipe()
 	if err != nil {
@@ -274,8 +277,9 @@ func TestX39eRigPipeFinalSkipsWithoutVT(t *testing.T) {
 	r.waitReady(t)
 
 	r.p.Send(x39eCtrlC())
+	r.p.Send(x39eCtrlC())
 	if err := r.wait(t); err != nil {
-		t.Fatalf("前提没成立：空闲 Ctrl-C 走 QuitMsg，runWith 应当返回 nil，实际是 %v", err)
+		t.Fatalf("前提没成立：空闲连按两次 Ctrl-C 走 QuitMsg，runWith 应当返回 nil，实际是 %v", err)
 	}
 	_ = pw.Close()
 	select {
@@ -297,9 +301,10 @@ func TestX39eRigPipeFinalSkipsWithoutVT(t *testing.T) {
 // A6：宽 0（不带 WithWindowSize）时渲染器什么都没画，不许写清屏。
 //
 // 就绪信号改为缓冲里出现 ESC[J（与 tui1d_run_ctx_test.go 同一判据）。
-// 就绪后测试自己先发一条 {0,0}、再发 Ctrl-C：同一个 goroutine 上两次 Send 经无缓冲 chan
+// 就绪后测试自己先发一条 {0,0}、再连发两次 Ctrl-C：同一个 goroutine 上这三次 Send 经无缓冲 chan
 // 按先后到达，保证 Model 在 Ctrl-C 之前已经处理过 {0,0}，「门用兜底的 height」这个变异
 // 每次都红，不靠排期。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里连发两次。
 //
 // 【判别力】门 (3) 用 m.height（兜底 24）时尾部多出 ESC[7A\r ESC[J，红。HEAD 上绿。
 // 对照：A1，只差 WithWindowSize(80, 24)。
@@ -314,8 +319,9 @@ func TestX39eRigZeroWidthWritesNothing(t *testing.T) {
 
 	r.p.Send(tea.WindowSizeMsg{Width: 0, Height: 0})
 	r.p.Send(x39eCtrlC())
+	r.p.Send(x39eCtrlC())
 	if err := r.wait(t); err != nil {
-		t.Fatalf("前提没成立：空闲 Ctrl-C 走 QuitMsg，runWith 应当返回 nil，实际是 %v", err)
+		t.Fatalf("前提没成立：空闲连按两次 Ctrl-C 走 QuitMsg，runWith 应当返回 nil，实际是 %v", err)
 	}
 
 	got := buf.String()

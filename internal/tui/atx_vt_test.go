@@ -220,6 +220,8 @@ func atxTail(ls []string, n int) []string {
 // （A17、A28、A29、A37、A38 会让个别子测试的值前提红）。
 // 残影 0 能为假：不钉光标时就是缩掉的行数（上面的探针读数）；表头行数 1 与 unknown 0 是同一次回放的旁证。
 // 退出场景的「干净」能为假：不钉光标时 5 次都不干净（契约 §0 表「退出」一行）。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里连发两次。
+// exit 场景第一个 Ctrl-C 只收起列表，后面两次才是空闲退出。
 // A2（Y 不加 chrome）、A4（放上方）V1 杀不到：光标仍钉在输入框及以上，公式为 0；它们由 M1 守。
 func TestAtxVTNoResidue(t *testing.T) {
 	k := tui1bKey
@@ -238,7 +240,7 @@ func TestAtxVTNoResidue(t *testing.T) {
 		{name: "backspace", keys: []tea.KeyPressMsg{k('@'), k('a'), bs, bs}, value: ""},
 		{name: "multiline", keys: []tea.KeyPressMsg{k('x'), cj, k('y'), cj, k('z'), cj, k('@'), down, esc}, value: "x\ny\nz\n@"},
 		{name: "enter_accept", keys: []tea.KeyPressMsg{k('@'), k('b'), enter}, value: "@b1 "},
-		{name: "exit", keys: []tea.KeyPressMsg{k('@'), cc, cc}, exit: true},
+		{name: "exit", keys: []tea.KeyPressMsg{k('@'), cc, cc, cc}, exit: true},
 	}
 	for _, sc := range scenes {
 		t.Run(sc.name, func(t *testing.T) {

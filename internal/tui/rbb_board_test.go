@@ -175,7 +175,7 @@ const rbbFinLeaf = "other:tui.boardFinalizeMsg"
 //   - B1-9：收尾行时间用最近一拍（#42）→ 1m05s ≠ 2m05s；计数只算当前段（#43）→ 1/1 ≠ 4/4；Batch（#44）→ sawBatch
 //     且倒序；直接 tea.Println（#45）→ 叶子是 other:tea.printLineMessage；不钉光标（#46、#66）或钉在 (0,8)（#47）→ 光标红；
 //     不把 status 改成空闲（#53）→ 表头红；不打收尾行（#50）或收尾行为空串（#51）→ 叶子红。
-//   - B1-10：窗口里不挡 Enter（#57）→ Cmd 非 nil，红。B1-11：不挡 Ctrl-C（#56）→ Cmd 非 nil（含 quit），红。
+//   - B1-10：窗口里不挡 Enter（#57）→ Cmd 非 nil，红。B1-11：不挡 Ctrl-C（#56）→ Cmd 是到期 tick、不含 quit，表头变成武装提示，红。
 //   - B1-12：D4 不清 floor（#58）→ 帧高 11；不清 pinCursor（#59）→ 光标 (0,0)，红。
 //   - B1-14：D4 不清 finalizing（#60）→ Enter 被挡，Cmd 为 nil，红。
 //
@@ -393,12 +393,14 @@ func TestRbbB2Boundaries(t *testing.T) {
 		r.submitConsume()
 		r.step(roundStartMsg{ev: repl.RoundStartEvent{Label: "发言轮", K: 1, N: 2, Members: 4, Speakers: []string{"a", "b", "c", "d"}}})
 		r.step(memberDoneMsg{ev: repl.MemberDoneEvent{AgentID: "a", Outcome: turn.OutcomeCanceled, MaybeAdvanced: true, WallMS: 300}})
+		// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里按两次。
+		r.step(tui1bCtrl('c'))
 		r.step(tui1bCtrl('c'))
 		r.m = tui1bType(t, r.m, "z")
 		r.step(tui1bEnter())
 		r.step(memberDoneMsg{ev: repl.MemberDoneEvent{AgentID: "b", Outcome: turn.OutcomeSpawnFailed, WallMS: 5}})
 		r.now = rbaT0.Add(12 * time.Second)
-		rbbWantHead(t, "B2-5 submitDone 之前", r.m, "council t   一轮正在跑，先等它回来或按 Ctrl-C 取消  发言轮 1/2  回来 2/4  0s")
+		rbbWantHead(t, "B2-5 submitDone 之前", r.m, "council t   一轮正在跑，先等它回来或连按两次 Ctrl-C 取消  发言轮 1/2  回来 2/4  0s")
 		rbbWantFrame(t, "B2-5 submitDone 之前", r.m, 12)
 		rbbWantBoard(t, "B2-5 submitDone 之前", rbbBoardOf(r.m),
 			"  取消    a  0.3s 子进程  可能已吃下",
@@ -414,7 +416,12 @@ func TestRbbB2Boundaries(t *testing.T) {
 		r.submitConsume()
 		r.step(roundStartMsg{ev: repl.RoundStartEvent{Label: "发言轮", K: 1, N: 2, Members: 3}})
 		r.step(memberDoneMsg{ev: repl.MemberDoneEvent{AgentID: "q", RoundID: rbaRID}})
+		// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里按两次。
 		r.step(tui1bCtrl('c'))
+		r.step(tui1bCtrl('c'))
+		if !r.m.canceling {
+			t.Fatalf("B2-6 前提：连按两次 Ctrl-C 之后 canceling 应当为真，实际为假")
+		}
 		cmd := r.step(submitDoneMsg{})
 		rbbWantNilCmd(t, "B2-6 第一次 submitDone", cmd)
 		rbbWantCursorNil(t, "B2-6 第一次 submitDone", r.m)

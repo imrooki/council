@@ -49,7 +49,9 @@ func (s *rbbQuitSub) Submit(ctx context.Context, text string) error {
 
 func (s *rbbQuitSub) IsQuit(error) bool { return false }
 
-// TestRbbQ1CtrlCBlockedInFinalizeWindow：窗口里的 Ctrl-C 被挡；finalize 之后的 Ctrl-C 正常退出，尾巴与 X-39e A1 相同。
+// TestRbbQ1CtrlCBlockedInFinalizeWindow：窗口里连按两次 Ctrl-C 仍被挡；finalize 之后连按两次正常退出，尾巴与 X-39e A1 相同。
+// CC2（2026-10-04）：退出与取消改为 2 秒内连按两次 Ctrl-C，这里连发两次。
+// 窗口里发两次：新语义下这一支既不退出也不武装，连发两次仍应被挡，用来抓住「窗口里不挡」的回归。
 //
 // 【为什么是子串】终端字节流（契约 §2 通用纪律的例外）。
 // 【判别力】能为假：窗口里不挡 Ctrl-C（#56）→ 第 1 条红（100ms 内 runWith 返回；原型实测尾巴里出现 ESC[1 q、
@@ -83,7 +85,8 @@ func TestRbbQ1CtrlCBlockedInFinalizeWindow(t *testing.T) {
 		t.Fatalf("前提不成立：5 秒内缓冲里没有出现收尾行「/round 结束」；缓冲末 300 字节 %q", tui1dTail(buf.String(), 300))
 	}
 
-	// 第 1 条。
+	// 第 1 条。窗口里连发两次，两次都不退出、不武装。
+	p.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	p.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	select {
 	case err := <-done:
@@ -91,8 +94,9 @@ func TestRbbQ1CtrlCBlockedInFinalizeWindow(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	// 第 2 条。
+	// 第 2 条。收口之后空闲，连发两次才退出。
 	time.Sleep(500 * time.Millisecond)
+	p.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	p.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	select {
 	case err := <-done:
