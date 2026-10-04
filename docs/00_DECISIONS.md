@@ -2507,7 +2507,7 @@ Go 这边对应的是 bubbletea 系。
       - 别名 `sonnet` 解析成 `claude-sonnet-5`，列表里**没有 Sonnet 5.5**。`sonnet-5.5-max` 照他的要求写了 `claude-sonnet-5-5`。**同日他在终端里实跑 `claude -p … --model claude-sonnet-5-5 --effort max`，回了 OK，能用**（CLI 只警告「这个版本的目录里没有这个型号」，不拒绝）。实跑前他的 claude 登录曾过期（`OAuth session expired`），他重新登录后才通；Council 里是否走同一条路没有另测，第一次 `/ask sonnet-5.5-max` 即是。
     - **对旧会话的影响**：旧会话里的 `opus-5.0`、`opus-5.0-max` 成员还在，但配置里没有了，`/ask` 它们会被拒，不花钱。
 
-53. **Ctrl-C 改成 2 秒内连按两次才退出或取消本轮（CC2，2026-10-04，Griffin）** —— **已落地（与本条同一个提交，分支 `fix/ctrlc-double-press`，开 PR 待合并），2026-10-04 他说「审完直接装上」后装为 `council 0.2.0-1004a`，真机未复验**
+53. **Ctrl-C 改成 2 秒内连按两次才退出或取消本轮（CC2，2026-10-04，Griffin）** —— **已落地（与本条同一个提交 `509e651`，2026-10-04 他说「合并到main吧」后经 PR #1 快进合并进 main），同日他说「审完直接装上」后装为 `council 0.2.0-1004a`，真机未复验**
 
     Griffin 在 VS Code 终端里用 council，一选中文字就退出，他没有按 Ctrl+C。主代理查到原因：本机 Cherry Studio 2.1.4 开着划词助手，它用的 selection-hook 2.1.1 取不到选中文字时，先模拟 Ctrl+Insert，约 100ms 内剪贴板没变化再模拟一次 Ctrl+C（上游 `src/windows/core/engine.cc` 的 `GetTextViaClipboard`）。council 的 TUI 把 Ctrl+C 当普通按键收（ultraviolet 关掉了 `ENABLE_PROCESSED_INPUT`），空闲时单按一次立即退出，忙时单按一次立即取消正在跑的一轮。他定：退出和取消都改成 2 秒内连按两次。
     - **新语义**：
