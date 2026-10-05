@@ -177,7 +177,16 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("读取会话列表失败: %w", err)
 	}
 
-	writeBanner(out, opts.Version, path, dataDir, st.Path(), len(convs), cfg)
+	// 启动目录就是项目目录，会话靠它归属。取不到不报错、不拦启动：
+	// projectDir 保持空串，横幅写「未知」，/new 不盖章，/resume 列出全部。
+	// 成员 CLI 的工作目录仍是下面的 filepath.Join(dataDir, "workdir")，
+	// 与项目目录无关，那一行不要改成启动目录。
+	projectDir := ""
+	if wd, wdErr := os.Getwd(); wdErr == nil {
+		projectDir = repl.NormalizeProjectDir(wd)
+	}
+
+	writeBanner(out, opts.Version, path, dataDir, st.Path(), convs, projectDir, cfg)
 
 	svc := conversation.NewService(st)
 	// 存储开关（未决 #9(a)）在装配阶段接上，只调一次：cfg.StoreThought 默认
@@ -254,6 +263,7 @@ func Run(ctx context.Context, opts Options) error {
 		r.SetCLIDetector(config.DetectProviders)
 		r.SetLoginStatusExec(turn.RunLoginStatus)
 		r.SetAddByName(true)
+		r.SetProjectDir(projectDir)
 		err = tui.Run(ctx, r, lw, opts.Version, opts.InFile, opts.OutFile)
 	} else {
 		// 行式与 TUI 都在 Run 之前设档位与对话模式。
@@ -263,6 +273,7 @@ func Run(ctx context.Context, opts Options) error {
 		r.SetCLIDetector(config.DetectProviders)
 		r.SetLoginStatusExec(turn.RunLoginStatus)
 		r.SetAddByName(true)
+		r.SetProjectDir(projectDir)
 		err = r.Run(ctx)
 	}
 	if err != nil {
@@ -280,16 +291,35 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 // writeBanner 把启动信息写进 out：版本号、生效的配置文件路径、生效的数据目录、
-// 库文件路径与已有会话数，以及配置里 agent 与 team 的数量。
+// 库文件路径与已有会话数、项目目录与本项目会话数，以及配置里 agent 与 team 的数量。
 // 写的是生效值而不是默认值，这样用户一眼能看出 --config 或环境变量到底有没有被吃掉；
 // 库文件路径单独一行，是为了让人知道去哪里用 SQLite 查看器打开它。
-func writeBanner(out io.Writer, version, configPath, dataDir, dbPath string, convCount int, cfg *config.Config) {
+// 项目目录行的数字用 repl.SameProjectDir，与 /resume 的过滤是同一个口径。
+// 这里不打会话编号或列表，避免和 /resume 的排序对不上。
+func writeBanner(out io.Writer, version, configPath, dataDir, dbPath string, convs []conversation.Conversation, projectDir string, cfg *config.Config) {
 	if version != "" {
 		fmt.Fprintf(out, "council %s\n", version)
 	}
 	fmt.Fprintf(out, "配置文件: %s\n", configPath)
 	fmt.Fprintf(out, "数据目录: %s\n", dataDir)
-	fmt.Fprintf(out, "库文件: %s (已有 %d 个会话)\n", dbPath, convCount)
+	fmt.Fprintf(out, "库文件: %s (已有 %d 个会话)\n", dbPath, len(convs))
+	if projectDir != "" {
+		n, unbound := 0, 0
+		for _, c := range convs {
+			if repl.SameProjectDir(c.Cwd, projectDir) {
+				n++
+			}
+			if c.Cwd == "" {
+				unbound++
+			}
+		}
+		fmt.Fprintf(out, "项目目录: %s（本项目 %d 个会话，/resume 列出并接上）\n", projectDir, n)
+		if unbound > 0 {
+			fmt.Fprintf(out, "另有 %d 个未绑定项目的旧会话，/resume --all 查看\n", unbound)
+		}
+	} else {
+		fmt.Fprintf(out, "项目目录: 未知（/resume 将列出全部会话）\n")
+	}
 	fmt.Fprintf(out, "已加载 %d 个 agent，%d 个 team\n", len(cfg.Agents), len(cfg.Teams))
 	fmt.Fprintf(out, "输入 /help 查看可用命令，/quit 退出。\n")
 	fmt.Fprintln(out)

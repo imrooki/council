@@ -144,7 +144,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 //  2. baseline_suspect 新列在旧行上读出 0——DDL 是 NOT NULL DEFAULT 0，
 //     旧行不该被塞成别的值；
 //  3. inflight_turns 建出来了、且是空表——v5 只建表，不该塞数据；
-//  4. schema_migrations 的 MAX(version) 变成 5。
+//  4. schema_migrations 的 MAX(version) 等于 migrations 里最后一版。
 func TestSchemaV5MigratesV4DatabaseProviderSessionsUntouched(t *testing.T) {
 	dir := t.TempDir()
 	_, seed := tstBuildV4DatabaseWithProviderSession(t, dir)
@@ -225,10 +225,11 @@ FROM provider_sessions WHERE conv_id = ? AND agent_id = ?`, seed.convID, seed.ag
 		}
 	})
 
-	t.Run("schema_migrations 的 MAX(version) 是 5", func(t *testing.T) {
+	t.Run("schema_migrations 的 MAX(version) 是 migrations 里最后一版", func(t *testing.T) {
+		want := migrations[len(migrations)-1].version
 		got := tstScanInt(t, raw, `SELECT MAX(version) FROM schema_migrations`)
-		if got != 5 {
-			t.Errorf("MAX(version) = %d, 期望 5", got)
+		if got != want {
+			t.Errorf("MAX(version) = %d，期望 %d（migrations 里最后一版的 version）", got, want)
 		}
 	})
 }

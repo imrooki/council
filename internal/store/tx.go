@@ -94,6 +94,22 @@ func (t *Tx) SetConversationTeam(ctx context.Context, convID, teamID string) err
 	return nil
 }
 
+// SetConversationCwd 把会话的项目目录设成 cwd。
+// 空串允许：空串在 cwd 列上就是「没绑」这一个含义，清空是合法动作，
+// 没有需要保护的第二种含义。与 SetConversationTeam 拒绝空串不同。
+func (t *Tx) SetConversationCwd(ctx context.Context, convID, cwd string) error {
+	if err := t.requireConversation(ctx, convID); err != nil {
+		return err
+	}
+	if _, err := t.tx.ExecContext(ctx,
+		`UPDATE conversations SET cwd = ? WHERE id = ?`,
+		cwd, convID,
+	); err != nil {
+		return fmt.Errorf("set conversation cwd %s: %w", convID, err)
+	}
+	return nil
+}
+
 // AppendMessage 追加一条消息。ID、Seq、CreatedAt 由 store 填写，调用方传入的这三个字段一律忽略。
 func (t *Tx) AppendMessage(ctx context.Context, m conversation.Message) (conversation.Message, error) {
 	if !m.Kind.Valid() {

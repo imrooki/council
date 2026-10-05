@@ -85,7 +85,8 @@ go build -ldflags "-X main.version=0.2.0-local" -o council.exe ./cmd/council
 2. 运行 `council`。`~/.council/config.toml` 不存在时，它会找本机装了哪几家、让每家列一次模型（不提问、不花钱）、报每家的登录状态，并生成一份配置。
 3. 敲 `/new 标题` 建会话，`/add` 看能加哪些模型，`/add <模型名>` 或 `/add +编号` 加成员。
 4. 想先不花钱：用 `council -no-auto` 启动。默认是对话模式，直接打字会问当前会话的全部成员。
-5. `/help` 看全部命令，`/quit` 退出。
+5. 下次再进来：`/resume` 列出以前的会话，`/resume 1` 按编号接上。默认只列你启动 council 时所在项目目录的会话（就是启动时所在的那个目录，不向上找仓库根，从子目录启动算另一个项目），`/resume --all` 看全部。
+6. `/help` 看全部命令，`/quit` 退出。
 
 更完整的用法（加成员、对话模式、`@` 点名）见 [docs/README.md](docs/README.md)。
 

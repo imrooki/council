@@ -16,7 +16,7 @@ type rowScanner interface {
 // Conversation 按 id 取一场会话。不存在时返回包装了 ErrConversationNotFound 的错误。
 func (s *Store) Conversation(ctx context.Context, id string) (conversation.Conversation, error) {
 	row := s.read.QueryRowContext(ctx,
-		`SELECT id, title, created_at, team_id FROM conversations WHERE id = ?`, id,
+		`SELECT id, title, created_at, team_id, cwd FROM conversations WHERE id = ?`, id,
 	)
 	c, err := scanConversation(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -31,7 +31,7 @@ func (s *Store) Conversation(ctx context.Context, id string) (conversation.Conve
 // Conversations 列出全部会话，按 created_at 倒序、id 升序。空结果是空切片不是 nil。
 func (s *Store) Conversations(ctx context.Context) ([]conversation.Conversation, error) {
 	rows, err := s.read.QueryContext(ctx,
-		`SELECT id, title, created_at, team_id FROM conversations ORDER BY created_at DESC, id ASC`,
+		`SELECT id, title, created_at, team_id, cwd FROM conversations ORDER BY created_at DESC, id ASC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
@@ -443,15 +443,15 @@ func int64PtrFromNull(n sql.NullInt64) *int64 {
 }
 
 func scanConversation(sc rowScanner) (conversation.Conversation, error) {
-	var id, title, createdAt, teamID string
-	if err := sc.Scan(&id, &title, &createdAt, &teamID); err != nil {
+	var id, title, createdAt, teamID, cwd string
+	if err := sc.Scan(&id, &title, &createdAt, &teamID, &cwd); err != nil {
 		return conversation.Conversation{}, err
 	}
 	ts, err := parseTime(createdAt)
 	if err != nil {
 		return conversation.Conversation{}, fmt.Errorf("conversation %s created_at: %w", id, err)
 	}
-	return conversation.Conversation{ID: id, Title: title, CreatedAt: ts, TeamID: teamID}, nil
+	return conversation.Conversation{ID: id, Title: title, CreatedAt: ts, TeamID: teamID, Cwd: cwd}, nil
 }
 
 func scanParticipant(sc rowScanner) (conversation.Participant, error) {

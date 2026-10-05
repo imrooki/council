@@ -319,6 +319,11 @@ func (s *recordingStore) SetConversationTeam(ctx context.Context, convID, teamID
 	return nil
 }
 
+// SetConversationCwd：turn 包不调用 CreateIn 和 SetConversationCwd，这里只为满足 conversation.Tx 接口；哪天 turn 包开始建带目录的会话，要改成记账。
+func (s *recordingStore) SetConversationCwd(ctx context.Context, convID, cwd string) error {
+	return nil
+}
+
 // BeginTurn 记账并把这一行插进 s.inflightTurns：契约 §3.15 的调用序列
 // 断言（BeginTurn -> spawn -> phase=spawned -> phase=returned -> WriteTx ->
 // ... -> ClearInflight）要靠这份记账核对 BeginTurn 确实发生过、且发生在

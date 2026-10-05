@@ -79,13 +79,27 @@ func (s *Service) applyThoughtPolicy(m Message) Message {
 }
 
 // Create 新建一个会话。返回的 Conversation 是补全后的，ID 与 CreatedAt 由 store 填。
+// Create 的签名在 08a 契约里冻结，所以带目录的创建是另开的 CreateIn。
 func (s *Service) Create(ctx context.Context, title string) (Conversation, error) {
+	return s.CreateIn(ctx, title, "")
+}
+
+// CreateIn 新建一个会话，并在 cwd 非空时把项目目录盖成 cwd。
+// 建会话和盖章必须在同一个事务里，否则中间崩一下会留下一个没盖章的会话。
+// cwd 为空时不调 SetConversationCwd，WriteTx 次数与 CreateConversation 调用与只建会话时一样。
+func (s *Service) CreateIn(ctx context.Context, title, cwd string) (Conversation, error) {
 	var created Conversation
 	err := s.store.WriteTx(ctx, func(ctx context.Context, tx Tx) error {
 		c, err := tx.CreateConversation(ctx, title)
 		if err != nil {
 			return err
 		}
+		if cwd != "" {
+			if err := tx.SetConversationCwd(ctx, c.ID, cwd); err != nil {
+				return err
+			}
+		}
+		c.Cwd = cwd
 		created = c
 		return nil
 	})
