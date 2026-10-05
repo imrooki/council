@@ -156,6 +156,7 @@ func newCommandTable() map[string]command {
 		{name: "new", summary: "建一个会话并切过去: /new <标题>", needsSvc: true, run: cmdNew},
 		{name: "conv", summary: "列出全部会话，标出当前那个", needsSvc: true, run: cmdConv},
 		{name: "use", summary: "切换当前会话: /use <id 或 id 前缀>", needsSvc: true, run: cmdUse},
+		{name: "resume", summary: "列出本机会话并接上: /resume 列出当前项目的会话；/resume --all 列出全部；/resume [--all] <编号> 按列表编号接上；/resume <id 前缀> 按 id 接上（同 /use，并回显概况）", needsSvc: true, run: cmdResume},
 		{name: "add", summary: "把 agent 加进当前会话: /add 列出配置里可加的与识别出的模型；/add <全名|编号|前缀>[,...] 一次加多个；识别出的模型可以直接 /add 它的名字（识别表里的 ID，或模型名），也可以 /add +编号，都可带 [--id <新 id>] [--effort <强度>]，配置里还没有就先写进配置再加入；/add --refresh 重新识别", needsSvc: true, needsConv: true, run: cmdAdd},
 		{name: "join", summary: "同 /add", needsSvc: true, needsConv: true, run: cmdAdd},
 		{name: "leave", summary: "让 agent 退出当前会话: /leave <agent-id>", needsSvc: true, needsConv: true, run: cmdLeave},
@@ -782,13 +783,15 @@ func cmdTeamUse(ctx context.Context, r *REPL, teamID string) error {
 
 // cmdNew 建一个会话并把它切成当前会话。
 // 标题取命令名之后的全部原始文本，允许含空格。
+// 建会话时盖上当前项目目录，r.projectDir 为空时不盖章（与从前一样）。
+// /use 不盖章：接回旧会话不改变它的项目归属。
 func cmdNew(ctx context.Context, r *REPL, args cmdArgs) error {
 	title := args.rest
 	if title == "" {
 		return r.printf("用法: /new <标题>\n")
 	}
 
-	conv, err := r.svc.Create(ctx, title)
+	conv, err := r.svc.CreateIn(ctx, title, r.projectDir)
 	if err != nil {
 		return r.reportErr("建会话失败", err)
 	}

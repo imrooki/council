@@ -32,6 +32,7 @@ var migrations = []migration{
 	{version: 3, stmts: v3DDL, shape: v3Shape},
 	{version: 4, stmts: v4DDL, shape: v4Shape},
 	{version: 5, stmts: v5DDL, shape: v5Shape},
+	{version: 6, stmts: v6DDL, shape: v6Shape},
 }
 
 // v1DDL 一次建齐 schema_migrations 与六张业务表。
@@ -447,6 +448,41 @@ func buildV5Shape() map[string][]columnShape {
 	return shape
 }
 
+// v6DDL 给 conversations 加 cwd。用 ALTER 而不是 DROP+CREATE：主键没变，
+// conversations 里有真实用户数据，拆表重建会把已有会话丢掉。
+//
+// ALTER 把新列加在表的最后一列。v6Shape 往 conversations 切片末尾追加
+// 的顺序必须与这一条语句一致，否则 validateSchema 按 cid 比对会报
+// ErrSchemaMismatch。
+var v6DDL = []string{
+	`ALTER TABLE conversations ADD COLUMN cwd TEXT NOT NULL DEFAULT ''`,
+}
+
+// v6Shape 必须从 v5 深拷贝：新的 map，并且每张表一份新的列切片。
+// v6Shape = v5Shape 是裸别名，两份变量同一张 map，往里加列会把 v5Shape
+// 一起改掉。只 make 新 map、切片头仍指向 v5 时，底层数组还是共享的。
+// 真正的风险是浅拷贝时，没加列的那些表和 v5Shape 共用底层数组，按下标改一份
+// （比如以后某版原地改某一列的 typ 或 notnull）会连带改掉另一份。
+// conversations 这张表本身倒不受 cap 的影响，因为 buildV5Shape 拷出来的切片
+// len 等于 cap，再 append 一定换新数组。
+var v6Shape = buildV6Shape()
+
+func buildV6Shape() map[string][]columnShape {
+	shape := make(map[string][]columnShape, len(v5Shape))
+	for table, cols := range v5Shape {
+		copied := make([]columnShape, len(cols))
+		copy(copied, cols)
+		shape[table] = copied
+	}
+	// notnull 填 true：DDL 是 NOT NULL DEFAULT ''，pragma_table_info
+	// 对这样的列返回 notnull=1。加在切片末尾，与 ALTER 把新列加在表的
+	// 最后一列一致，cid 按这个顺序比对。
+	shape["conversations"] = append(shape["conversations"], columnShape{
+		name: "cwd", typ: "TEXT", notnull: true,
+	})
+	return shape
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	tx, err := s.write.BeginTx(ctx, nil)
 	if err != nil {
@@ -566,7 +602,7 @@ func checkTableShape(table string, expected, actual []columnShape) error {
 	if detail == "" {
 		return nil
 	}
-	return fmt.Errorf("table %s: %s: 这个库是旧版二进制建的，删掉重建（486f5f3 之前不存在任何真实数据）: %w", table, detail, ErrSchemaMismatch)
+	return fmt.Errorf("table %s: %s: 这个库的表结构与本二进制期望的不一致，通常是另一个版本的 council 建的；不要删库，先备份库文件（连同同目录的 -wal、-shm），再换回建这个库的 council 版本: %w", table, detail, ErrSchemaMismatch)
 }
 
 func shapeDiff(expected, actual []columnShape) string {

@@ -244,6 +244,11 @@ func (s *prefixRewriteStore) SetConversationTeam(ctx context.Context, convID, te
 	return nil
 }
 
+// SetConversationCwd：turn 包不调用 CreateIn 和 SetConversationCwd，这里只为满足 conversation.Tx 接口；哪天 turn 包开始建带目录的会话，要改成记账。
+func (s *prefixRewriteStore) SetConversationCwd(ctx context.Context, convID, cwd string) error {
+	return nil
+}
+
 // 下面四个是 Step 10 给 Tx 与 Store 加的方法（inflight_turns 那一片）。
 // 与上面 SetConversationTeam 同一个理由：这个假实现只为违反
 // Store.Messages 的契约而生，与在飞记录无关，保持空桩，不额外造状态。

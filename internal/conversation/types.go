@@ -97,6 +97,10 @@ type Conversation struct {
 	// DDL 是 NOT NULL DEFAULT ''，空串就是「没绑」这一个含义，没有第二种，
 	// 所以不用指针、不用可空类型。
 	TeamID string
+	// Cwd 是项目目录，创建会话时启动目录的规范化绝对路径。
+	// 空串表示没绑（老会话，或取不到启动目录）。
+	// DDL 是 NOT NULL DEFAULT ''，空串就是「没绑」这一个含义，不用指针。
+	Cwd string
 }
 
 // Participant 是会话里的一个成员。participant 不等于 provider：

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"council/internal/config"
+	"council/internal/repl"
 )
 
 // ---------------------------------------------------------------------------
@@ -182,11 +183,20 @@ func obxWantFile(e *obxEnv, ids ...string) string {
 	return config.FirstRunTOML(obxGenData(e), found)
 }
 
+// obxProjectLine 与 app.Run 同一口径：测试进程的工作目录就是启动目录，规范化后再写进横幅。
+// 这些用例的库里没有会话，所以本项目是 0，没有「另有」那一行。
+func obxProjectLine() string {
+	if wd, err := os.Getwd(); err == nil {
+		return "项目目录: " + repl.NormalizeProjectDir(wd) + "（本项目 0 个会话，/resume 列出并接上）\n"
+	}
+	return "项目目录: 未知（/resume 将列出全部会话）\n"
+}
+
 // obxBanner 是行式分支只敲 /quit 时 out 的全文（数据目录是生成的配置里写的那一个）。
 func obxBanner(e *obxEnv) string {
 	gen := obxGenData(e)
 	return "配置文件: " + e.cfgPath + "\n数据目录: " + gen + "\n库文件: " + filepath.Join(gen, "council.db") +
-		" (已有 0 个会话)\n已加载 0 个 agent，0 个 team\n输入 /help 查看可用命令，/quit 退出。\n\ncouncil> 再见\n"
+		" (已有 0 个会话)\n" + obxProjectLine() + "已加载 0 个 agent，0 个 team\n输入 /help 查看可用命令，/quit 退出。\n\ncouncil> 再见\n"
 }
 
 // obxReadFile 读整个文件；读不出来就 Fatal。

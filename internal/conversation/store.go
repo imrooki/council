@@ -98,6 +98,9 @@ type Tx interface {
 	// SetConversationTeam 把会话绑到 teamID。空串拒绝，不是解绑：
 	// 空串在 team_id 列上读作「没绑」，理由见实现注释。
 	SetConversationTeam(ctx context.Context, convID, teamID string) error
+	// SetConversationCwd 把会话的项目目录设成 cwd。空串允许，表示清空（读作没绑项目），
+	// 与 SetConversationTeam 拒绝空串不同。会话不存在时返回包了 ErrConversationNotFound 的错误。
+	SetConversationCwd(ctx context.Context, convID, cwd string) error
 	// AppendMessage 追加一条消息，返回补全后的 Message：
 	// ID、Seq、CreatedAt 由 store 填，传进来的这三个字段一律忽略。
 	AppendMessage(ctx context.Context, m Message) (Message, error)

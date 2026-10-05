@@ -225,6 +225,16 @@ func (f *fakeStore) SetConversationTeam(ctx context.Context, convID, teamID stri
 	return nil
 }
 
+// SetConversationCwd 与真实现同体例，写回 f.convs 才读得回来；只记账的假实现对「盖章生效了没有」恒真。
+func (f *fakeStore) SetConversationCwd(ctx context.Context, convID, cwd string) error {
+	i, ok := f.convIdx[convID]
+	if !ok {
+		return fmt.Errorf("fake store: 会话 %q: %w", convID, ErrConversationNotFound)
+	}
+	f.convs[i].Cwd = cwd
+	return nil
+}
+
 func (f *fakeStore) ProviderSession(ctx context.Context, convID, agentID string) (ProviderSession, bool, error) {
 	return ProviderSession{}, false, nil
 }

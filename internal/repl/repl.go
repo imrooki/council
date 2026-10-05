@@ -127,6 +127,13 @@ type REPL struct {
 	// 零值 false 是关：/add 的行为与 AD1 之前逐字节相同（splitAddArgs 按全角空格切段那一条除外，
 	// 它不看开关）；只经 SetAddByName 改，app 装配时打开。
 	addByName bool
+
+	// projectDir 是启动目录的规范化绝对路径（NormalizeProjectDir 的结果）。
+	// /new 建会话时盖在会话上；/resume 默认只列这个目录下建的会话。
+	// 零值空串表示没有项目目录（取不到启动目录，或直接 New 出来的 REPL），
+	// 此时 /new 不盖章、/resume 列出全部，行为与没有这个功能时一致，
+	// 所以所有既有测试不受影响。只经 SetProjectDir 设，只许在 Run 或第一次 Submit 之前调。
+	projectDir string
 }
 
 // RulesContext 是 REPL 显示与重载规则文件所需的上下文，由 app 在启动时
