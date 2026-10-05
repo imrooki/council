@@ -2507,7 +2507,7 @@ Go 这边对应的是 bubbletea 系。
       - 别名 `sonnet` 解析成 `claude-sonnet-5`，列表里**没有 Sonnet 5.5**。`sonnet-5.5-max` 照他的要求写了 `claude-sonnet-5-5`。**同日他在终端里实跑 `claude -p … --model claude-sonnet-5-5 --effort max`，回了 OK，能用**（CLI 只警告「这个版本的目录里没有这个型号」，不拒绝）。实跑前他的 claude 登录曾过期（`OAuth session expired`），他重新登录后才通；Council 里是否走同一条路没有另测，第一次 `/ask sonnet-5.5-max` 即是。
     - **对旧会话的影响**：旧会话里的 `opus-5.0`、`opus-5.0-max` 成员还在，但配置里没有了，`/ask` 它们会被拒，不花钱。
 
-53. **Ctrl-C 改成 2 秒内连按两次才退出或取消本轮（CC2，2026-10-04，Griffin）** —— **已落地（与本条同一个提交 `509e651`，2026-10-04 他说「合并到main吧」后经 PR #1 快进合并进 main），同日他说「审完直接装上」后装为 `council 0.2.0-1004a`，真机未复验**
+53. **Ctrl-C 改成 2 秒内连按两次才退出或取消本轮（CC2，2026-10-04，Griffin）** —— **已落地（与本条同一个提交 `509e651`，2026-10-04 他说「合并到main吧」后经 PR #1 快进合并进 main），同日他说「审完直接装上」后装为 `council 0.2.0-1004a`，2026-10-05 他真机复验后说「都ok了」**
 
     Griffin 在 VS Code 终端里用 council，一选中文字就退出，他没有按 Ctrl+C。主代理查到原因：本机 Cherry Studio 2.1.4 开着划词助手，它用的 selection-hook 2.1.1 取不到选中文字时，先模拟 Ctrl+Insert，约 100ms 内剪贴板没变化再模拟一次 Ctrl+C（上游 `src/windows/core/engine.cc` 的 `GetTextViaClipboard`）。council 的 TUI 把 Ctrl+C 当普通按键收（ultraviolet 关掉了 `ENABLE_PROCESSED_INPUT`），空闲时单按一次立即退出，忙时单按一次立即取消正在跑的一轮。他定：退出和取消都改成 2 秒内连按两次。
     - **新语义**：
@@ -2524,8 +2524,11 @@ Go 这边对应的是 bubbletea 系。
       - 改准十余处过时注释。
     - **委派链**：Griffin 指定这次由 grok 写码，不走 code-writer。grok-4.7 同一会话分 6 刀：生产代码、新测试、两批旧测试、两轮审核修正。code-reviewer（Opus）初审「可采用」，另提次要项与两个疑点；修正后复审仍为「可采用」（两轮都没有阻塞项和重要项）；最后按审核建议改准两处注释、补三条钉住判定条件的测试。
     - **验证**：隔离环境下 `go test ./... -count=1` 九个包全绿；`GOOS=linux go vet ./...` 干净；装饰性符号扫描零命中。
-    - **已知局限（未实测）**：xterm.js 源码显示带 Ctrl 或 Shift 的 Insert 不发任何字节。查的是本机另一款 VS Code 系 IDE 自带的 xterm.js，没有在 Griffin 的 VS Code 上实测。若 VS Code 也如此，每次划词 council 只收到一个 Ctrl-C，2 秒内划词两次，空闲时仍会退出、忙时仍会取消。从源头避免：selection-hook 支持按程序名过滤（`setGlobalFilterMode`）；Cherry Studio 设置里若提供应用过滤，把 `Code.exe` 排除掉。
-    - **待真机复验**：
-      - VS Code 终端里开着划词助手，空闲时划词一次：状态栏应当变成「再按一次 Ctrl-C 退出」，council 不退出。
-      - 在 VS Code 与 Windows Terminal 里各试「按住 Ctrl 连点两下 C」与「按 Ctrl-C、松开 Ctrl、2 秒内再按 Ctrl-C」：两种都应当退出；忙时都应当取消本轮。
+    - **推测过的局限（真机没有复现）**：xterm.js 源码显示带 Ctrl 或 Shift 的 Insert 不发任何字节（查的是本机另一款 VS Code 系 IDE 自带的 xterm.js）。据此推测在 VS Code 里每次划词 council 只收到一个 Ctrl-C，2 秒内划词两次仍会退出。2026-10-05 真机上这一项回报 ok、没有退出，推测没有复现；为什么没复现（VS Code 的 xterm.js 转发了 Ctrl+Insert，还是 VS Code 先复制了、划词助手没再发 Ctrl+C）没有查。从源头避免仍可用：selection-hook 支持按程序名过滤（`setGlobalFilterMode`）；Cherry Studio 设置里若提供应用过滤，把 `Code.exe` 排除掉。
+    - **真机复验（2026-10-05，Griffin）**：他在 VS Code 终端里按下面四项试过（`council -no-auto`，划词助手开着），回「都ok了」，没有逐项细报：
+      - (a) 空闲时划词一次：状态栏变成「再按一次 Ctrl-C 退出」，council 不退出。
+      - (b) 2 秒内划词两次：不退出。
+      - (c) 按住 Ctrl 连点两下 C：退出。
+      - (d) 按 Ctrl-C、松开 Ctrl、2 秒内再按 Ctrl-C：退出。所以修饰键残影那条兜底至少没有挡住正常连按。
+      - 没覆盖到：Windows Terminal；忙时连按两次取消本轮（要真跑一轮，花钱）。
     - **没改的文档**：契约文档（15、15a、15b、19b、19c、19h 等）与 `14_MVP_CHECKLIST.md` 里「单按 Ctrl-C 退出 / 取消」的说法没有逐份改，以本条为准。
