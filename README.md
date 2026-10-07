@@ -95,4 +95,4 @@ go build -ldflags "-X main.version=0.2.0-local" -o council.exe ./cmd/council
 - [docs/README.md](docs/README.md)：设计文档索引、路线图、用法。
 - [docs/00_DECISIONS.md](docs/00_DECISIONS.md)：所有决策和它们的理由。
 - [docs/14_MVP_CHECKLIST.md](docs/14_MVP_CHECKLIST.md)：真机验收清单。
-- `.handoff/HANDOFF.md`：开发交接记录，接手先读最后一条。
+- `.handoff/HANDOFF.md`：当前状态的交接说明，整份就是最新的，接手先读它（每次交接整份重写；2026-10-07 之前的逐条记录在提交 `74d933d` 里）。
