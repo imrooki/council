@@ -105,7 +105,7 @@
   }
   .status { color: var(--danger); font-size: 12px; }
   .status[hidden] { display: none; }
-  .cost { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .cost { margin-left: 10px; display: flex; align-items: center; gap: 10px; }
   .cost-note { font-size: 12px; color: var(--muted); }
   .cost-note.warn { color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 3px 9px; }
   .cost-value { font-size: 15px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
@@ -314,29 +314,211 @@
   .ask-progress[hidden] { display: none; }
   .ask-line { white-space: pre-wrap; overflow-wrap: anywhere; }
   .ask-row { display: flex; align-items: flex-end; gap: 10px; }
-  .ask-members {
+
+  /* ---- 工作台底栏（SRV6） ----
+     底栏从「一个输入框 + 一个按钮」变成两层：上面一层用 chip 说明这一轮
+     「在哪跑 / 能不能写 / 问谁」，下面一层才是输入。工具条本身不抢输入
+     框的宽度，chip 会自己换行。 */
+  .composer { display: flex; flex-direction: column; gap: 8px; }
+  .composer-bar {
     display: flex;
+    align-items: center;
     flex-wrap: wrap;
     gap: 6px;
-    max-width: 46%;
-    max-height: 42px;
-    overflow: auto;
-    font-size: 12px;
+    min-height: 28px;
   }
-  .ask-members label {
+  /* chip 是弹层的定位锚：弹层用 position:absolute 挂在它上面，不参与布局。 */
+  .chip-wrap { position: relative; display: inline-flex; }
+  .chip {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 4px 9px;
-    border: 1px solid var(--line);
+    min-height: 28px;
+    padding: 3px 10px;
+    border: 1px solid var(--line-strong);
     border-radius: 999px;
-    background: var(--surface-2);
+    background: var(--surface);
     color: var(--ink-2);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .chip:hover { background: var(--surface-2); color: var(--ink); }
+  .chip:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .chip[aria-expanded="true"] { background: var(--surface-2); color: var(--ink); }
+  .chip-icon { font-size: 12px; line-height: 1; }
+  .chip-caret { color: var(--muted-2); font-size: 10px; }
+  .chip-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* 成员是「已选」状态：用强调色浅底把这一轮真正会问的人挑出来。 */
+  .chip.member {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+    cursor: default;
+  }
+  .chip-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px; height: 16px;
+    margin: 0 -2px 0 1px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .chip-x:hover { background: var(--surface); color: var(--danger); }
+  .chip.add {
+    justify-content: center;
+    width: 28px;
+    padding: 0;
+    color: var(--muted);
+    font-size: 16px;
+  }
+  .chip-list { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+  .composer-hint { flex-basis: 100%; font-size: 11.5px; color: var(--warn); }
+  .composer-hint[hidden] { display: none; }
+  .context-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .context-row[hidden] { display: none; }
+  .context-row .chip { max-width: min(360px, 60vw); }
+  /* 底栏贴着窗口底边：弹层若向下展开，会被视口裁掉一半。所以统一向
+     chip 上方翻，视觉上仍紧贴触发它的 chip。 */
+  .popover {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 8px);
+    z-index: 30;
+    width: 300px;
+    max-width: calc(100vw - 32px);
+    max-height: 320px;
+    overflow: auto;
+    padding: 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    color: var(--ink);
+  }
+  .popover[hidden] { display: none; }
+  .popover-title {
+    padding: 4px 6px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+  }
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .menu-item:hover { background: var(--surface-2); color: var(--ink); }
+  .menu-item.is-current { background: var(--accent-soft); color: var(--accent); }
+  .menu-item[hidden] { display: none; }
+  .menu-empty { padding: 8px; font-size: 12px; line-height: 1.6; color: var(--muted-2); }
+  .popover-field { display: flex; flex-direction: column; gap: 6px; padding: 2px; }
+  .popover-field label { font-size: 11.5px; color: var(--muted); }
+  .popover-field input {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12.5px;
+  }
+  .popover-field input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .popover-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px; }
+  .btn-small {
+    padding: 5px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 12px;
     white-space: nowrap;
     cursor: pointer;
   }
-  .ask-members input { margin: 0; accent-color: var(--brand); }
-  .ask-hint { font-size: 11.5px; color: var(--muted); }
+  .btn-small:hover { background: var(--surface-2); color: var(--ink); }
+  .btn-small.primary { border-color: var(--brand); background: var(--brand); color: var(--brand-ink); }
+  .btn-small.primary:hover { opacity: .88; }
+  .preset-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+    border-radius: var(--r-sm);
+  }
+  .preset-row:hover { background: var(--surface-2); }
+  .preset-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12.5px;
+    color: var(--ink);
+  }
+  .preset-row .btn-small { padding: 3px 8px; font-size: 11.5px; }
+  .popover-divider { height: 1px; margin: 6px 2px; background: var(--line); }
+  /* 思考中的省略号只动透明度：动画期间不触发布局，进度区不会跟着抖。 */
+  .ask-dots { display: inline-flex; gap: 3px; margin-left: 5px; vertical-align: middle; }
+  .ask-dots span {
+    width: 3px; height: 3px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: ask-blink 1.2s infinite ease-in-out both;
+  }
+  .ask-dots span:nth-child(2) { animation-delay: .15s; }
+  .ask-dots span:nth-child(3) { animation-delay: .3s; }
+  @keyframes ask-blink {
+    0%, 80%, 100% { opacity: .2; }
+    40% { opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ask-dots span { animation: none; opacity: .6; }
+  }
+
   #ask-prompt {
     flex: 1;
     min-height: 44px;
@@ -354,6 +536,7 @@
   #ask-prompt:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   #ask-run {
     height: 44px;
+    min-width: 104px;
     padding: 0 20px;
     border: 0;
     border-radius: var(--r-md);
@@ -373,12 +556,27 @@
   /* 收起右栏：给正文腾地方，状态记在 localStorage 里 */
   #app.no-inspector .workspace { grid-template-columns: 288px minmax(0, 1fr); }
   #app.no-inspector .inspector { display: none; }
-  #toggle-inspector {
+  #toggle-cost {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 28px; height: 28px;
     margin-left: 4px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  #toggle-cost:hover { background: var(--surface-2); color: var(--ink); }
+  .cost[hidden] { display: none; }
+  #toggle-inspector {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px; height: 28px;
+    margin-left: auto;
     padding: 0;
     border: 1px solid var(--line);
     border-radius: var(--r-sm);
@@ -449,6 +647,12 @@
         <path d="M10.5 2.5v11" fill="none" stroke="currentColor" stroke-width="1.4"/>
       </svg>
     </button>
+    <button id="toggle-cost" type="button" title="显示/隐藏花费" aria-label="显示或隐藏花费">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M9.6 5.9c-.4-.6-1-1-1.9-1-1.1 0-1.7.5-1.7 1.2 0 .8.7 1.1 1.8 1.4 1.3.3 2.1.7 2.1 1.7 0 .9-.8 1.5-2.1 1.5-.9 0-1.6-.3-2-1" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
     <div class="cost">
       <span class="cost-note" id="cost-note"></span>
       <span class="cost-value" id="cost-value">—</span>
@@ -502,10 +706,72 @@
   <section id="ask-panel" class="ask" hidden>
     <div id="ask-progress" class="ask-progress" hidden></div>
     <div class="ask-error" id="ask-error" hidden></div>
-    <div class="ask-row">
-      <div id="ask-members" class="ask-members"></div>
-      <textarea id="ask-prompt" rows="2" placeholder="问这一次议会一个问题…"></textarea>
-      <button id="ask-run" type="button">跑一轮</button>
+    <div class="composer">
+      <div id="composer-bar" class="composer-bar" role="toolbar" aria-label="工作台工具">
+        <div class="chip-wrap">
+          <button id="cwd-chip" class="chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="工作目录"></button>
+          <div id="cwd-popover" class="popover" role="dialog" aria-label="工作目录" hidden>
+            <div class="popover-title">工作目录</div>
+            <div class="popover-field">
+              <label for="cwd-input">绝对路径</label>
+              <input id="cwd-input" type="text" autocomplete="off" spellcheck="false" placeholder="D:\path\to\project">
+              <div class="popover-actions">
+                <button id="cwd-apply" class="btn-small primary" type="button">应用</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="chip-wrap">
+          <button id="permission-chip" class="chip" type="button" aria-haspopup="menu" aria-expanded="false"></button>
+          <div id="permission-menu" class="popover" role="menu" aria-label="权限" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-permission="read">只读</button>
+            <button class="menu-item" type="button" role="menuitemradio" data-permission="workspace">可改文件（副本）</button>
+          </div>
+        </div>
+        <div id="member-chips" class="chip-list" aria-label="已选成员"></div>
+        <div class="chip-wrap">
+          <button id="add-button" class="chip add" type="button" aria-haspopup="menu" aria-expanded="false" title="添加" aria-label="添加">+</button>
+          <div id="add-menu" class="popover" role="menu" aria-label="添加" hidden>
+            <button class="menu-item" type="button" data-action="members">成员</button>
+            <button class="menu-item" type="button" data-action="cwd">工作目录</button>
+            <button class="menu-item" type="button" data-action="context">文件或目录引用</button>
+            <button class="menu-item" type="button" data-action="presets">预设</button>
+          </div>
+          <div id="members-popover" class="popover" role="menu" aria-label="成员" hidden></div>
+          <div id="context-popover" class="popover" role="dialog" aria-label="文件或目录引用" hidden>
+            <div class="popover-title">文件或目录引用</div>
+            <div class="popover-field">
+              <label for="context-input">绝对路径，回车加入</label>
+              <input id="context-input" type="text" autocomplete="off" spellcheck="false" placeholder="D:\repo\main.go">
+              <div class="popover-actions">
+                <button id="context-add" class="btn-small primary" type="button">加入</button>
+              </div>
+            </div>
+            <div id="context-count" class="menu-empty"></div>
+          </div>
+          <div id="preset-popover" class="popover" role="dialog" aria-label="预设" hidden>
+            <div class="popover-title">预设</div>
+            <div class="popover-field">
+              <label for="preset-name">把当前成员、目录、权限存成一个名字</label>
+              <input id="preset-name" type="text" autocomplete="off" maxlength="60">
+              <div class="popover-actions">
+                <button id="preset-save" class="btn-small primary" type="button">保存预设</button>
+              </div>
+            </div>
+            <div class="popover-divider"></div>
+            <div id="preset-list"></div>
+          </div>
+        </div>
+        <div id="composer-hint" class="composer-hint" hidden></div>
+      </div>
+      <div id="context-row" class="context-row" hidden>
+        <span>引用</span>
+        <div id="context-tags" class="chip-list"></div>
+      </div>
+      <div class="ask-row">
+        <textarea id="ask-prompt" rows="2" placeholder="问这一次议会一个问题…"></textarea>
+        <button id="ask-run" type="button" disabled>跑一轮</button>
+      </div>
     </div>
   </section>
   <div id="toast" class="toast" hidden></div>
@@ -532,6 +798,21 @@
     writable: false,
     askRunning: false,
     askSource: null,
+    // 工作台（SRV6）的状态。optionsLoaded 用来区分「配置里真的没有
+    // agent」与「/api/options 还没回来/读失败」——这两种情况都要禁用
+    // 「跑一轮」，但只有前者该显示任务书规定的那句提示。
+    optionsLoaded: false,
+    agents: [],
+    cwd: '',
+    permission: 'read',
+    selectedAgents: [],
+    contexts: [],
+    presets: [],
+    jobID: null,
+    stopping: false,
+    // agent_id -> { line, name }。同一成员多轮会重复 turn_started，
+    // 只保留最新那一行，避免进度区堆一串过期的「正在思考」。
+    thinking: new Map(),
   };
 
   const conversationList = document.getElementById('conversation-list');
@@ -546,11 +827,31 @@
   const statusLine = document.getElementById('status');
   const brandNote = document.querySelector('.brand small');
   const askPanel = document.getElementById('ask-panel');
-  const askMembers = document.getElementById('ask-members');
   const askPrompt = document.getElementById('ask-prompt');
   const askRun = document.getElementById('ask-run');
   const askProgress = document.getElementById('ask-progress');
   const askError = document.getElementById('ask-error');
+  const cwdChip = document.getElementById('cwd-chip');
+  const cwdPopover = document.getElementById('cwd-popover');
+  const cwdInput = document.getElementById('cwd-input');
+  const cwdApply = document.getElementById('cwd-apply');
+  const permissionChip = document.getElementById('permission-chip');
+  const permissionMenu = document.getElementById('permission-menu');
+  const memberChips = document.getElementById('member-chips');
+  const addButton = document.getElementById('add-button');
+  const addMenu = document.getElementById('add-menu');
+  const membersPopover = document.getElementById('members-popover');
+  const contextPopover = document.getElementById('context-popover');
+  const contextInput = document.getElementById('context-input');
+  const contextAdd = document.getElementById('context-add');
+  const contextCount = document.getElementById('context-count');
+  const contextRow = document.getElementById('context-row');
+  const contextTags = document.getElementById('context-tags');
+  const presetPopover = document.getElementById('preset-popover');
+  const presetName = document.getElementById('preset-name');
+  const presetSave = document.getElementById('preset-save');
+  const presetList = document.getElementById('preset-list');
+  const composerHint = document.getElementById('composer-hint');
   const messagesMeta = document.getElementById('messages-meta');
   const appRoot = document.getElementById('app');
   const toggleInspector = document.getElementById('toggle-inspector');
@@ -567,6 +868,20 @@
     appRoot.classList.toggle('no-inspector');
     try {
       window.localStorage.setItem(INSPECTOR_KEY, appRoot.classList.contains('no-inspector') ? '1' : '0');
+    } catch (err) { /* 同上 */ }
+  });
+
+  // 花额是敏感信息：有些人不想让旁边的人一眼看到，给一个记住的开关。
+  const costBox = document.querySelector('.cost');
+  const toggleCost = document.getElementById('toggle-cost');
+  const COST_KEY = 'council.cost.visible';
+  try {
+    if (window.localStorage.getItem(COST_KEY) === '0') costBox.hidden = true;
+  } catch (err) { /* 隐私模式 */ }
+  toggleCost.addEventListener('click', () => {
+    costBox.hidden = !costBox.hidden;
+    try {
+      window.localStorage.setItem(COST_KEY, costBox.hidden ? '0' : '1');
     } catch (err) { /* 同上 */ }
   });
 
@@ -682,10 +997,445 @@
     askProgress.scrollTop = askProgress.scrollHeight;
   }
 
+  // 权限只有整轮两档（SRV5 §2）：只读，或把 cwd 当 git 仓库根、在副本里
+  // 改文件。这里不读 agent 自己的 permissions：工作台选的是「这一轮」的
+  // 覆盖档，和配置里的静态档是两件事。
+  const PERMISSION_LABELS = { read: '只读', workspace: '可改文件（副本）' };
+  const CONTEXT_LIMIT = 20;
+  const PRESET_KEY = 'council.presets';
+
+  function basenameOf(path) {
+    const raw = String(path || '');
+    if (!raw) return '';
+    // 同时认 / 与 \：前端不假设 serve 跑在哪种系统上，路径可能是哪一种。
+    const parts = raw.replace(/[\\/]+$/, '').split(/[\\/]+/);
+    return parts[parts.length - 1] || raw;
+  }
+
+  function agentEntry(agentID) {
+    return state.agents.find((agent) => agent.id === agentID) || null;
+  }
+
+  function memberLabel(agent) {
+    if (!agent) return '';
+    return [agent.display_name || agent.id, agent.model].filter(Boolean).join(' · ');
+  }
+
+  function agentDisplayName(agentID) {
+    const agent = agentEntry(agentID);
+    return (agent && agent.display_name) || agentID;
+  }
+
+  // ---- 弹层 ----
+  // 同一时间只开一个：工具条一共五个入口，两个叠着会让人不知道点击落进哪层。
+  let openPanel = null;
+
+  function closePopover() {
+    if (!openPanel) return;
+    openPanel.panel.hidden = true;
+    if (openPanel.trigger) openPanel.trigger.setAttribute('aria-expanded', 'false');
+    openPanel = null;
+  }
+
+  function openPopover(panel, trigger) {
+    if (openPanel && openPanel.panel !== panel) closePopover();
+    panel.hidden = false;
+    if (trigger) trigger.setAttribute('aria-expanded', 'true');
+    openPanel = { panel: panel, trigger: trigger };
+  }
+
+  function togglePopover(panel, trigger) {
+    if (panel.hidden) {
+      openPopover(panel, trigger);
+    } else {
+      closePopover();
+    }
+  }
+
+  // 点弹层内部不关闭：菜单项常常还要打开下一层（成员 / 目录 / 引用 / 预设），
+  // 若同一次点击先开再关，用户会看到面板闪一下。
+  //
+  // 用 composedPath 而不是 target.closest：成员菜单项点完会把列表重画，
+  // 被点的按钮已经从 DOM 上摘下来；此刻再沿 target 往上找 .chip-wrap
+  // 会找不到祖先，于是把刚打开的面板误关掉。事件派发时算好的路径不会
+  // 因为处理函数改了 DOM 而失效。
+  document.addEventListener('click', (event) => {
+    if (!openPanel) return;
+    const inside = event.composedPath().some((node) =>
+      node instanceof Element && node.classList.contains('chip-wrap'));
+    if (inside) return;
+    closePopover();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && openPanel) closePopover();
+  });
+
+  // ---- 工具条渲染 ----
+  function renderCwdChip() {
+    cwdChip.replaceChildren();
+    const icon = document.createElement('span');
+    icon.className = 'chip-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = '📁';
+    const name = document.createElement('span');
+    name.className = 'chip-text';
+    // 只露最后一段：工作目录常常很长，整条塞进工具条会把别的 chip 挤走；
+    // 完整路径放在 title 里，悬浮就能核对。
+    name.textContent = basenameOf(state.cwd) || '工作目录';
+    cwdChip.appendChild(icon);
+    cwdChip.appendChild(name);
+    cwdChip.title = state.cwd || '设置这一轮的工作目录';
+  }
+
+  function renderPermissionChip() {
+    permissionChip.replaceChildren();
+    const icon = document.createElement('span');
+    icon.className = 'chip-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = state.permission === 'workspace' ? '📝' : '🔒';
+    const label = document.createElement('span');
+    label.className = 'chip-text';
+    label.textContent = PERMISSION_LABELS[state.permission] || PERMISSION_LABELS.read;
+    const caret = document.createElement('span');
+    caret.className = 'chip-caret';
+    caret.setAttribute('aria-hidden', 'true');
+    caret.textContent = '▾';
+    permissionChip.appendChild(icon);
+    permissionChip.appendChild(label);
+    permissionChip.appendChild(caret);
+    permissionChip.title = state.permission === 'workspace'
+      ? '成员在隔离副本里跑，可以改副本里的文件'
+      : '成员只读讨论，不改任何文件';
+
+    const items = permissionMenu.querySelectorAll('[data-permission]');
+    for (const item of items) {
+      const current = item.dataset.permission === state.permission;
+      item.classList.toggle('is-current', current);
+      item.setAttribute('aria-checked', current ? 'true' : 'false');
+    }
+  }
+
+  function renderMemberChips() {
+    memberChips.replaceChildren();
+    for (const id of state.selectedAgents) {
+      const agent = agentEntry(id);
+      const chip = document.createElement('span');
+      chip.className = 'chip member';
+      const text = document.createElement('span');
+      text.className = 'chip-text';
+      text.textContent = agent ? memberLabel(agent) : id;
+      chip.appendChild(text);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'chip-x';
+      remove.textContent = '×';
+      remove.title = '移除 ' + text.textContent;
+      remove.setAttribute('aria-label', remove.title);
+      remove.addEventListener('click', () => {
+        state.selectedAgents = state.selectedAgents.filter((item) => item !== id);
+        renderComposer();
+      });
+      chip.appendChild(remove);
+      memberChips.appendChild(chip);
+    }
+  }
+
+  function renderContextTags() {
+    contextTags.replaceChildren();
+    contextRow.hidden = state.contexts.length === 0;
+    state.contexts.forEach((path, index) => {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      const text = document.createElement('span');
+      text.className = 'chip-text';
+      text.textContent = path;
+      text.title = path;
+      chip.appendChild(text);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'chip-x';
+      remove.textContent = '×';
+      remove.title = '移除引用 ' + path;
+      remove.setAttribute('aria-label', remove.title);
+      remove.addEventListener('click', () => {
+        state.contexts.splice(index, 1);
+        renderComposer();
+      });
+      chip.appendChild(remove);
+      contextTags.appendChild(chip);
+    });
+  }
+
+  function updateContextCount() {
+    contextCount.textContent = state.contexts.length === 0
+      ? '还没有引用，最多 ' + CONTEXT_LIMIT + ' 条'
+      : '已加 ' + state.contexts.length + ' 条，最多 ' + CONTEXT_LIMIT + ' 条';
+  }
+
+  function updateRunButton() {
+    if (!state.askRunning) {
+      askRun.textContent = '跑一轮';
+      askRun.disabled = !state.optionsLoaded || state.agents.length === 0;
+      askRun.title = askRun.disabled ? '配置里还没有可选的 agent' : '';
+      return;
+    }
+    if (state.stopping) {
+      askRun.textContent = '正在停止…';
+      askRun.disabled = true;
+      askRun.title = '已发出取消请求，等待当前任务收尾';
+      return;
+    }
+    askRun.textContent = '停止';
+    askRun.disabled = false;
+    askRun.title = '停止这一轮；已经跑完的成员回复会保留';
+  }
+
+  function renderComposer() {
+    if (!state.writable) return;
+    renderCwdChip();
+    renderPermissionChip();
+    renderMemberChips();
+    renderContextTags();
+
+    let hint = '';
+    if (state.optionsLoaded && state.agents.length === 0) {
+      hint = '配置里还没有 agent，先在终端 /add 或编辑 config.toml';
+    } else if (!state.optionsLoaded) {
+      hint = '还没读到工作台选项，刷新页面重试';
+    }
+    composerHint.textContent = hint;
+    composerHint.hidden = hint === '';
+
+    if (!contextPopover.hidden) updateContextCount();
+    updateRunButton();
+  }
+
+  // ---- 成员选择 ----
+  // 默认一个都不选：选成员等于授权花钱，默认全选会让一次误点直接开跑。
+  function renderMemberPicker() {
+    membersPopover.replaceChildren();
+    const title = document.createElement('div');
+    title.className = 'popover-title';
+    title.textContent = '成员';
+    membersPopover.appendChild(title);
+
+    const available = state.agents.filter((agent) => !state.selectedAgents.includes(agent.id));
+    if (available.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'menu-empty';
+      empty.textContent = '没有更多成员';
+      membersPopover.appendChild(empty);
+      return;
+    }
+    for (const agent of available) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'menu-item';
+      button.textContent = memberLabel(agent);
+      button.addEventListener('click', () => {
+        if (!state.selectedAgents.includes(agent.id)) state.selectedAgents.push(agent.id);
+        renderComposer();
+        renderMemberPicker();
+        // 列表重画会丢掉焦点：落到下一个可加成员上，键盘连续添加不用再 Tab 一圈。
+        const next = membersPopover.querySelector('.menu-item');
+        if (next) next.focus();
+        else addButton.focus();
+      });
+      membersPopover.appendChild(button);
+    }
+  }
+
+  // ---- 预设（只存 localStorage，不落服务端） ----
+  function readPresets() {
+    try {
+      const raw = window.localStorage.getItem(PRESET_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      // 只认已知字段：localStorage 是用户可改的，脏数据不该让底栏崩掉。
+      return parsed.filter((item) => item && typeof item.name === 'string').map((item) => ({
+        name: item.name,
+        members: Array.isArray(item.members) ? item.members.filter((id) => typeof id === 'string') : [],
+        cwd: typeof item.cwd === 'string' ? item.cwd : '',
+        permission: item.permission === 'workspace' ? 'workspace' : 'read',
+      }));
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function writePresets() {
+    try {
+      window.localStorage.setItem(PRESET_KEY, JSON.stringify(state.presets));
+    } catch (err) {
+      // 隐私模式禁写 localStorage 时预设仍在本页内存里可用，只是刷新会丢。
+      showToast('浏览器不允许写入本地存储，预设只在本次页面有效');
+    }
+  }
+
+  function renderPresetList() {
+    presetList.replaceChildren();
+    if (state.presets.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'menu-empty';
+      empty.textContent = '还没有预设';
+      presetList.appendChild(empty);
+      return;
+    }
+    for (const preset of state.presets) {
+      const row = document.createElement('div');
+      row.className = 'preset-row';
+      const name = document.createElement('span');
+      name.className = 'preset-name';
+      name.textContent = preset.name;
+      name.title = preset.name;
+      row.appendChild(name);
+
+      const apply = document.createElement('button');
+      apply.type = 'button';
+      apply.className = 'btn-small';
+      apply.textContent = '套用';
+      apply.addEventListener('click', () => applyPreset(preset));
+      row.appendChild(apply);
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn-small';
+      remove.textContent = '删除';
+      remove.addEventListener('click', () => deletePreset(preset.name));
+      row.appendChild(remove);
+
+      presetList.appendChild(row);
+    }
+  }
+
+  function savePreset() {
+    const fallback = '预设 ' + (state.presets.length + 1);
+    const name = presetName.value.trim() || fallback;
+    const preset = {
+      name: name,
+      members: state.selectedAgents.slice(),
+      cwd: state.cwd,
+      permission: state.permission,
+    };
+    const existing = state.presets.findIndex((item) => item.name === name);
+    if (existing >= 0) state.presets[existing] = preset;
+    else state.presets.push(preset);
+    writePresets();
+    renderPresetList();
+    showToast(existing >= 0 ? '预设已更新：' + name : '预设已保存：' + name);
+  }
+
+  function applyPreset(preset) {
+    const known = new Set(state.agents.map((agent) => agent.id));
+    state.selectedAgents = preset.members.filter((id) => known.has(id));
+    state.cwd = preset.cwd;
+    state.permission = preset.permission === 'workspace' ? 'workspace' : 'read';
+    renderComposer();
+    closePopover();
+    // 套用不自动提交：用户还要看一眼成员与目录，再自己按「跑一轮」。
+    const missing = preset.members.length - state.selectedAgents.length;
+    showToast('已套用「' + preset.name + '」' +
+      (missing > 0 ? '，' + missing + ' 位成员已不在配置里' : ''));
+  }
+
+  function deletePreset(name) {
+    state.presets = state.presets.filter((item) => item.name !== name);
+    writePresets();
+    renderPresetList();
+    showToast('已删除预设：' + name);
+  }
+
+  // ---- 文件 / 目录引用 ----
+  function addContext(raw) {
+    const path = String(raw || '').trim();
+    if (!path) return;
+    // 后端也拦 20 条，这里先拦是为了不让第 21 条看起来「加进去了」。
+    if (state.contexts.length >= CONTEXT_LIMIT) {
+      showAskError('最多 ' + CONTEXT_LIMIT + ' 条');
+      return;
+    }
+    state.contexts.push(path);
+    contextInput.value = '';
+    clearAskError();
+    renderComposer();
+    updateContextCount();
+    contextInput.focus();
+  }
+
+  // ---- 思考中 ----
+  function startThinking(agentID) {
+    const previous = state.thinking.get(agentID);
+    if (previous) previous.line.remove();
+    const name = agentDisplayName(agentID);
+    const line = document.createElement('div');
+    line.className = 'ask-line ask-thinking';
+    line.setAttribute('aria-label', name + ' 正在思考');
+    const text = document.createElement('span');
+    text.textContent = name + ' 正在思考';
+    line.appendChild(text);
+    const dots = document.createElement('span');
+    dots.className = 'ask-dots';
+    dots.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < 3; i += 1) dots.appendChild(document.createElement('span'));
+    line.appendChild(dots);
+    askProgress.appendChild(line);
+    askProgress.hidden = false;
+    askProgress.scrollTop = askProgress.scrollHeight;
+    state.thinking.set(agentID, { line: line, name: name });
+  }
+
+  function outcomeLabel(outcome) {
+    switch (outcome) {
+      case 'ok': return '成功';
+      case 'canceled': return '已取消';
+      case 'post_rejected': return '被拒';
+      case 'provider_failed': return '失败';
+      case 'unparsable': return '输出无法解析';
+      case 'timeout': return '超时';
+      case 'spawn_failed': return '启动失败';
+      case 'refused': return '拒绝';
+      case 'lost': return '丢失';
+      default: return outcome || '未知';
+    }
+  }
+
+  function finishThinking(agentID, outcome, costUSD) {
+    const pending = state.thinking.get(agentID);
+    const text = agentDisplayName(agentID) + ' · ' + outcomeLabel(outcome) + ' · ' + formatUSD(costUSD);
+    if (!pending) {
+      // turn_started 丢了也不能把结果吞掉：直接补一条结果行。
+      appendAskProgress(text);
+      return;
+    }
+    const line = document.createElement('div');
+    line.className = 'ask-line';
+    line.textContent = text;
+    pending.line.replaceWith(line);
+    state.thinking.delete(agentID);
+  }
+
+  // done 到达时还在转的省略号不会有后续 turn（取消、进程崩、服务端早停）：
+  // 统一收成一行「未返回结果」，否则动画会一直转，像任务还没结束。
+  function settleThinkingLines() {
+    for (const pending of state.thinking.values()) {
+      const line = document.createElement('div');
+      line.className = 'ask-line';
+      line.textContent = pending.name + ' · 未返回结果';
+      pending.line.replaceWith(line);
+    }
+    state.thinking.clear();
+  }
+
   function setAskRunning(running) {
     state.askRunning = running;
-    askRun.disabled = running;
-    askRun.textContent = running ? '运行中…' : '跑一轮';
+    if (!running) {
+      state.jobID = null;
+      state.stopping = false;
+      settleThinkingLines();
+    }
+    updateRunButton();
   }
 
   function closeJobStream() {
@@ -695,37 +1445,118 @@
     }
   }
 
-  // 成员多选来自当前会话的活跃成员；一个都没选时后端按「配置里的全部
-  // agent」处理，与 council ask 不带 -members 同口径。没有会话可选时只
-  // 显示提示，不假装有一个空名单。
-  function renderAskMembers() {
-    askMembers.replaceChildren();
-    if (!state.writable) return;
-    const members = ((state.detail && state.detail.members) || [])
-      .filter((member) => member.active);
-    if (members.length === 0) {
-      const hint = document.createElement('span');
-      hint.className = 'ask-hint';
-      hint.textContent = '不选成员＝配置里的全部 agent';
-      askMembers.appendChild(hint);
-      return;
+  // ---- 事件绑定 ----
+  cwdChip.addEventListener('click', () => {
+    cwdInput.value = state.cwd;
+    const wasOpen = !cwdPopover.hidden;
+    togglePopover(cwdPopover, cwdChip);
+    if (!wasOpen) {
+      cwdInput.focus();
+      cwdInput.select();
     }
-    for (const member of members) {
-      const label = document.createElement('label');
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.value = member.agent_id;
-      input.checked = true;
-      label.appendChild(input);
-      label.appendChild(document.createTextNode(member.display_name || member.agent_id));
-      askMembers.appendChild(label);
-    }
+  });
+
+  function applyCwd() {
+    // 这里不校验路径：前端拿不到服务器的文件系统，合法性由 /api/ask 的
+    // 400 兜底；过早判死会把「目录稍后才创建」这种情况挡在浏览器里。
+    state.cwd = cwdInput.value.trim();
+    clearAskError();
+    closePopover();
+    renderComposer();
   }
 
-  function selectedAskMembers() {
-    return Array.from(askMembers.querySelectorAll('input[type="checkbox"]'))
-      .filter((input) => input.checked)
-      .map((input) => input.value);
+  cwdApply.addEventListener('click', applyCwd);
+  cwdInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      applyCwd();
+    }
+  });
+
+  permissionChip.addEventListener('click', () => {
+    togglePopover(permissionMenu, permissionChip);
+  });
+  permissionMenu.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const item = target.closest('[data-permission]');
+    if (!item) return;
+    state.permission = item.dataset.permission === 'workspace' ? 'workspace' : 'read';
+    closePopover();
+    renderComposer();
+  });
+
+  addButton.addEventListener('click', () => {
+    togglePopover(addMenu, addButton);
+  });
+  addMenu.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const item = target.closest('[data-action]');
+    if (!item) return;
+    switch (item.dataset.action) {
+      case 'members':
+        renderMemberPicker();
+        openPopover(membersPopover, addButton);
+        break;
+      case 'cwd':
+        cwdInput.value = state.cwd;
+        openPopover(cwdPopover, cwdChip);
+        cwdInput.focus();
+        cwdInput.select();
+        break;
+      case 'context':
+        updateContextCount();
+        openPopover(contextPopover, addButton);
+        contextInput.focus();
+        break;
+      case 'presets':
+        presetName.value = '预设 ' + (state.presets.length + 1);
+        renderPresetList();
+        openPopover(presetPopover, addButton);
+        presetName.focus();
+        presetName.select();
+        break;
+      default:
+        break;
+    }
+  });
+
+  contextAdd.addEventListener('click', () => addContext(contextInput.value));
+  contextInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      addContext(contextInput.value);
+    }
+  });
+
+  presetSave.addEventListener('click', savePreset);
+  presetName.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      savePreset();
+    }
+  });
+
+  // 预设是浏览器本地偏好，读失败按「没有预设」走，不能拖住整页。
+  state.presets = readPresets();
+
+  async function loadOptions() {
+    // 一次拿全：目录、可选成员、team 与配置路径都在这份响应里（SRV5 §1）。
+    try {
+      const options = await api('/api/options');
+      state.optionsLoaded = true;
+      state.agents = Array.isArray(options && options.agents)
+        ? options.agents.filter((agent) => agent && agent.active !== false)
+        : [];
+      state.cwd = options && typeof options.cwd === 'string' ? options.cwd : '';
+      clearAskError();
+    } catch (err) {
+      state.optionsLoaded = false;
+      state.agents = [];
+      showAskError('读取工作台选项失败：' + err.message);
+    }
+    renderComposer();
   }
 
   async function loadHealth() {
@@ -742,7 +1573,10 @@
       brandNote.textContent = '写模式';
       document.title = 'Council 写模式';
       conversationsEmpty.textContent = '还没有会话，问一句就会新建';
-      renderAskMembers();
+      // 选项回来之前先按「不可提交」画一次：工具条已经露出，按钮不能有一
+      // 瞬间是可按的（那一下用户点了也只会得到一句「还没读到选项」）。
+      updateRunButton();
+      await loadOptions();
     }
   }
 
@@ -777,11 +1611,24 @@
       }).catch(showError);
     });
 
+    // 成员进程真正启动时才发；同一成员多轮会多次到达，每次重新点亮那一行。
+    source.addEventListener('turn_started', (event) => {
+      let data = null;
+      try {
+        data = JSON.parse(event.data);
+      } catch (err) {
+        return;
+      }
+      if (!data || !data.agent_id) return;
+      startThinking(data.agent_id);
+    });
+
     source.addEventListener('turn', (event) => {
       try {
         const data = JSON.parse(event.data);
-        appendAskProgress((data.agent_id || '?') + ' · ' + (data.outcome || '?') +
-          ' · ' + formatUSD(data.cost_usd));
+        // 先找同一成员的「正在思考」行并原位替换，进度区里一个成员始终
+        // 只占一行；没有那一行（事件丢失）时补一条结果，不吞消息。
+        finishThinking(data.agent_id, data.outcome, data.cost_usd);
       } catch (err) {
         // 单帧坏掉不该停掉整条流，也不值得把连接错误的状态条打红。
       }
@@ -794,13 +1641,15 @@
       } catch (err) {
         showAskError('done 事件不是合法 JSON');
       }
+      closeJobStream();
+      // 先解锁并收掉还在转的「思考中」，再追加收尾行：否则取消场景里
+      // 「未返回结果」会排在「完成」后面，看起来像结束后又发生了一件事。
+      setAskRunning(false);
       if (data) {
         appendAskProgress('完成 · ' + statusText(data.status) + ' · ' +
           formatUSD(data.cost_usd) + ' · 失败 ' + data.failed + '/' + data.total);
         if (data.summary) appendAskProgress('汇总：' + data.summary);
       }
-      closeJobStream();
-      setAskRunning(false);
       refreshConversations();
     });
 
@@ -821,26 +1670,67 @@
     });
   }
 
+  function requestStop() {
+    if (!state.askRunning || state.stopping) return;
+    state.stopping = true;
+    updateRunButton();
+    // 202 还没回来时 jobID 仍为空：等 runAsk 拿到 id 再补发取消，
+    // 否则「停止」会在提交窗口里静默失效。
+    if (state.jobID) cancelJob(state.jobID);
+  }
+
+  function cancelJob(jobID) {
+    postJSON('/api/jobs/' + encodeURIComponent(jobID) + '/cancel', {}).then(() => {
+      // 202 只表示取消被受理；按钮保持「正在停止…」直到 done 收尾，
+      // 因为成员进程真正退出、结果落库都发生在 done 之前。
+    }).catch((err) => {
+      state.stopping = false;
+      updateRunButton();
+      showAskError('停止失败：' + err.message);
+    });
+  }
+
   async function runAsk() {
     if (!state.writable || state.askRunning) return;
+    if (state.agents.length === 0) {
+      showAskError(state.optionsLoaded ? '配置里还没有 agent' : '还没读到工作台选项');
+      return;
+    }
     const prompt = askPrompt.value.trim();
     if (!prompt) {
       showAskError('先写一句要问的问题');
       askPrompt.focus();
       return;
     }
+    if (state.selectedAgents.length === 0) {
+      showAskError('先选成员');
+      renderMemberPicker();
+      openPopover(membersPopover, addButton);
+      return;
+    }
     clearAskError();
     askProgress.replaceChildren();
     askProgress.hidden = true;
-    appendAskProgress('已提交，等待会话开始…');
+    state.stopping = false;
+    state.jobID = null;
     setAskRunning(true);
     try {
       const reply = await postJSON('/api/ask', {
         prompt: prompt,
-        members: selectedAskMembers(),
+        members: state.selectedAgents.slice(),
         rounds: 1,
+        // cwd / workspace / context 是 SRV5 的三个新字段；cwd 传空串时
+        // 后端回落到 serve 的启动目录，与 options.cwd 是同一个值。
+        cwd: state.cwd,
+        workspace: state.permission === 'workspace',
+        context: state.contexts.slice(),
+        budget_usd: 5,
       });
+      if (!reply || !reply.job_id) throw new Error('接口没有返回 job_id');
+      state.jobID = reply.job_id;
+      appendAskProgress('已提交，等待会话开始…');
       subscribeJob(reply.job_id);
+      if (state.stopping) cancelJob(reply.job_id);
     } catch (err) {
       setAskRunning(false);
       showAskError(err.message);
@@ -1126,7 +2016,6 @@
     membersBody.replaceChildren();
     membersEmpty.hidden = true;
     renderCost(null);
-    renderAskMembers();
   }
 
   async function selectConversation(id) {
@@ -1160,9 +2049,8 @@
         const members = (detailRes.value.members || []).filter((m) => m.active).length;
         messagesMeta.textContent = (pageRes.value.messages || []).length + ' 条 · ' + members + ' 位成员';
       }
-      // 只有真的换了会话才重画成员勾选：轮询里不调它，否则每次刷新都会
-      // 把用户手动取消的勾选恢复成全选。
-      renderAskMembers();
+      // 工作台的成员来自 /api/options，不跟会话走：这里不重画工具条，
+      // 否则切换会话会把用户为下一轮挑好的成员恢复成默认。
     } else {
       failed = true;
       showError(detailRes.reason);
@@ -1269,7 +2157,8 @@
   });
 
   askRun.addEventListener('click', () => {
-    runAsk();
+    if (state.askRunning) requestStop();
+    else runAsk();
   });
 
   // Ctrl/Cmd+Enter 直接提交；单独 Enter 留给换行——问题经常不止一句。

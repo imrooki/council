@@ -106,6 +106,20 @@ type Runner struct {
 	// 要从这里拼回去，不能落进副本。
 	fixedWorkDir string
 
+	// OnTurnStart 在某个成员即将起进程之前调用一次，参数是 agent id。
+	// 它是给人看的「思考中」信号，不参与记账、不参与判定：serve 收到之后
+	// 只往内存事件表追加一帧 SSE，绝不把网络读者接在轮次路径上。
+	//
+	// 回调必须立即返回。它在 worker goroutine 上、该 (会话, 成员) 的闸
+	// 仍被持有的时候执行，所以回调里不得再调 Runner 的任何方法，否则
+	// 会在这把闸上自我阻塞。nil 时零开销，行为与没有这个字段时逐字节
+	// 一致——既有 REPL 路径不设它。
+	//
+	// 每个成员每一轮各调一次（汇总轮也是成员）。同一次运行里同一个成员
+	// 可能开始多次（多轮），事件照发；并发轮次里各成员的调用顺序不做
+	// 保证，能保证的是「本成员的 turn_started 一定早于本成员的 turn」。
+	OnTurnStart func(agentID string)
+
 	// gatesMu 只护 gates 这张 map 的 get-or-create。临界区里只做 map
 	// 读写，拿完立刻放，绝不在持有它时做 IO，也绝不在持有它时去取
 	// g.mu —— 否则 Ask 整轮持有 g.mu 再回头碰 map，就和旧的全局锁
@@ -715,6 +729,16 @@ func (r *Runner) askUpToWith(ctx context.Context, convID, agentID string, upTo i
 	// 落点在 spawnCtx 之前，没有 cancel() 要管。
 	if err := r.svc.SetInflightPhase(ctx, rec.TurnID, conversation.PhaseSpawned); err != nil {
 		return r.refuse(ctx, &rec, st, began, fmt.Errorf("set inflight phase spawned: %w", err))
+	}
+
+	// 「思考中」信号必须落在 spawn 之前：spawn 是同步等待，放在它后面
+	// 就只能等进程跑完才发，浏览器看到的是「已结束」而不是「正在想」。
+	// 这里已经过了 Runner 自己的全部起进程前拒绝（配置、权限、指纹、
+	// 游标、落盘闸）；spawnProcess 内部还可能因为命令行超长、shim
+	// 参数含换行、身份文件写不进去而失败，那些轮次会先看到一条
+	// turn_started 再看到一条失败 turn——那是诚实的"尝试过"，不是谎报。
+	if r.OnTurnStart != nil {
+		r.OnTurnStart(agentID)
 	}
 
 	spawnCtx, cancel := context.WithTimeout(ctx, timeout)

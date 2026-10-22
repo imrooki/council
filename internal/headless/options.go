@@ -30,10 +30,29 @@ type Options struct {
 	JSON         bool
 	Verbose      bool
 
+	// Context 是"相关资料"的路径清单：只拼进落库的问题正文，不读文件、
+	// 不扩权限。会话标题仍然取 Prompt 本身，不受它影响——否则 /conv
+	// 列表里每条都叫「相关资料…」。
+	//
+	// 空切片是既有行为（正文就是 Prompt）。
+	Context []string
+
 	// Workspace 是 -workspace 的仓库根。非空时成员在
 	// <data_dir>\workspaces\<convID> 的隔离副本里跑，跑完把 diff 放回
 	// Result.Workspace；不改原仓库、不自动 apply。空串是既有行为。
 	Workspace string
+
+	// Cwd 是这一轮所有成员（含汇总成员）共用的固定工作目录，由
+	// `council serve -rw` 的工作台请求填进来。空串保持既有行为：每个
+	// agent 按 agentWorkDir 分目录（read 不带 convID、workspace 及以上
+	// 带 convID）。非空时走与 -workspace 副本同一套 turn.Runner 固定
+	// 目录模式，角色文件仍落在 <data_dir>/workdir/<agentID>，不落进
+	// 这个目录。
+	//
+	// 这里不校验目录存不存在、是不是绝对路径：那是服务层的请求校验
+	// （400 要在建任务之前给出）。真正的构造失败由 NewRunnerFixedWorkDir
+	// 返回，折成一次执行错误。
+	Cwd string
 
 	// ConfigPath 是 -config 的值。它不属于 ask 的语义，但 main 只能从这一层
 	// 拿到它再去调 app.Run；app.Options 里同名字段就是从这里填的。
@@ -62,6 +81,17 @@ type Deps struct {
 	// 「切到哪个会话」；只靠 OnRecord 要等一轮回来才知道 id，进度页会长时间
 	// 没有目标。nil 时零开销；与 OnRecord 一样在主 goroutine 上同步调用。
 	OnStart func(conversationID string)
+
+	// OnTurnStart 在某个成员即将起进程之前调一次，参数是 agent id，用来
+	// 给浏览器点「思考中」的灯。它由 turn.Runner.OnTurnStart 转发，位置、
+	// 并发语义与「非阻塞」的约束都在那个字段的注释里。
+	//
+	// nil 时 headless 一次都不设 Runner.OnTurnStart，行为与没有这个字段
+	// 时逐字节一致。非 nil 且 opts.Cwd 为空时，headless 没有新 Runner 可
+	// 挂，只能写到调用方传入的 Deps.Rn 上：那种组合要求 Deps.Rn 是本次
+	// 运行独占的，共享 Runner 上并发写就是一条数据竞争（serve 每个 job
+	// 都会传非空 Cwd，因此总是现造一个固定目录 Runner）。
+	OnTurnStart func(agentID string)
 }
 
 // UsageError 是「命令行用错了」这一档的哨兵。退出码 2 只认它，

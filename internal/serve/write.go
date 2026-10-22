@@ -18,11 +18,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,6 +58,14 @@ var (
 // 已经远超任何正常提问；设上限是为了不让人把一个流式请求挂在这里。
 const maxAskBody = 1 << 20
 
+const (
+	// maxContextPaths / maxContextPathBytes 是任务书 §2 对 context 的两道
+	// 硬上限。它们是请求校验，不是执行限制：超了直接 400，不截断——
+	// 悄悄扔掉第 21 条会让用户以为成员看到了全部资料。
+	maxContextPaths     = 20
+	maxContextPathBytes = 512
+)
+
 // WriteDeps 是写模式需要的全部装配结果。它由 serve.Run 在拿到排他锁、
 // 加载配置与规则之后填，与 internal/app/app.go 的装配逐项对应
 // （docs/21d_SRV4_M2_TASK.md §2）。
@@ -67,6 +77,15 @@ type WriteDeps struct {
 	// ProjectDir 与 app.Run 里那个同义：从服务进程的启动目录规范化而来，
 	// 新会话据此归属项目，CLI 的 /resume 才能按同一个项目把它们列出来。
 	ProjectDir string
+	// ConfigPath 是本次启动实际解析到的配置文件绝对路径，只给
+	// GET /api/options 回给前端显示。空串表示装配方没有提供（直接构造
+	// Server 的测试），响应里就是空串，不拿默认路径去猜。
+	ConfigPath string
+	// Cwd 是 serve 进程的启动目录，也是 /api/ask 不传 cwd 时的默认值。
+	// 在 runWritable 里取一次存下来：请求处理期间再调 os.Getwd 拿到的是
+	// 同一件事，但进程若被别的代码 chdir 过（本仓库没有，防的是下一个人），
+	// 两次请求之间默认值就会漂。
+	Cwd string
 }
 
 // EnableWrite 把 Server 切到写模式。调用方必须先打开可写库、装配好
@@ -119,7 +138,7 @@ func (s *Server) drainJobs(ctx context.Context) error {
 // store.Open（拿 council.lock、跑迁移）-> 照 app.Run 装配 Service/Runner ->
 // 交给与只读模式共用的 HTTP 生命周期。
 func runWritable(ctx context.Context, opts Options, version string, out, errOut io.Writer) error {
-	cfg, rules, dataDir, err := loadWriteConfig(opts.ConfigPath)
+	cfg, rules, dataDir, configPath, err := loadWriteConfig(opts.ConfigPath)
 	if err != nil {
 		return err
 	}
@@ -161,8 +180,12 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 
 	// 启动目录决定新会话的项目归属，与 CLI 用同一个 NormalizeProjectDir，
 	// 网页里建的会话才能被同一个项目下的 /resume 看到。
+	// 同一个值也是工作台的默认 cwd（/api/options 的 cwd、/api/ask 不传
+	// cwd 时成员跑的那个目录），所以只取一次、两处共用。
 	projectDir := ""
+	cwd := ""
 	if wd, wdErr := os.Getwd(); wdErr == nil {
+		cwd = wd
 		projectDir = repl.NormalizeProjectDir(wd)
 	}
 
@@ -174,6 +197,8 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 		Rn:         rn,
 		DataDir:    dataDir,
 		ProjectDir: projectDir,
+		ConfigPath: configPath,
+		Cwd:        cwd,
 	})
 	// drainJobs 必须在 st.Close() 之前跑完：runWritable 的 defer 在
 	// listenAndServe 返回后立刻关库放锁，而这时后台议会可能还在写。
@@ -205,31 +230,33 @@ func reconcileLostTurns(ctx context.Context, rn *turn.Runner, errOut io.Writer) 
 // 需要完整配置（agents / providers / summary）与规则文件，缺一个都跑不了
 // 议会，所以配置缺失必须直接报错，不能像只读模式那样回落到一个空
 // models 表。错误文本沿用 app.Run 的措辞，用户在两处看到的是同一句话。
-func loadWriteConfig(configPath string) (*config.Config, config.Rules, string, error) {
+func loadWriteConfig(configPath string) (*config.Config, config.Rules, string, string, error) {
 	path, err := config.ResolveConfigPath(configPath)
 	if err != nil {
-		return nil, config.Rules{}, "", fmt.Errorf("无法确定配置文件位置: %w", err)
+		return nil, config.Rules{}, "", "", fmt.Errorf("无法确定配置文件位置: %w", err)
 	}
 	if _, statErr := os.Stat(path); statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
-			return nil, config.Rules{}, "", fmt.Errorf(
+			return nil, config.Rules{}, "", "", fmt.Errorf(
 				"配置文件不存在: %s（council serve -rw 需要完整配置：data_dir、agent 与 provider 命令）", path)
 		}
-		return nil, config.Rules{}, "", fmt.Errorf("查看配置文件 %s: %w", path, statErr)
+		return nil, config.Rules{}, "", "", fmt.Errorf("查看配置文件 %s: %w", path, statErr)
 	}
 	cfg, err := config.LoadAndValidate(path)
 	if err != nil {
-		return nil, config.Rules{}, "", fmt.Errorf("加载配置失败 (%s): %w", path, err)
+		return nil, config.Rules{}, "", "", fmt.Errorf("加载配置失败 (%s): %w", path, err)
 	}
 	rules, err := config.LoadRules(path, cfg.RulesFile)
 	if err != nil {
-		return nil, config.Rules{}, "", fmt.Errorf("加载规则文件失败: %w", err)
+		return nil, config.Rules{}, "", "", fmt.Errorf("加载规则文件失败: %w", err)
 	}
 	dataDir, err := config.ResolveDataDir(cfg.DataDir)
 	if err != nil {
-		return nil, config.Rules{}, "", fmt.Errorf("解析数据目录失败: %w", err)
+		return nil, config.Rules{}, "", "", fmt.Errorf("解析数据目录失败: %w", err)
 	}
-	return cfg, rules, dataDir, nil
+	// path 一并交回：GET /api/options 要让前端看到"我读的是哪份配置"，
+	// 而 runWritable 手里只有这份解析结果，不该为了一个展示字段再解析一遍。
+	return cfg, rules, dataDir, path, nil
 }
 
 // modelsFromConfig 给只读端点用的 agent id -> model 映射；写模式与只读
@@ -243,6 +270,107 @@ func modelsFromConfig(cfg *config.Config) map[string]string {
 		models[id] = ac.Model
 	}
 	return models
+}
+
+// ---- GET /api/options ----
+
+// agentOption 是工作台里一个可勾选的成员。permission / mode 取配置原文，
+// 不在服务层翻译成中文或布尔：前端的权限闸与成员筛选都按配置的枚举值走，
+// 翻译一次就多了一处会与 config 校验漂移的映射。
+type agentOption struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	Provider    string `json:"provider"`
+	Model       string `json:"model"`
+	Effort      string `json:"effort"`
+	Permission  string `json:"permission"`
+	Mode        string `json:"mode"`
+	// Active 表示"当前配置里可用"。配置里的 agent 就是启动时校验通过的
+	// 全部成员，没有第二个启停状态，所以恒为 true；字段留着是因为前端
+	// 要按它渲染禁用态，而"配置里没有"与"配置里有但停用"是两种画法。
+	Active bool `json:"active"`
+}
+
+type teamOption struct {
+	ID      string   `json:"id"`
+	Members []string `json:"members"`
+}
+
+// optionsResponse 是 GET /api/options 的完整响应。所有切片都先做成非 nil：
+// 空配置时前端应该拿到 []，不是 null。
+type optionsResponse struct {
+	Cwd          string        `json:"cwd"`
+	ConfigPath   string        `json:"config_path"`
+	SummaryAgent string        `json:"summary_agent"`
+	Agents       []agentOption `json:"agents"`
+	Teams        []teamOption  `json:"teams"`
+}
+
+// handleOptions 一次交出工作台画界面需要的全部静态信息。
+//
+// 它只在 -rw 下可用：只读模式的 Server 没有 Cfg，也没有"这一轮能问谁"
+// 的配置来源，返回一份空表比 405 更容易让前端误以为"配置里没有人"。
+func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
+	if s.write == nil {
+		w.Header().Set("Allow", http.MethodGet)
+		writeError(w, http.StatusMethodNotAllowed,
+			"只读模式没有工作台接口：用 council serve -rw 启动才能跑议会")
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeError(w, http.StatusMethodNotAllowed, "只支持 GET")
+		return
+	}
+
+	resp := optionsResponse{
+		Cwd:        s.workbenchCwd(),
+		ConfigPath: s.write.ConfigPath,
+		Agents:     []agentOption{},
+		Teams:      []teamOption{},
+	}
+	cfg := s.write.Cfg
+	if cfg == nil {
+		// -rw 装配一定带配置；直接构造 Server 的测试可能给 nil。
+		// 不 panic，也不编一份默认 agent 表：空表就是"没有可选的"。
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	resp.SummaryAgent = cfg.Summary.Agent
+	agentIDs := make([]string, 0, len(cfg.Agents))
+	for id := range cfg.Agents {
+		agentIDs = append(agentIDs, id)
+	}
+	sort.Strings(agentIDs)
+	for _, id := range agentIDs {
+		ac := cfg.Agents[id]
+		resp.Agents = append(resp.Agents, agentOption{
+			ID:          id,
+			DisplayName: ac.DisplayName,
+			Provider:    ac.Provider,
+			Model:       ac.Model,
+			Effort:      ac.Effort,
+			Permission:  string(ac.Permissions),
+			Mode:        string(ac.Mode),
+			Active:      true,
+		})
+	}
+
+	teamIDs := make([]string, 0, len(cfg.Teams))
+	for id := range cfg.Teams {
+		teamIDs = append(teamIDs, id)
+	}
+	sort.Strings(teamIDs)
+	for _, id := range teamIDs {
+		members := cfg.Teams[id].Members
+		if members == nil {
+			members = []string{}
+		}
+		resp.Teams = append(resp.Teams, teamOption{ID: id, Members: members})
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // ---- 任务表 ----
@@ -264,6 +392,13 @@ type jobEvent struct {
 // 网络上：emit 只拿一小会儿锁、追加一个值就返回。
 type job struct {
 	id string
+
+	// ctx / cancel 是这个 job 自己的取消句柄。父 ctx 是 Server.jobCtx
+	// （进程级关闭才会取消它），这一层单独一颗取消按钮：POST
+	// /api/jobs/{id}/cancel 只能停这一场议会，不能把别人的也停掉。
+	// cancel 是 context.CancelFunc，可以重复调用；重复取消因此天然幂等。
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	mu       sync.Mutex
 	events   []jobEvent
@@ -391,6 +526,18 @@ type askRequest struct {
 	Summary        string   `json:"summary"`
 	BudgetUSD      *float64 `json:"budget_usd"`
 	TimeoutSeconds *float64 `json:"timeout_seconds"`
+
+	// Cwd 是这一轮成员的工作目录。空串＝serve 进程的启动目录（与
+	// GET /api/options 的 cwd 同一个值），非空必须是绝对且存在的目录。
+	// 它只换 Runner 的固定工作目录，不做进程级 chdir。
+	Cwd string `json:"cwd"`
+	// Workspace 为 true 时把 Cwd 当 git 仓库根，走既有的 -workspace
+	// 隔离副本路径。为 true 而 Cwd 不是仓库根在请求阶段就回 400。
+	Workspace bool `json:"workspace"`
+	// Context 是"相关资料"的路径清单，只拼进 prompt 的一段前置说明，
+	// 不读文件内容、不扩权限。最多 20 条、每条不超过 512 字节，
+	// 每一条必须是绝对路径。
+	Context []string `json:"context"`
 }
 
 type askResponse struct {
@@ -399,6 +546,10 @@ type askResponse struct {
 
 type startedEvent struct {
 	ConversationID string `json:"conversation_id"`
+}
+
+type turnStartedEvent struct {
+	AgentID string `json:"agent_id"`
 }
 
 type turnEvent struct {
@@ -418,6 +569,13 @@ type doneEvent struct {
 
 type errorEvent struct {
 	Message string `json:"message"`
+}
+
+// cancelResponse 与任务书 §3 的 {"cancelled":true} 逐字一致。即使 job
+// 已经结束、cancel 是空操作，也回 true：这个端点回答的是「这个 job
+// 现在不会再继续跑了」，不是「这次调用真的中断了一个正在跑的进程」。
+type cancelResponse struct {
+	Cancelled bool `json:"cancelled"`
 }
 
 // writeGuardError 让 checkWriteRequest 能同时带回 HTTP 状态码与中文说明。
@@ -450,7 +608,14 @@ func checkWriteRequest(r *http.Request) error {
 			message: "写接口要求 Content-Type: application/json",
 		}
 	}
+	return checkWriteOrigin(r)
+}
 
+// checkWriteOrigin 只做同源的两道确认，不要求 JSON 请求体。取消端点
+// 用它：POST /api/jobs/{id}/cancel 没有字段，浏览器发一个空 body 的
+// fetch 是完全正常的写法，要求 Content-Type: application/json 只会
+// 把正常前端挡在外面；跨站页面的 Origin / Sec-Fetch-Site 仍然挡得住。
+func checkWriteOrigin(r *http.Request) error {
 	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
 		u, parseErr := url.Parse(origin)
 		if parseErr != nil || u.Host == "" || !strings.EqualFold(u.Host, r.Host) {
@@ -520,6 +685,14 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// cwd / workspace / context 三道扩展在基础校验之后做：
+	//   - 先 Validate 保证"空问题 + context"不会因为拼了前置说明就混过去；
+	//   - workspace=true 要跑一次 git（子进程 + 文件系统），这是请求里
+	//     唯一需要 IO 的校验，放在最便宜的检查后面，坏请求不必等 git。
+	if err := s.applyAskScopes(r.Context(), req, &opts); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	id, err := newJobID()
 	if err != nil {
@@ -527,6 +700,16 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	j := newJob(id)
+	// 每个 job 一颗自己的取消按钮，父 ctx 是进程级的 jobCtx。
+	// 先建好再进 goroutine：POST /api/jobs/{id}/cancel 可能在 202 返回的
+	// 同一毫秒到达，此刻 j.cancel 必须已经非 nil。
+	parent := s.jobCtx
+	if parent == nil {
+		// EnableWrite 一定会建 jobCtx；这里是给直接构造 Server 的测试
+		// 留的兜底，免得一个装配疏漏变成 nil ctx 的 panic。
+		parent = context.Background()
+	}
+	j.ctx, j.cancel = context.WithCancel(parent)
 	s.jobs.add(j)
 	// 议会挂 s.jobCtx，不挂请求的 ctx：浏览器关掉页面时 r.Context() 会
 	// 取消，但已经花出去的钱与正在跑的成员不该跟着作废。s.jobCtx 只在
@@ -587,13 +770,116 @@ func optionsFromAsk(req askRequest) (headless.Options, error) {
 	}, nil
 }
 
+// applyAskScopes 把 §2 的三个新字段翻译进 headless.Options：
+// cwd（成员工作目录，空＝serve 的启动目录）、workspace（在 git 仓库的
+// 隔离副本里跑）、context（只拼进 prompt 的路径清单）。
+//
+// 全部校验都在这里、都在建任务之前完成：这三样里任何一样非法，调用方
+// 拿到的必须是一个干净的 400，而不是先收 202 再在 SSE 上看 error。
+func (s *Server) applyAskScopes(ctx context.Context, req askRequest, opts *headless.Options) error {
+	cwd, err := s.resolveAskCwd(req.Cwd)
+	if err != nil {
+		return err
+	}
+	// 空 cwd 也在这一层被填成 serve 的启动目录。headless 那边空串的含义
+	// 不同（保持 CLI 的 agentWorkDir 分目录行为），所以默认值必须在服务层
+	// 落地，不能留给 headless 猜。
+	opts.Cwd = cwd
+
+	contextPaths, err := normalizeAskContext(req.Context)
+	if err != nil {
+		return err
+	}
+	// 路径清单交给 headless 拼：会话标题取的是 opts.Prompt，如果在这里
+	// 就把清单拼进去，标题会变成「相关资料（请自行按路径读取）…」。
+	opts.Context = contextPaths
+
+	if req.Workspace {
+		// 复用 -workspace 的那道判据（git rev-parse 与项目路径规范化），
+		// 不在这里另写一份"目录里有没有 .git"——那会把子目录、bare 仓库、
+		// 符号链接这些情况判成与 CLI 不同的答案。
+		root, rootErr := headless.WorkspaceRepoRoot(ctx, cwd)
+		if rootErr != nil {
+			return fmt.Errorf("workspace=true 要求 cwd 是 git 仓库根：%w", rootErr)
+		}
+		opts.Workspace = root
+	}
+	return nil
+}
+
+// resolveAskCwd 校验并规范化 cwd。空串取 serve 的启动目录；非空必须是
+// 绝对路径、存在的目录。只读端点不需要它，所以不放进 headless.Validate：
+// 那个函数被 CLI 共用，不该认识 HTTP 层的默认值。
+func (s *Server) resolveAskCwd(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		cwd := s.workbenchCwd()
+		if cwd == "" {
+			return "", fmt.Errorf("无法确定 serve 的工作目录")
+		}
+		return cwd, nil
+	}
+	if !filepath.IsAbs(raw) {
+		return "", fmt.Errorf("cwd 必须是绝对路径：%q", raw)
+	}
+	clean := filepath.Clean(raw)
+	info, err := os.Stat(clean)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("cwd 目录不存在：%s", clean)
+		}
+		return "", fmt.Errorf("cwd 目录不可用：%s：%w", clean, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("cwd 不是目录：%s", clean)
+	}
+	return clean, nil
+}
+
+// workbenchCwd 是 serve 的启动目录。runWritable 启动时存了一份；直接
+// 构造 Server 的测试没有那一份，回落到 os.Getwd，与生产同一个来源。
+func (s *Server) workbenchCwd() string {
+	if s.write != nil {
+		if cwd := strings.TrimSpace(s.write.Cwd); cwd != "" {
+			return cwd
+		}
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return wd
+}
+
+// normalizeAskContext 校验 context 清单。只做任务书允许的三件事：
+// 条数、单条字节数、绝对路径；不读文件、不判断存在性、不判断是否在
+// 成员工作区里——那正是"请自行按路径读取"留给成员的解释空间。
+func normalizeAskContext(raw []string) ([]string, error) {
+	if len(raw) > maxContextPaths {
+		return nil, fmt.Errorf("context 最多 %d 条，实际 %d 条", maxContextPaths, len(raw))
+	}
+	out := make([]string, 0, len(raw))
+	for i, item := range raw {
+		path := strings.TrimSpace(item)
+		if len(path) > maxContextPathBytes {
+			return nil, fmt.Errorf("context 第 %d 条超过 %d 字节", i+1, maxContextPathBytes)
+		}
+		if !filepath.IsAbs(path) {
+			return nil, fmt.Errorf("context 第 %d 条必须是绝对路径：%q", i+1, path)
+		}
+		out = append(out, path)
+	}
+	return out, nil
+}
+
 // runAskJob 在后台跑一次议会。轮次、预算、汇总全部由 headless.Run 决定；
 // 本函数只把它的三个观察点（开始、每条记录、最终 JSON）搬成 SSE 事件。
 func (s *Server) runAskJob(j *job, opts headless.Options) {
-	// defer 顺序（LIFO）：scheduleJobCleanup 最后注册、最先执行；
-	// recover 其次；jobsWG.Done 最先注册、最后执行。清理排在 recover
-	// 之前，是为了让 recover 也能接住清理自身可能出现的 panic；而关闭
-	// 流程以 jobsWG 归零作为「可以关库」的信号，所以它必须最后发生。
+	// defer 顺序（LIFO）：job 的 cancel 最后注册、最先执行；然后是
+	// scheduleJobCleanup；recover 其次；jobsWG.Done 最先注册、最后执行。
+	// 清理排在 recover 之前，是为了让 recover 也能接住清理自身可能出现的
+	// panic；而关闭流程以 jobsWG 归零作为「可以关库」的信号，所以它必须
+	// 最后发生。
 	defer s.jobsWG.Done()
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -610,6 +896,12 @@ func (s *Server) runAskJob(j *job, opts headless.Options) {
 		}
 	}()
 	defer s.scheduleJobCleanup(j.id)
+	// 正常收尾也释放 job 自己的 ctx：headless 内部的 WithTimeout 已经
+	// cancel 过，但那个 cancel 管不到这一层；不释放的话每跑完一个 job
+	// 都会在父 ctx 上留一个永远不会触发的子 ctx，直到服务退出。
+	if j.cancel != nil {
+		defer j.cancel()
+	}
 
 	opts.JSON = true
 	var buf bytes.Buffer
@@ -629,6 +921,11 @@ func (s *Server) runAskJob(j *job, opts headless.Options) {
 		OnStart: func(convID string) {
 			j.emit("started", startedEvent{ConversationID: convID})
 		},
+		// 成员进程真正启动之前推一帧。它只往内存事件表追加，不碰网络；
+		// 浏览器断线时 job 仍在跑，事件也还在历史里，重连能补发。
+		OnTurnStart: func(agentID string) {
+			j.emit("turn_started", turnStartedEvent{AgentID: agentID})
+		},
 		OnRecord: func(rec turn.Record) {
 			j.emit("turn", turnEvent{
 				AgentID: rec.AgentID,
@@ -639,10 +936,14 @@ func (s *Server) runAskJob(j *job, opts headless.Options) {
 		},
 	}
 
-	runCtx := s.jobCtx
+	// 跑这一场的 ctx 是 job 自己的：取消按钮只停这一场。直接构造 Server
+	// 的测试可能没走 handleAsk（因此没有 j.ctx），回落到进程级 jobCtx，
+	// 再退到 Background，与既有兜底同一条路。
+	runCtx := j.ctx
 	if runCtx == nil {
-		// EnableWrite 一定会建 jobCtx；这里是给直接构造 Server 的测试
-		// 留的兜底，免得一个装配疏漏变成 nil ctx 的 panic。
+		runCtx = s.jobCtx
+	}
+	if runCtx == nil {
 		runCtx = context.Background()
 	}
 	runErr := headless.Run(runCtx, deps, opts)
@@ -753,28 +1054,42 @@ func eventText(rec turn.Record) string {
 	return rec.DroppedText
 }
 
-// ---- GET /api/jobs/{id}/events ----
+// ---- /api/jobs/{id}/events 与 /api/jobs/{id}/cancel ----
 
+// handleJobPath 分发 /api/jobs/{id}/ 下面的两个子资源。只读模式的判断
+// 放在最前面：两个子资源都属于写模式能力，非 -rw 时统一回 405 并说明
+// 原因，不能落进 /api/ 的兜底变成「没有这个接口」的 404。
 func (s *Server) handleJobPath(w http.ResponseWriter, r *http.Request) {
 	if s.write == nil {
-		w.Header().Set("Allow", http.MethodGet)
+		w.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
 		writeError(w, http.StatusMethodNotAllowed,
 			"只读模式没有任务接口：用 council serve -rw 启动才能跑议会")
-		return
-	}
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		writeError(w, http.StatusMethodNotAllowed, "只支持 GET")
 		return
 	}
 
 	rest := strings.TrimPrefix(r.URL.Path, "/api/jobs/")
 	segments := strings.Split(rest, "/")
-	if len(segments) != 2 || segments[0] == "" || segments[1] != "events" {
+	if len(segments) != 2 || segments[0] == "" {
 		writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 		return
 	}
-	id := segments[0]
+	switch segments[1] {
+	case "events":
+		s.handleJobEvents(w, r, segments[0])
+	case "cancel":
+		s.handleJobCancel(w, r, segments[0])
+	default:
+		writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
+	}
+}
+
+// handleJobEvents 是 SSE 订阅口。方法不符时按既有口径回 405 + Allow。
+func (s *Server) handleJobEvents(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeError(w, http.StatusMethodNotAllowed, "只支持 GET")
+		return
+	}
 	j, ok := s.jobs.get(id)
 	if !ok {
 		writeError(w, http.StatusNotFound, "任务不存在: "+id)
@@ -823,6 +1138,40 @@ func (s *Server) handleJobPath(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// handleJobCancel 取消一个 job 的 ctx。已经跑完的成员结果不会被撤：
+// headless.Run 每轮结束就经 RecordTurn 落库，取消只影响还在飞的那些。
+//
+// 重复取消幂等：j.cancel 是 context.CancelFunc，第二次调用什么也不做，
+// 仍然回 202 + true——"这个 job 现在是取消状态"对两次请求都是真话。
+// 已经自然结束的 job 也接受取消（404 只表示这个 id 从未存在或已过
+// TTL），否则前端在 done 与 cancel 之间的竞态里会拿到一个吓人的 404。
+func (s *Server) handleJobCancel(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeError(w, http.StatusMethodNotAllowed, "只支持 POST")
+		return
+	}
+	if err := checkWriteOrigin(r); err != nil {
+		status := http.StatusForbidden
+		var guardErr *writeGuardError
+		if errors.As(err, &guardErr) {
+			status = guardErr.status
+		}
+		writeError(w, status, err.Error())
+		return
+	}
+
+	j, ok := s.jobs.get(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "任务不存在: "+id)
+		return
+	}
+	if j.cancel != nil {
+		j.cancel()
+	}
+	writeJSON(w, http.StatusAccepted, cancelResponse{Cancelled: true})
 }
 
 // writeSSEEvent 按 SSE 线格式写一帧：id 用于断线续传，event 是事件名，

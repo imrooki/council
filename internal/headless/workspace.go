@@ -23,6 +23,17 @@ import (
 // 塞进 JSON，改写进旁边一个文件，用 diff_path 指过去。
 const maxWorkspaceDiffBytes = 1 << 20
 
+// WorkspaceRepoRoot 是 workspaceRepoRoot 的导出版本，给 `council serve -rw`
+// 在**建任务之前**做同一道校验用：工作台请求里 workspace=true 而 cwd 不是
+// git 仓库根时，必须在 HTTP 层回 400，不能先开一个后台 job 再让 SSE 报错。
+//
+// 只导出这一道校验，不导出建副本：副本必须等会话 id 出来才能拼路径，
+// 那是 headless.Run 内部的事；serve 若自己复制一份 prepareWorkspace，
+// 两处对「同名副本已存在」「data_dir 为空」的处置早晚会漂。
+func WorkspaceRepoRoot(ctx context.Context, dir string) (string, error) {
+	return workspaceRepoRoot(ctx, dir)
+}
+
 // workspaceRepoRoot 校验 dir 是 git 仓库根，返回规范化后的根路径。
 // rev-parse 的输出与入参都走 repl.NormalizeProjectDir：与 /resume 的项目
 // 归属判断同一个口径，避免同一个仓库因盘符大小写或末尾分隔符被判成两个。

@@ -160,6 +160,25 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 		failed:    make(map[string]struct{}),
 	}
 
+	// 工作台指定了 cwd 时，成员（含汇总成员）全部在这一个目录里跑。
+	// 它复用 -workspace 副本那一套固定目录 Runner，而不是 chdir：chdir
+	// 是进程级的，同进程里并发的另一场议会会跟着换目录，而且启动目录
+	// 一旦变了就再也恢复不回去。
+	//
+	// 这一步刻意不依赖 convID（固定模式只换成员 cwd，不换 store、不换
+	// 会话），所以放在建会话之前；`-workspace` 的副本路径要等 convID
+	// 才能拼，仍在下面单独覆盖一次。两处都构造失败都折成执行错误，
+	// 而不是让成员悄悄退回某个默认目录。
+	if opts.Cwd != "" {
+		fixedRn, cwdErr := turn.NewRunnerFixedWorkDir(deps.Cfg, deps.Svc, opts.Cwd,
+			filepath.Join(deps.DataDir, "workdir"), deps.Rn.Rules())
+		if cwdErr != nil {
+			s.execErr = fmt.Errorf("构造固定工作目录 Runner 失败: %w", cwdErr)
+			return s.finish(statusError)
+		}
+		s.rn = fixedRn
+	}
+
 	convID := opts.Conversation
 	if convID == "" {
 		// 标题取问题正文：/conv 列表里能一眼认出这次 ask 问的是什么。
@@ -203,6 +222,14 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 		s.auditWorkspaceDrift(runCtx)
 	}
 
+	// 回调要挂在真正会跑成员的 Runner 上：cwd 固定目录与 workspace 副本
+	// 都会换 s.rn，所以只能在两处选择都做完之后设一次。nil 时不写字段
+	// ——对共享 Runner（`council ask` 的 CLI 路径）赋值本身就是一条会
+	// 改变既有行为的副作用。
+	if deps.OnTurnStart != nil {
+		s.rn.OnTurnStart = deps.OnTurnStart
+	}
+
 	active, err := deps.Svc.Participants(runCtx, convID, false)
 	if err != nil {
 		s.execErr = fmt.Errorf("列出成员失败: %w", err)
@@ -237,7 +264,7 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 		ConvID:   convID,
 		SenderID: conversation.ReservedSenderUser,
 		Kind:     conversation.KindUser,
-		Text:     opts.Prompt,
+		Text:     promptWithContext(opts),
 	}); postErr != nil {
 		s.execErr = fmt.Errorf("问题落库失败: %w", postErr)
 		return s.finish(statusError)
@@ -837,4 +864,27 @@ func outcomeName(o turn.Outcome) string {
 	default:
 		return "unknown"
 	}
+}
+
+// promptWithContext 把路径清单拼成问题正文的前置说明。措辞与 docs/22a §2
+// 逐字一致；每条之间只换行、不编号，路径里本来就可能带空格，编号只会让
+// 成员误以为那是路径的一部分。结尾空一行再开始原问题：让模型能看出
+// 「资料清单」与「任务正文」是两段。
+//
+// 只影响落库的正文；会话标题仍然取 Options.Prompt，否则 /conv 列表里
+// 每条都会叫「相关资料…」。
+func promptWithContext(opts Options) string {
+	if len(opts.Context) == 0 {
+		return opts.Prompt
+	}
+	var b strings.Builder
+	b.WriteString("相关资料（请自行按路径读取）：\n")
+	for _, path := range opts.Context {
+		b.WriteString("- ")
+		b.WriteString(path)
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
+	b.WriteString(opts.Prompt)
+	return b.String()
 }

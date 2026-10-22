@@ -91,6 +91,10 @@ func (s *Server) Handler() http.Handler {
 	// 原因，而不是被 /api/ 的兜底变成「没有这个接口」的 404。是否真正可用由
 	// handler 里的 s.write == nil 判断，路由本身不按模式分叉。
 	mux.HandleFunc("/api/ask", s.handleAsk)
+	// 工作台的静态选项：只在 -rw 下可用，判断与 /api/ask 同一个门
+	// （handler 里的 s.write == nil）。路由本身不按模式分叉，只读模式
+	// 才能回 405 + 说明而不是被 /api/ 兜底成 404。
+	mux.HandleFunc("/api/options", s.handleOptions)
 	mux.HandleFunc("/api/jobs/", s.handleJobPath)
 	mux.HandleFunc("/api/", s.handleAPINotFound)
 	mux.HandleFunc("/api", s.handleAPINotFound)
