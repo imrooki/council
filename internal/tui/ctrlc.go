@@ -122,3 +122,37 @@ func ctrlCExpireCmd(gen uint64) tea.Cmd {
 		return ctrlCExpireMsg{gen: gen}
 	})
 }
+
+// ctrlCPress 是 Ctrl-C 的本体：普通输入与复制模式（copyscreen.go）两条入口共用。
+//
+// 抽出来只为让复制模式复用同一段，21e 的语义一条不改：收口窗口里照旧挡住、
+// 不武装；其余情况要 2 秒内连按两次，第一次只武装并改状态栏，第二次才退出
+// 或取消本轮；已经取消过的这一轮再按也不重新武装。
+func (m Model) ctrlCPress() (Model, tea.Cmd) {
+	if m.finalizing {
+		return m, nil
+	}
+	if m.busy {
+		if m.canceling {
+			return m, nil
+		}
+		if m.ctrlCFresh(ctrlCCancel) {
+			m = m.ctrlCDisarm()
+			if m.cancel != nil {
+				m.cancel()
+			}
+			m.status = "正在取消"
+			m.canceling = true
+			return m, nil
+		}
+		m = m.ctrlCArm(ctrlCCancel)
+		return m, ctrlCExpireCmd(m.ctrlCGen)
+	}
+	if m.ctrlCFresh(ctrlCQuit) {
+		m = m.ctrlCDisarm()
+		m.status = "正在退出"
+		return m, m.quitCmd()
+	}
+	m = m.ctrlCArm(ctrlCQuit)
+	return m, ctrlCExpireCmd(m.ctrlCGen)
+}

@@ -179,10 +179,27 @@ func copyCommandArgs(text string) (string, bool) {
 // （不是 /copy，或者这个 Submitter 没有剪贴板能力）。
 //
 // 不进忙态：这一条只读库，没有一轮在跑，状态栏留给 copyDoneMsg 换成「已复制 N 个字符」。
+//
+// /copy --screen 是复制模式（copyscreen.go）的第二条入口，与 Ctrl+G 走同一个
+// startCopyScreen。参数形状仍由上面的 copyCommandArgs 一处解析。输入框照其余命令
+// 清空：命令已经按回车送出去了，退出复制模式之后它不该又冒回来。
 func (m Model) beginCopy(text string, cmds []tea.Cmd) (tea.Model, tea.Cmd, bool) {
 	args, ok := copyCommandArgs(text)
 	if !ok {
 		return m, nil, false
+	}
+	if args == "--screen" {
+		// 没有复制模式能力的 Submitter（测试里的假件）落到下面既有的 /copy 路径：
+		// "--screen" 会被当成非法条数，答复与今天逐字相同。
+		if _, ok := m.sub.(copyScreenSource); ok {
+			m.ta.Reset()
+			m.at = atState{}
+			next, load := m.startCopyScreen()
+			if load == nil {
+				return next, tea.Sequence(cmds...), true
+			}
+			return next, tea.Sequence(append(cmds, load)...), true
+		}
 	}
 	src, ok := m.sub.(copySource)
 	if !ok {

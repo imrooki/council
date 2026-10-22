@@ -40,7 +40,8 @@ func Run(ctx context.Context, r *repl.REPL, out *LineWriter, version string, in,
 	// 信号由 main 的 signal.NotifyContext 管，经 WithContext 进来。
 	// 不要换成 WithoutSignals：那个照常注册，只是收到之后忽略。
 	// 不设 alt-screen。v2 没有 tea.WithAltScreen()；alt-screen 是 tea.View 的字段，
-	// Model.View 已经把它写成 false（内联模式）。
+	// Model.View 平时把它写成 false（内联模式），只有复制模式那一帧临时写成 true
+	// （见 copyscreen.go 的 View 分支）。
 	p := tea.NewProgram(m,
 		tea.WithContext(ctx),
 		tea.WithInput(in),
@@ -194,4 +195,10 @@ func (a replAdapter) MentionCandidates(ctx context.Context) ([]repl.MentionCandi
 // 由 Model 在提交之前截下，再经这里取正文。读库只发生在这条 Cmd 的 goroutine 上。
 func (a replAdapter) CopyRecent(ctx context.Context, args string) (string, error) {
 	return a.r.CopyRecent(ctx, args)
+}
+
+// CopyScreen 原样转发，让 replAdapter 满足 copyScreenSource（TUI-2 的复制模式）。
+// 与 CopyRecent 同一条：读库只发生在这条 Cmd 的 goroutine 上，Update 里不碰 SQLite。
+func (a replAdapter) CopyScreen(ctx context.Context) ([]repl.CopyLine, bool, error) {
+	return a.r.CopyScreen(ctx)
 }

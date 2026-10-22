@@ -156,6 +156,9 @@ type Model struct {
 	copyStatusPrev string
 	// copyStatusText 是当前这条复制提示本身。到期时要靠它判断状态栏有没有被别的事件改写。
 	copyStatusText string
+	// copyScr 是复制模式（TUI-2，见 copyscreen.go）的状态。零值是「不在复制模式」，
+	// 所以非复制路径上 View 不会开备用屏，也不会挂 OnMouse。
+	copyScr copyScreenState
 	// finalizing 为真表示处在 submitDone 到收口之间的窗口。窗口里 Ctrl-C 与 Enter 被挡住。
 	finalizing bool
 	// pinCursor 为真时 View 把光标钉在表头行首。
@@ -281,6 +284,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 复制提示到期（见 copy.go）。代次对不上、或状态栏已被别的事件改写，都不写回。
 		return m.copyStatusExpire(msg), nil
 
+	case copyScreenLoadedMsg:
+		// 复制模式（见 copyscreen.go）的取数结果。空结果不进整屏，只改状态栏。
+		return m.copyScreenLoaded(msg)
+
 	case roundStartMsg:
 		if !m.busy {
 			return m, nil
@@ -357,6 +364,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateInput 处理表头四种消息以外的输入。这四种在上面已经返回，不交给 textarea。
 func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// 复制模式（copyscreen.go）在整屏上，按键与鼠标都归它；只有 WindowSizeMsg
+	// 交回下面既有的分支（宽高要更新，退出之后活区才对）。取数期间也算半个
+	// 复制模式：键盘要挡住，免得 Enter 与 CopyScreen 并发进同一个 REPL。
+	// 这一段必须在 @ 补全列表那一支前面：复制模式里没有输入框，列表也不在屏幕上。
+	if m.copyScr.on || m.copyScr.loading {
+		if next, cmd, handled := m.updateCopyScreen(msg); handled {
+			return next, cmd
+		}
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		width := msg.Width
@@ -440,6 +456,13 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		switch {
+		case isCopyScreenKey(msg):
+			// Ctrl+G 进复制模式（TUI-2，见 copyscreen.go）。必须排在 Ctrl-C 与
+			// 「输入框复制」那两支前面：它在 textarea 里没有绑定，落到 default
+			// 会被当成普通按键吞掉。@ 补全列表开着时也照样进：复制模式是另一屏，
+			// 退出后列表按原样回来。
+			return m.startCopyScreen()
+
 		case isCopyInputKey(msg):
 			// 输入框里的复制。必须排在 Ctrl-C 那一支前面：后者的判据是
 			// `Contains(ModCtrl) && Code == 'c'`，Ctrl+Shift+C 也满足，会让复制键
@@ -457,35 +480,8 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.copyInput(text)
 
 		case msg.Mod.Contains(tea.ModCtrl) && msg.Code == 'c':
-			// 列表不在屏幕上时的 Ctrl-C。收口窗口里照旧挡住，不武装。
-			// 其余情况要 2 秒内连按两次：第一次只武装并改状态栏，第二次才退出或取消。
-			// 已经取消过的这一轮再按也不重新武装。
-			if m.finalizing {
-				return m, nil
-			}
-			if m.busy {
-				if m.canceling {
-					return m, nil
-				}
-				if m.ctrlCFresh(ctrlCCancel) {
-					m = m.ctrlCDisarm()
-					if m.cancel != nil {
-						m.cancel()
-					}
-					m.status = "正在取消"
-					m.canceling = true
-					return m, nil
-				}
-				m = m.ctrlCArm(ctrlCCancel)
-				return m, ctrlCExpireCmd(m.ctrlCGen)
-			}
-			if m.ctrlCFresh(ctrlCQuit) {
-				m = m.ctrlCDisarm()
-				m.status = "正在退出"
-				return m, m.quitCmd()
-			}
-			m = m.ctrlCArm(ctrlCQuit)
-			return m, ctrlCExpireCmd(m.ctrlCGen)
+			// 列表不在屏幕上时的 Ctrl-C。语义见 ctrlCPress：复制模式下也走这一段。
+			return m.ctrlCPress()
 
 		case msg.Mod.Contains(tea.ModCtrl) && msg.Code == 'j':
 			m = m.ctrlCDisarm()
@@ -579,14 +575,30 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// View 生成内联活区。
+// View 生成内联活区；复制模式（copyscreen.go）下生成临时整屏。
 func (m Model) View() tea.View {
+	// 复制模式是唯一开备用屏与鼠标捕获的帧。渲染器逐帧比较 lastView
+	// （bubbletea v2.0.9 的 cursed_renderer.flush）：退出那一帧改回
+	// AltScreen=false + MouseModeNone，终端原生选中随之恢复。
+	if m.copyScr.on {
+		v := tea.NewView(m.copyScreenContent())
+		v.AltScreen = true
+		v.MouseMode = tea.MouseModeCellMotion
+		v.OnMouse = copyScreenOnMouse
+		return v
+	}
+
 	pop := m.atLines()
 	parts := append(append(m.chrome(), m.ta.View()), pop...)
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	v := tea.NewView(content)
 	// Council 使用内联模式，活区之外的原生回滚区必须保留。
 	v.AltScreen = false
+	// 平时必须显式声明不捕获鼠标：这是「不抢终端原生选中」的硬保证。
+	// MouseMode 的零值确实是 None，但这里写出来是给下一刀看的 ——
+	// 删掉这一行而某处又忘了复位，终端原生选中就废了，而且不会有任何编译错误。
+	v.MouseMode = tea.MouseModeNone
+	v.OnMouse = nil
 	if m.pinCursor {
 		v.Cursor = tea.NewCursor(0, 0)
 	} else if len(pop) > 0 {
