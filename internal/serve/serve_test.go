@@ -677,7 +677,7 @@ mode = "discussion"
 		t.Fatalf("写测试配置失败: %v", err)
 	}
 
-	gotDir, models, err := resolveDataDir(cfgPath)
+	gotDir, models, _, err := resolveDataDir(cfgPath)
 	if err != nil {
 		t.Fatalf("resolveDataDir 失败: %v", err)
 	}
@@ -688,7 +688,7 @@ mode = "discussion"
 		t.Errorf("agents.alpha.model = %q，期望 opus（map=%v）", models["alpha"], models)
 	}
 
-	if _, _, err := resolveDataDir(filepath.Join(dir, "missing.toml")); err == nil {
+	if _, _, _, err := resolveDataDir(filepath.Join(dir, "missing.toml")); err == nil {
 		t.Error("显式 -config 指向不存在的文件时期望报错")
 	}
 }

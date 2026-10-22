@@ -168,9 +168,16 @@ func Run(ctx context.Context, opts Options, version string) error {
 		return runWritable(ctx, opts, version, out, errOut)
 	}
 
-	dataDir, models, err := resolveDataDir(opts.ConfigPath)
+	dataDir, models, notices, err := resolveDataDir(opts.ConfigPath)
 	if err != nil {
 		return err
+	}
+	// 合并提示只在详细档打印。只读模式同样可能读到「项目层写了 data_dir
+	// 被忽略」，不说出来用户会以为看板打开了项目指定的库。
+	if opts.Verbose {
+		for _, note := range notices {
+			fmt.Fprintf(errOut, "council serve: %s\n", note)
+		}
 	}
 
 	st, err := store.OpenReadOnly(ctx, dataDir)
@@ -266,43 +273,51 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, open
 // resolveDataDir 复刻 app.Run「配置文件 -> data_dir」那一段，但不走首次运行。
 //
 // 首次运行会写配置、建目录，那两件事都在本片的「不写库、不建目录」之外。
-// 所以默认配置位置不存在时：不生成配置，直接按环境变量/内置默认回落，
+// 所以一份配置都没有时：不生成配置，直接按环境变量/内置默认回落，
 // 让 OpenReadOnly 用「库文件不存在，先跑一次 council」把用户指回终端。
 // 用户显式 -config 指了一个不存在的文件则不回落：那多半是打错了，
 // 静默换用一个别的数据目录会让看板看起来「空库」，比报错更难查。
-func resolveDataDir(configPath string) (string, map[string]string, error) {
-	path, err := config.ResolveConfigPath(configPath)
+//
+// 配置走合并版（项目层 + 全局层），与 app.Run 同一个口径：data_dir 只认
+// 非项目层，所以项目里写了它也不会让看板去开另一个库。
+//
+// notices 与 app.Run / serve -rw 同源，只给 Verbose 档；只读模式不打印它们
+// 也不会少读一份配置，打印出来只是让人知道项目里那个 data_dir 为什么没生效。
+func resolveDataDir(configPath string) (string, map[string]string, []string, error) {
+	layers, err := config.ResolveConfigLayers(configPath)
 	if err != nil {
-		return "", nil, fmt.Errorf("无法确定配置文件位置: %w", err)
+		return "", nil, nil, fmt.Errorf("无法确定配置文件位置: %w", err)
 	}
+	// ResolveConfigLayers 保证至少一条（一份都不存在时是全局位置的占位层）。
+	primary := layers[0].Path
 
-	if _, statErr := os.Stat(path); statErr != nil {
+	if _, statErr := os.Stat(primary); statErr != nil {
 		if !errors.Is(statErr, fs.ErrNotExist) {
-			return "", nil, fmt.Errorf("查看配置文件 %s: %w", path, statErr)
+			return "", nil, nil, fmt.Errorf("查看配置文件 %s: %w", primary, statErr)
 		}
 		if configPath != "" || os.Getenv(config.EnvConfigPath) != "" {
-			return "", nil, fmt.Errorf("配置文件不存在: %s", path)
+			return "", nil, nil, fmt.Errorf("配置文件不存在: %s", primary)
 		}
 		dataDir, err := config.ResolveDataDir("")
 		if err != nil {
-			return "", nil, fmt.Errorf("解析数据目录失败: %w", err)
+			return "", nil, nil, fmt.Errorf("解析数据目录失败: %w", err)
 		}
-		return dataDir, nil, nil
+		return dataDir, nil, nil, nil
 	}
 
-	cfg, err := config.LoadAndValidate(path)
+	merged, err := config.LoadMerged(layers)
 	if err != nil {
-		return "", nil, fmt.Errorf("加载配置失败 (%s): %w", path, err)
+		return "", nil, nil, fmt.Errorf("加载配置失败 (%s): %w", primary, err)
 	}
-	dataDir, err := config.ResolveDataDir(cfg.DataDir)
+	dataDir, err := config.ResolveDataDir(merged.Config.DataDir)
 	if err != nil {
-		return "", nil, fmt.Errorf("解析数据目录失败: %w", err)
+		return "", nil, nil, fmt.Errorf("解析数据目录失败: %w", err)
 	}
-	models := make(map[string]string, len(cfg.Agents))
-	for id, ac := range cfg.Agents {
+	models := make(map[string]string, len(merged.Config.Agents))
+	for id, ac := range merged.Config.Agents {
 		models[id] = ac.Model
 	}
-	return dataDir, models, nil
+	return dataDir, models, merged.Notices, nil
 }
 
 // listenURL 把监听器的实际地址拼成浏览器能打开的 URL。

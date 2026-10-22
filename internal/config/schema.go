@@ -100,6 +100,11 @@ type AgentConfig struct {
 	Role        string     `toml:"role"`
 	Permissions Permission `toml:"permissions"`
 	Mode        Mode       `toml:"mode"`
+	// Prompt 是整段系统提示，目前只有「从 Claude Code 只读导入」这一条路
+	// 会填它（frontmatter 之后的正文）。本片只解析、只透传：provider 层
+	// 不读这个字段，成员的提示注入是下一片的事。写进配置里也合法，只是
+	// 现在还不会生效——Validate 不校验它，与 Role 同待遇。
+	Prompt string `toml:"prompt"`
 }
 
 // TeamConfig 描述一个由 agent id 组成的团队。

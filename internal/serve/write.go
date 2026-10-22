@@ -86,6 +86,11 @@ type WriteDeps struct {
 	// 同一件事，但进程若被别的代码 chdir 过（本仓库没有，防的是下一个人），
 	// 两次请求之间默认值就会漂。
 	Cwd string
+	// ClaudeAgents 是从 Claude Code 的 .claude/agents 只读导入的成员，
+	// 由 runWritable 在启动时扫一次后放进这里（key 是 frontmatter 的 name）。
+	// 它们只活在内存里，不写回配置；/api/options 把它们合进 agents 并标
+	// source = "claude"。直接构造 WriteDeps 的测试不填这一项，行为与以前一致。
+	ClaudeAgents map[string]config.AgentConfig
 }
 
 // EnableWrite 把 Server 切到写模式。调用方必须先打开可写库、装配好
@@ -138,10 +143,16 @@ func (s *Server) drainJobs(ctx context.Context) error {
 // store.Open（拿 council.lock、跑迁移）-> 照 app.Run 装配 Service/Runner ->
 // 交给与只读模式共用的 HTTP 生命周期。
 func runWritable(ctx context.Context, opts Options, version string, out, errOut io.Writer) error {
-	cfg, rules, dataDir, configPath, err := loadWriteConfig(opts.ConfigPath)
+	wc, err := loadWriteConfig(opts.ConfigPath)
 	if err != nil {
 		return err
 	}
+	if opts.Verbose {
+		for _, note := range wc.notices {
+			fmt.Fprintf(errOut, "council serve: %s\n", note)
+		}
+	}
+	cfg, rules, dataDir, configPath := wc.cfg, wc.rules, wc.dataDir, wc.path
 
 	st, err := store.Open(ctx, dataDir)
 	if err != nil {
@@ -189,16 +200,28 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 		projectDir = repl.NormalizeProjectDir(wd)
 	}
 
+	// Claude Code 的 agents 是只读外部来源：启动时扫一次，结果只进内存。
+	// 扫的是 serve 进程的启动目录（与项目归属同一个 cwd），不是每个请求的
+	// cwd —— 工作台的 cwd 可以按请求变，成员列表不会跟着变，前端拿到的
+	// options 才是稳定的。
+	claudeAgents := config.ScanClaudeAgents(cwd, cfg.Agents)
+	if opts.Verbose {
+		for _, note := range claudeAgents.Notices {
+			fmt.Fprintf(errOut, "council serve: %s\n", note)
+		}
+	}
+
 	srv := NewServer(st, version, modelsFromConfig(cfg))
 	srv.Verbose = opts.Verbose
 	srv.EnableWrite(WriteDeps{
-		Cfg:        cfg,
-		Svc:        svc,
-		Rn:         rn,
-		DataDir:    dataDir,
-		ProjectDir: projectDir,
-		ConfigPath: configPath,
-		Cwd:        cwd,
+		Cfg:          cfg,
+		Svc:          svc,
+		Rn:           rn,
+		DataDir:      dataDir,
+		ProjectDir:   projectDir,
+		ConfigPath:   configPath,
+		Cwd:          cwd,
+		ClaudeAgents: claudeAgents.Agents,
 	})
 	// drainJobs 必须在 st.Close() 之前跑完：runWritable 的 defer 在
 	// listenAndServe 返回后立刻关库放锁，而这时后台议会可能还在写。
@@ -226,37 +249,61 @@ func reconcileLostTurns(ctx context.Context, rn *turn.Runner, errOut io.Writer) 
 		len(lost), marked)
 }
 
+// writeConfig 是写模式启动前半段解析出来的全部东西。
+// notices 是只给 Verbose 档的合并提示（例如项目层写了 data_dir 被忽略），
+// 由 runWritable 负责打印：读取配置的代码不该知道详细档开没开。
+type writeConfig struct {
+	cfg     *config.Config
+	rules   config.Rules
+	dataDir string
+	path    string
+	notices []string
+}
+
 // loadWriteConfig 是写模式与只读模式的 resolveDataDir 分开的一份：写模式
 // 需要完整配置（agents / providers / summary）与规则文件，缺一个都跑不了
 // 议会，所以配置缺失必须直接报错，不能像只读模式那样回落到一个空
 // models 表。错误文本沿用 app.Run 的措辞，用户在两处看到的是同一句话。
-func loadWriteConfig(configPath string) (*config.Config, config.Rules, string, string, error) {
-	path, err := config.ResolveConfigPath(configPath)
+//
+// 配置走合并版：项目层可以在不抄 provider 段的前提下只写 [agents.*] /
+// [teams.*] / [summary]。规则文件的相对路径按「写 rules_file 的那一层」
+// 解析（LoadMerged 交回 RulesFileBase），不是按最高优先层猜。
+func loadWriteConfig(configPath string) (writeConfig, error) {
+	layers, err := config.ResolveConfigLayers(configPath)
 	if err != nil {
-		return nil, config.Rules{}, "", "", fmt.Errorf("无法确定配置文件位置: %w", err)
+		return writeConfig{}, fmt.Errorf("无法确定配置文件位置: %w", err)
 	}
-	if _, statErr := os.Stat(path); statErr != nil {
+	// ResolveConfigLayers 保证至少一条（一份都不存在时是全局位置的占位层）。
+	primary := layers[0].Path
+	if _, statErr := os.Stat(primary); statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
-			return nil, config.Rules{}, "", "", fmt.Errorf(
-				"配置文件不存在: %s（council serve -rw 需要完整配置：data_dir、agent 与 provider 命令）", path)
+			return writeConfig{}, fmt.Errorf(
+				"配置文件不存在: %s（council serve -rw 需要完整配置：data_dir、agent 与 provider 命令）", primary)
 		}
-		return nil, config.Rules{}, "", "", fmt.Errorf("查看配置文件 %s: %w", path, statErr)
+		return writeConfig{}, fmt.Errorf("查看配置文件 %s: %w", primary, statErr)
 	}
-	cfg, err := config.LoadAndValidate(path)
+	merged, err := config.LoadMerged(layers)
 	if err != nil {
-		return nil, config.Rules{}, "", "", fmt.Errorf("加载配置失败 (%s): %w", path, err)
+		return writeConfig{}, fmt.Errorf("加载配置失败 (%s): %w", primary, err)
 	}
-	rules, err := config.LoadRules(path, cfg.RulesFile)
+	rules, err := config.LoadRules(merged.RulesFileBase, merged.Config.RulesFile)
 	if err != nil {
-		return nil, config.Rules{}, "", "", fmt.Errorf("加载规则文件失败: %w", err)
+		return writeConfig{}, fmt.Errorf("加载规则文件失败: %w", err)
 	}
-	dataDir, err := config.ResolveDataDir(cfg.DataDir)
+	dataDir, err := config.ResolveDataDir(merged.Config.DataDir)
 	if err != nil {
-		return nil, config.Rules{}, "", "", fmt.Errorf("解析数据目录失败: %w", err)
+		return writeConfig{}, fmt.Errorf("解析数据目录失败: %w", err)
 	}
-	// path 一并交回：GET /api/options 要让前端看到"我读的是哪份配置"，
+	// primary 一并交回：GET /api/options 要让前端看到"我读的是哪份配置"，
 	// 而 runWritable 手里只有这份解析结果，不该为了一个展示字段再解析一遍。
-	return cfg, rules, dataDir, path, nil
+	// 合并后有多层时展示最高优先层（项目层）；完整层列表不在本片的界面里。
+	return writeConfig{
+		cfg:     merged.Config,
+		rules:   rules,
+		dataDir: dataDir,
+		path:    primary,
+		notices: merged.Notices,
+	}, nil
 }
 
 // modelsFromConfig 给只读端点用的 agent id -> model 映射；写模式与只读
@@ -277,6 +324,11 @@ func modelsFromConfig(cfg *config.Config) map[string]string {
 // agentOption 是工作台里一个可勾选的成员。permission / mode 取配置原文，
 // 不在服务层翻译成中文或布尔：前端的权限闸与成员筛选都按配置的枚举值走，
 // 翻译一次就多了一处会与 config 校验漂移的映射。
+//
+// Source 说明这条定义从哪来：配置里的 agent 是 "config"，从 Claude Code
+// 的 .claude/agents 只读导入的是 "claude"。本片两者都能列出来，但只有
+// 配置里的成员能被 /api/ask 真正选中——Claude 来源的多这个字段，前端
+// 才能在不猜的情况下把两者画得不一样。
 type agentOption struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`
@@ -288,7 +340,29 @@ type agentOption struct {
 	// Active 表示"当前配置里可用"。配置里的 agent 就是启动时校验通过的
 	// 全部成员，没有第二个启停状态，所以恒为 true；字段留着是因为前端
 	// 要按它渲染禁用态，而"配置里没有"与"配置里有但停用"是两种画法。
-	Active bool `json:"active"`
+	Active bool   `json:"active"`
+	Source string `json:"source"`
+}
+
+// agentOption 的两个来源。用常量而不是散落的字面量：前端与用例都按这两个
+// 值分支，拼错一个字符会变成一条永远匹配不上的规则。
+const (
+	agentSourceConfig = "config"
+	agentSourceClaude = "claude"
+)
+
+func newAgentOption(id string, ac config.AgentConfig, source string) agentOption {
+	return agentOption{
+		ID:          id,
+		DisplayName: ac.DisplayName,
+		Provider:    ac.Provider,
+		Model:       ac.Model,
+		Effort:      ac.Effort,
+		Permission:  string(ac.Permissions),
+		Mode:        string(ac.Mode),
+		Active:      true,
+		Source:      source,
+	}
 }
 
 type teamOption struct {
@@ -330,47 +404,64 @@ func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
 		Teams:      []teamOption{},
 	}
 	cfg := s.write.Cfg
-	if cfg == nil {
-		// -rw 装配一定带配置；直接构造 Server 的测试可能给 nil。
-		// 不 panic，也不编一份默认 agent 表：空表就是"没有可选的"。
-		writeJSON(w, http.StatusOK, resp)
-		return
+	if cfg != nil {
+		resp.SummaryAgent = cfg.Summary.Agent
 	}
 
-	resp.SummaryAgent = cfg.Summary.Agent
-	agentIDs := make([]string, 0, len(cfg.Agents))
-	for id := range cfg.Agents {
-		agentIDs = append(agentIDs, id)
+	// 配置里的成员与 Claude 导入的成员合成一张表再排序，前端拿到的仍是
+	// 一份按 id 字典序的稳定列表；只排两段再接起来的话，Claude id 落在
+	// 配置 id 中间时顺序会乱。
+	configAgents := cfgAgents(cfg)
+	agents := make([]agentOption, 0, len(configAgents)+len(s.write.ClaudeAgents))
+	for _, id := range sortedAgentIDs(configAgents) {
+		agents = append(agents, newAgentOption(id, configAgents[id], agentSourceConfig))
 	}
-	sort.Strings(agentIDs)
-	for _, id := range agentIDs {
-		ac := cfg.Agents[id]
-		resp.Agents = append(resp.Agents, agentOption{
-			ID:          id,
-			DisplayName: ac.DisplayName,
-			Provider:    ac.Provider,
-			Model:       ac.Model,
-			Effort:      ac.Effort,
-			Permission:  string(ac.Permissions),
-			Mode:        string(ac.Mode),
-			Active:      true,
-		})
-	}
-
-	teamIDs := make([]string, 0, len(cfg.Teams))
-	for id := range cfg.Teams {
-		teamIDs = append(teamIDs, id)
-	}
-	sort.Strings(teamIDs)
-	for _, id := range teamIDs {
-		members := cfg.Teams[id].Members
-		if members == nil {
-			members = []string{}
+	for _, id := range sortedAgentIDs(s.write.ClaudeAgents) {
+		if _, ok := configAgents[id]; ok {
+			// 配置优先。ScanClaudeAgents 已经按 reserved 跳过了一遍，
+			// 这里再挡一次：直接构造 WriteDeps 的测试或将来别的装配方
+			// 可能绕过扫描，重复的 id 不该出现在响应里。
+			continue
 		}
-		resp.Teams = append(resp.Teams, teamOption{ID: id, Members: members})
+		agents = append(agents, newAgentOption(id, s.write.ClaudeAgents[id], agentSourceClaude))
+	}
+	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
+	resp.Agents = append(resp.Agents, agents...)
+
+	if cfg != nil {
+		teamIDs := make([]string, 0, len(cfg.Teams))
+		for id := range cfg.Teams {
+			teamIDs = append(teamIDs, id)
+		}
+		sort.Strings(teamIDs)
+		for _, id := range teamIDs {
+			members := cfg.Teams[id].Members
+			if members == nil {
+				members = []string{}
+			}
+			resp.Teams = append(resp.Teams, teamOption{ID: id, Members: members})
+		}
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// cfgAgents 容忍 nil 配置：只读装配不会走到 /api/options（s.write == nil
+// 已经挡在前面），但直接构造 Server 的测试可能给 nil Cfg，这里不让它 panic。
+func cfgAgents(cfg *config.Config) map[string]config.AgentConfig {
+	if cfg == nil {
+		return nil
+	}
+	return cfg.Agents
+}
+
+func sortedAgentIDs(agents map[string]config.AgentConfig) []string {
+	ids := make([]string, 0, len(agents))
+	for id := range agents {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // ---- 任务表 ----

@@ -114,12 +114,23 @@ func Run(ctx context.Context, opts Options) error {
 	// explicit 为真表示用户自己指定过配置位置：--config，或非空的 COUNCIL_CONFIG
 	// （空串与 ResolveConfigPath 同一口径，算没设）。
 	explicit := opts.ConfigPath != "" || os.Getenv(config.EnvConfigPath) != ""
+	layers, err := config.ResolveConfigLayers(opts.ConfigPath)
+	if err != nil {
+		fmt.Fprintf(errOut, "无法确定配置文件位置: %v\n", err)
+		fmt.Fprintf(errOut, "可以用 --config <path> 直接指定配置文件，或设置环境变量 %s 指向它。\n", config.EnvConfigPath)
+		return fmt.Errorf("解析配置文件路径失败: %w", err)
+	}
+
 	// 首次运行（#48）：走默认位置、而且那个文件不存在，才替用户生成配置。
 	// 用户指定了路径却找不到，多半是打错字，照旧报错、不建文件。
 	// Stat 的其它错误（例如没有权限、文件名不合法）不进首次运行，交给下面的
-	// LoadAndValidate 照常报。默认路径不是绝对路径（USERPROFILE 被设成了相对路径）时
+	// LoadMerged 照常报。默认路径不是绝对路径（USERPROFILE 被设成了相对路径）时
 	// 也不进：那样会在启动目录下建文件。
-	if !explicit && filepath.IsAbs(path) {
+	//
+	// 只在「没有任何项目层」时进：项目里已经有 .council/config.toml 时，用户
+	// 已经表达过配置在哪，不该再往家里写一份全局配置。layers 的长度与
+	// Project 标记正好编码了这个判断——一份都没有时它是一条非项目的全局占位层。
+	if !explicit && filepath.IsAbs(path) && onlyDefaultLayer(layers, path) {
 		if _, statErr := os.Stat(path); errors.Is(statErr, fs.ErrNotExist) {
 			if frErr := firstRun(ctx, errOut, path, opts.NoAuto); frErr != nil {
 				if errors.Is(frErr, errFirstRunCanceled) {
@@ -127,19 +138,39 @@ func Run(ctx context.Context, opts Options) error {
 				}
 				return frErr
 			}
+			// 首次运行刚把文件建好（或发现别人建好了），重新求一次层：
+			// 上面那份 layers 还是启动时「什么都没有」的快照。
+			layers, err = config.ResolveConfigLayers(opts.ConfigPath)
+			if err != nil {
+				fmt.Fprintf(errOut, "无法确定配置文件位置: %v\n", err)
+				fmt.Fprintf(errOut, "可以用 --config <path> 直接指定配置文件，或设置环境变量 %s 指向它。\n", config.EnvConfigPath)
+				return fmt.Errorf("解析配置文件路径失败: %w", err)
+			}
 		}
 	}
 
-	cfg, err := config.LoadAndValidate(path)
+	// 合并版加载：项目层覆盖全局层，最后跑同一套 Validate。Load 的单文件
+	// 语义保持不动（repl 的 /add 守卫与 /config reload 还在用它）。
+	primaryPath := layers[0].Path
+	merged, err := config.LoadMerged(layers)
 	if err != nil {
-		reportConfigError(errOut, path, err, explicit)
-		return fmt.Errorf("加载配置失败 (%s): %w", path, err)
+		reportConfigError(errOut, primaryPath, err, explicit)
+		return fmt.Errorf("加载配置失败 (%s): %w", primaryPath, err)
+	}
+	cfg := merged.Config
+	// 合并提示只进详细档：默认档静默，否则每次启动都多一行「项目里的
+	// data_dir 被忽略」，对没有写这个键的用户是纯噪声。
+	if opts.Verbose {
+		for _, note := range merged.Notices {
+			fmt.Fprintln(errOut, note)
+		}
 	}
 
 	// 规则文件跟着配置一起读，一次。读不出来与配置读不出来同一套处置：
 	// 写 Err、不进 REPL。把读失败当成空规则，会让一次 I/O 故障静默地把
 	// 成员的指令环境掏空，而下一轮照样花钱跑完、退出码 0（11 节 1.1）。
-	rules, err := config.LoadRules(path, cfg.RulesFile)
+	// 相对路径按定义 rules_file 的那一层解析，不是按最高优先层猜。
+	rules, err := config.LoadRules(merged.RulesFileBase, cfg.RulesFile)
 	if err != nil {
 		fmt.Fprintf(errOut, "规则文件读不出来: %v\n", err)
 		fmt.Fprintf(errOut, "全局规则找的是 %s（可用环境变量 %s 改），局部规则由配置里的 rules_file 指定。\n",
@@ -196,7 +227,13 @@ func Run(ctx context.Context, opts Options) error {
 	// 横幅与下面两类通知会把它变成「JSON 前面还有几行」的不可解析输出，
 	// 所以横幅整段不写，通知改走 errOut。
 	if opts.Headless == nil {
-		writeBanner(out, opts.Version, path, dataDir, st.Path(), convs, projectDir, cfg)
+		// 合并了多层时把其余层写在同一行：用户才看得出家目录那份配置也
+		// 参与了，不会以为项目文件里凭空多出了 provider。
+		shownConfigPath := primaryPath
+		if len(merged.Layers) > 1 {
+			shownConfigPath += "（合并 " + strings.Join(merged.Layers[1:], "、") + "）"
+		}
+		writeBanner(out, opts.Version, shownConfigPath, dataDir, st.Path(), convs, projectDir, cfg)
 	}
 	noticeOut := out
 	if opts.Headless != nil {
@@ -272,7 +309,7 @@ func Run(ctx context.Context, opts Options) error {
 			}
 		}
 	}
-	rulesCtx := repl.RulesContext{ConfigPath: path, RulesFile: cfg.RulesFile, Rules: rules}
+	rulesCtx := repl.RulesContext{ConfigPath: primaryPath, RulesFile: cfg.RulesFile, Rules: rules}
 	// headless 分支必须在 TUI / 行式 REPL 之前：它复用上面已经打开的库与
 	// 构造好的 Runner，只把控制权交给一次 ask，不再进任何读循环。
 	// rn 在 svc 为 nil 时是 nil，headless.Run 会把它报成错误退 1。
@@ -418,6 +455,14 @@ func writeLostNotice(out io.Writer, lost []turn.LostTurn, marked int) {
 		fmt.Fprintf(out, "  其余 %d 条已折叠\n", n-limit)
 	}
 	fmt.Fprintln(out)
+}
+
+// onlyDefaultLayer 判断 layers 是否只有「默认全局位置」这一条。
+// 它不判断文件是否存在：全局配置真的存在时也是这一条，后面的 os.Stat
+// 才是「要不要进首次运行」的那道门；这里只负责排除「有项目层」的情况——
+// 项目里已经有 .council/config.toml 时，不该再往家里写一份全局配置。
+func onlyDefaultLayer(layers []config.Layer, defaultPath string) bool {
+	return len(layers) == 1 && !layers[0].Project && layers[0].Path == defaultPath
 }
 
 // reportConfigError 把配置加载或校验的错误逐行写进 w。

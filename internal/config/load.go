@@ -14,28 +14,40 @@ import (
 // Load 读文件、解析 TOML、拒绝未知键、填缺省值、把 Permissions、Mode 与 thought_visible_to 规范成小写。
 // 不做跨引用校验。
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read config file %s: %w", path, err)
-	}
-
 	// StoreThought 默认 true，但它是裸 bool：toml.Decode 只在用户写了这个键时
 	// 才覆盖字段，没写就保留这里预置的值。若从 cfg := Config{} 的自然零值
 	// false 开始 Decode，用户省略该键时读出的就是 false —— 正好是默认值的
 	// 反面，而且没有任何报错。所以必须在 Decode 之前把默认值填好；
 	// 用户若显式写了 store_thought = false，Decode 会原样覆盖这里的预置值。
 	cfg := Config{StoreThought: true}
-	md, err := toml.Decode(string(data), &cfg)
-	if err != nil {
-		return nil, fmt.Errorf("parse config file %s: %w", path, err)
-	}
-	if err := unknownKeysError(path, md); err != nil {
+	if _, err := decodeConfigFile(path, &cfg); err != nil {
 		return nil, err
 	}
 
 	applyDefaults(&cfg)
 	ensureMaps(&cfg)
 	return &cfg, nil
+}
+
+// decodeConfigFile 读、解析一份 TOML 并拒绝未知键，把结果填进 cfg。
+//
+// 不做缺省填充、不做校验：Load 与 LoadMerged 对「缺省值什么时候生效」
+// 有不同要求 —— Load 必须让 StoreThought 的预置值参与 Decode，合并则要
+// 先按层判断某个键写没写、再决定谁覆盖谁。把这三步拆开，两边共用同一份
+// 读文件 / 报错 / 查未知键的实现，错误文案也只有一个出处。
+func decodeConfigFile(path string, cfg *Config) (toml.MetaData, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return toml.MetaData{}, fmt.Errorf("read config file %s: %w", path, err)
+	}
+	md, err := toml.Decode(string(data), cfg)
+	if err != nil {
+		return toml.MetaData{}, fmt.Errorf("parse config file %s: %w", path, err)
+	}
+	if err := unknownKeysError(path, md); err != nil {
+		return toml.MetaData{}, err
+	}
+	return md, nil
 }
 
 // LoadAndValidate 先 Load 再 Validate，任一步失败即返回该错误。
