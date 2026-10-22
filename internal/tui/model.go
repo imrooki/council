@@ -148,6 +148,14 @@ type Model struct {
 	ctrlCGen uint64
 	// ctrlCPrev 是武装前的状态栏。解除时状态栏仍是武装提示才写回去。
 	ctrlCPrev string
+	// copyStatusOn 为真表示状态栏此刻显示的是「已复制 N 个字符」这条提示（见 copy.go）。
+	copyStatusOn bool
+	// copyStatusGen 是复制提示的代次。到期消息带写它时的代次，对不上就丢掉。
+	copyStatusGen uint64
+	// copyStatusPrev 是写复制提示前的状态栏，到期且提示仍在屏幕上时写回它。
+	copyStatusPrev string
+	// copyStatusText 是当前这条复制提示本身。到期时要靠它判断状态栏有没有被别的事件改写。
+	copyStatusText string
 	// finalizing 为真表示处在 submitDone 到收口之间的窗口。窗口里 Ctrl-C 与 Enter 被挡住。
 	finalizing bool
 	// pinCursor 为真时 View 把光标钉在表头行首。
@@ -186,6 +194,11 @@ func New(opts Options) Model {
 	// 既不收起 @ 补全列表，也不把状态栏换成「粘贴了 N 个字符」（X44 的提示靠这一步换掉）。
 	// 解绑之后粘贴只剩终端的括号粘贴（tea.PasteMsg）一条路；终端把 Ctrl-V 原样交给程序时，它什么都不做。
 	ta.KeyMap.Paste.Unbind()
+	// Ctrl+Shift+C 的复制改由 Model 自己接管（见 copy.go 的 copyInput）：它要先取文本、
+	// 再自己发 tea.SetClipboard，才能顺带把「复制了多少字」写进状态栏。
+	// textarea 自带的 CopySelection 只写剪贴板、不给任何反馈，留着就是第二份逻辑
+	// （而且两份会各写一次剪贴板）。解绑之后键位上再也没有第二个处理者。
+	ta.KeyMap.CopySelection.Unbind()
 	// Focus 是指针方法，必须在局部变量上调用后再把完整值存入 Model。
 	focusCmd := ta.Focus()
 
@@ -263,6 +276,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m = m.ctrlCDisarm()
 		return m, nil
+
+	case copyStatusExpireMsg:
+		// 复制提示到期（见 copy.go）。代次对不上、或状态栏已被别的事件改写，都不写回。
+		return m.copyStatusExpire(msg), nil
 
 	case roundStartMsg:
 		if !m.busy {
@@ -386,6 +403,10 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pinCursor = m.floor > 0
 		return m, tea.Sequence(m.println(line), func() tea.Msg { return boardFinalizeMsg{} })
 
+	case copyDoneMsg:
+		// TUI 本地执行的 /copy 回来了（见 copy.go 的 beginCopy / copyDone）。
+		return m.copyDone(msg)
+
 	case tea.KeyPressMsg:
 		// @ 补全列表在屏幕上时，这六个键归它，不交给下面的既有分支：
 		// Ctrl-C 与 Esc 只收起列表（不退出、不取消、不改状态栏）；上下键移动选中项（到头不回绕）；
@@ -419,6 +440,22 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		switch {
+		case isCopyInputKey(msg):
+			// 输入框里的复制。必须排在 Ctrl-C 那一支前面：后者的判据是
+			// `Contains(ModCtrl) && Code == 'c'`，Ctrl+Shift+C 也满足，会让复制键
+			// 掉进「第一次武装退出」里去（19c 契约 A60 记的正是这个形状）。
+			// 列表开着时上面的分支已经截走这个键（只收起列表），到不了这里。
+			//
+			// 先算文本：空内容时连 Ctrl-C 的武装都不解除 —— 21e §3 要求这种情况
+			// 「不改状态栏」，而解除武装会把「再按一次 Ctrl-C 退出」换回复制前的文案，
+			// 等于一次空复制把用户正在等的第二次 Ctrl-C 撤掉了。
+			text := m.copyInputText()
+			if text == "" {
+				return m, nil
+			}
+			m = m.ctrlCDisarm()
+			return m.copyInput(text)
+
 		case msg.Mod.Contains(tea.ModCtrl) && msg.Code == 'c':
 			// 列表不在屏幕上时的 Ctrl-C。收口窗口里照旧挡住，不武装。
 			// 其余情况要 2 秒内连按两次：第一次只武装并改状态栏，第二次才退出或取消。
@@ -468,7 +505,49 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.beginSubmit()
 
 		case msg.Code == tea.KeyEscape:
+			// 列表开着时 Esc 在上面那一支已经截走（只收起列表），到不了这里。
 			m = m.ctrlCDisarm()
+			// 只有不带修饰键的 Esc 才有 21e 新增的两种动作（取消一轮、清空输入框）。
+			// 带修饰键的 Esc 保持原样：列表开着时它与无修饰时完全一样（19c F4 第 1 段钉着），
+			// 列表不在时它此前什么都不做，F4 第 2 段用同装置对照钉着「值不动、光标不动」。
+			// 清空是破坏性的（输入框没有撤销），绑到组合键上也更容易误触：
+			// Alt+Esc 在 Windows 是窗口切换、Ctrl+Esc 是开始菜单。
+			// 锁定键位不算修饰键：Windows 控制台会把 NumLock 这类状态也放进 Mod。
+			locks := tea.ModCapsLock | tea.ModNumLock | tea.ModScrollLock
+			if msg.Mod&^locks != 0 {
+				return m, nil
+			}
+			// 其余四种情形按优先级从上到下（21e §2）：
+			// 1. 收口窗口：什么都不做，与 Ctrl-C 在同一个窗口里被挡住一致。
+			if m.finalizing {
+				return m, nil
+			}
+			// 2. 一轮正在跑：取消它，一次就够（Ctrl-C 那条路仍然要连按两次，保留不动）。
+			//    已经取消过的不重复取消：cancel 第二次没有意义，而状态栏会闪一下。
+			if m.busy {
+				if m.canceling {
+					return m, nil
+				}
+				if m.cancel != nil {
+					m.cancel()
+				}
+				m.status = "正在取消"
+				m.canceling = true
+				return m, nil
+			}
+			// 3. 空闲、输入框有字：清空输入框、光标回开头，并关掉补全。
+			//    X44 挡下的多行草稿不算这一类：那句话的全部意义是「文字还在，改好再发」，
+			//    清掉之后用户没有任何办法找回这段文字（输入框没有撤销）。
+			//    整段只有空白时也算「有字」，用户敲了换行同样希望一次收干净。
+			if m.ta.Value() != "" {
+				if m.status == oneCommandHint {
+					return m, nil
+				}
+				m.ta.Reset()
+				m.at = atState{}
+				return m, nil
+			}
+			// 4. 空闲、输入框为空：Ctrl-C 的武装已经在上面解除，别的什么都不做。
 			return m, nil
 
 		default:
@@ -755,6 +834,14 @@ func (m Model) beginSubmit() (tea.Model, tea.Cmd) {
 	cmds := make([]tea.Cmd, 0, len(lines)+1)
 	for _, line := range lines {
 		cmds = append(cmds, m.println("> "+line))
+	}
+
+	// /copy 在 TUI 这一侧执行，不交给 Submit：剪贴板是终端的事（tea.SetClipboard 是一条
+	// 往终端写 OSC52 的 Cmd），REPL 的出口只有 io.Writer，命令函数拿不到 Program。
+	// 参数解析与取数仍在 registry.go 的 CopyRecent 里，两条入口只有一份。
+	// 回显照打（与其余命令一样），输入框照清，结果由 copyDoneMsg 写剪贴板并改状态栏。
+	if next, cmd, ok := m.beginCopy(text, cmds); ok {
+		return next, cmd
 	}
 
 	m.ta.Reset()

@@ -189,3 +189,9 @@ func (a replAdapter) IsQuit(err error) bool {
 func (a replAdapter) MentionCandidates(ctx context.Context) ([]repl.MentionCandidate, error) {
 	return a.r.MentionCandidates(ctx)
 }
+
+// CopyRecent 原样转发，让 replAdapter 满足 copySource：TUI 的 /copy 不交给 Submit，
+// 由 Model 在提交之前截下，再经这里取正文。读库只发生在这条 Cmd 的 goroutine 上。
+func (a replAdapter) CopyRecent(ctx context.Context, args string) (string, error) {
+	return a.r.CopyRecent(ctx, args)
+}

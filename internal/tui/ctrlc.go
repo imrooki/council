@@ -42,7 +42,12 @@ func (m Model) ctrlCClock() time.Time {
 // ctrlCArm 武装成 kind：记下当前状态栏、换成提示、记时刻、代次加一。
 // 已经武装且状态栏仍是提示时，记下的旧状态保持不变。
 // 超窗后到期消息还没到，再按一次会重新武装；这时状态栏还是提示，不能把它当成要恢复的旧状态。
+//
+// 开头先把复制提示收回去（copyStatusSettle）：它是一句 2 秒后要自己消失的文案，
+// 记进 ctrlCPrev 之后，复制那条 tick 会以为状态栏已被改写而不再恢复，随后本条的
+// tick 又把作废的文案写回来 —— 「已复制 N 个字符」就永久挂在状态栏上了。
 func (m Model) ctrlCArm(kind ctrlCKind) Model {
+	m = m.copyStatusSettle()
 	if !m.ctrlCArmed || m.status != ctrlCArmHint(m.ctrlCKind) {
 		m.ctrlCPrev = m.status
 	}

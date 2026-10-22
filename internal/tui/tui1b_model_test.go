@@ -884,7 +884,9 @@ func TestTui1bAcc12SubmitDoneWithoutErrorGoesIdle(t *testing.T) {
 //
 // 【判别力】抓「照着别的 TUI 的习惯把 Esc 绑成退出」。
 // 契约点名了理由：输入到一半误触 Esc 直接退出，草稿就没了。
-// 这里先把输入框填上再按 Esc，让「草稿还在」这件事也一并被看住。
+// TUI-1（docs/21e_TUI1_TASK.md §2）之后「草稿还在」这一句反过来了：空闲、输入框有字时
+// Esc 清空输入框。这条用例仍然钉住它原本要钉的两件事（不退出、不提交），
+// 并补上清空本身与「清空之后回车什么都不发」——后者才是「不提交」在提交入口上的证明。
 func TestTui1bAcc13EscapeDoesNotQuit(t *testing.T) {
 	m, sub, _ := tui1bSized(t, nil)
 	m = tui1bType(t, m, "半截草稿")
@@ -899,11 +901,20 @@ func TestTui1bAcc13EscapeDoesNotQuit(t *testing.T) {
 		t.Errorf("按 Esc 调了 Submit %d 次（收到 %q），应当一次都不调", sub.count(), sub.text(0))
 	}
 
-	// 草稿没被 Esc 吃掉：接着按 Enter 应当照常提交原文。
+	// TUI-1 §2：空闲、输入框有字时 Esc 清空输入框，光标回到开头。
+	if got := m.ta.Value(); got != "" {
+		t.Errorf("Esc 之后输入框应当是空的（TUI-1 §2），实际 %q", got)
+	}
+	if l, c := m.ta.Line(), m.ta.Column(); l != 0 || c != 0 {
+		t.Errorf("Esc 之后光标应当在 (0, 0)，实际 (%d, %d)", l, c)
+	}
+
+	// 清空之后回车不提交任何东西。这一句是「按 Esc 不提交」在提交入口上的证明：
+	// 光看按键那一刻的 Submit 计数，分不出「没提交」与「提交了空串」。
 	_, cmd2 := tui1bStep(t, m, tui1bEnter())
 	tui1bRun(t, cmd2)
-	if got := sub.text(0); got != "半截草稿" {
-		t.Errorf("按过 Esc 之后提交拿到的是 %q，应当仍是 %q —— Esc 把输入框清掉了", got, "半截草稿")
+	if n := sub.count(); n != 0 {
+		t.Errorf("Esc 清空之后回车不应当提交，实际 Submit %d 次（收到 %q）", n, sub.text(0))
 	}
 }
 
