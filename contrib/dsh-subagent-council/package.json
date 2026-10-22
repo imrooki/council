@@ -5,14 +5,17 @@
   "type": "module",
   "main": "lib/index.js",
   "exports": {
-    ".": "./lib/index.js"
+    ".": "./lib/index.js",
+    "./tool": "./lib/tool.js"
   },
   "files": [
     "lib/index.js",
     "lib/run.js",
     "lib/command.js",
+    "lib/tool.js",
     "lib/command.test.js",
     "lib/index.test.js",
+    "lib/tool.test.js",
     "lib/package.json",
     "cordis.patch.yml",
     "SKILL.md",
@@ -29,10 +32,14 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-subagent": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
     "@deepseek-ai/schemastery": "~3.18.5"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-subagent": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
       "optional": true
     },
     "@deepseek-ai/schemastery": {

@@ -7,23 +7,25 @@
 ## 目录
 
 ```
-package.json            独立 npm 包；dsh.bundle.patch 指向 cordis.patch.yml
-cordis.patch.yml        两个 provider 实例 + 两个委派工具实例
+package.json            独立 npm 包；dsh.bundle.patch 指向 cordis.patch.yml；导出 ./tool
+cordis.patch.yml        两个 provider 实例 + 两个委派工具实例 + 一个看板工具实例
 lib/index.js            Cordis 插件：Config、apply、provider.start（只做装配）
 lib/run.js              spawn/超时/取消/结果解析；可注入 spawn 与 seam，供测试
 lib/command.js          纯函数：argv 组装、[conv:] 解析、输出格式化、UTF-8 截断
+lib/tool.js             council_ui 工具：health 探测、单飞拉起 council serve、返回看板 URL
 lib/command.test.js     command.js 的 node --test
 lib/index.test.js       run.js 的 node --test（目录入口聚合两个测试文件）
+lib/tool.test.js        tool.js 的 node --test（7 个用例，需单独指定文件，见「差异」）
 lib/package.json        仅用于让 Node 24+ 的 `node --test lib/` 找到测试文件（见「差异」）
 SKILL.md                dsh skill（frontmatter + 三块正文）
 README.md               本文件
 ```
 
-运行时代码只依赖 `node:child_process`、`node:crypto`、`@deepseek-ai/schemastery` 与 `@deepseek-ai/dsh-subagent`。`run.js` 不 import dsh 包，只有 `index.js` 做 Cordis 装配；没有 Go 代码，不进 Go module 的编译范围。
+运行时代码只依赖 `node:child_process`、`node:crypto`、`@deepseek-ai/schemastery`、`@deepseek-ai/dsh-subagent` 与 `@deepseek-ai/dsh-tools`。`run.js` / `command.js` 不 import dsh 包；`index.js` 做 provider 装配，`tool.js` 做工具装配；没有 Go 代码，不进 Go module 的编译范围。
 
 ## 组合
 
-`cordis.patch.yml` 挂四个实例：
+`cordis.patch.yml` 挂五个实例：
 
 | id | 作用 |
 |---|---|
@@ -31,12 +33,39 @@ README.md               本文件
 | `subagent-council-work` | provider `council-work`，`workspace: true`，隔离副本 + diff |
 | `tool-council` | 面向模型的 `council` 工具，指向 provider `council` |
 | `tool-council-work` | 面向模型的 `council_work` 工具，指向 provider `council-work` |
+| `tool-council-ui` | 面向模型的 `council_ui` 工具（工具级入口，返回看板 URL） |
+
+`tool-council-ui` 的 id 不叫 `tool-council`，因为后者已经是委派工具 `council` 的实例 id，Cordis 的实例 id 必须唯一；插件名走 `@council/dsh-subagent-council/tool` 这个子路径导出。
 
 把本目录变成 dsh 能解析到的 npm 包（本地 link 或发布），再把 patch 合并进 profile 的 Cordis patch 即可。**安装步骤本身没有在 dsh 里验证过。**
 
 `tool-council` / `tool-council-work` 都写了 `maxDepth: provider-managed`。这不是装饰：`@deepseek-ai/dsh-tool-subagent` 默认用宿主数值 `maxDepth`，而外部 provider 没有 `depthLimit` 能力，缺这一项工具会在挂载时直接报错（见「差异」第 2 条）。
 
 还有一条容易误解的运行时事实：`council` 的成员在 Council 的 READ 档工作目录（`<data_dir>\workdir\<agentID>`）里跑，那**不是当前仓库**；不同 provider 的沙箱也不一样（claude 的 `--restricted` 明确限制在 cwd，grok 的 `--cwd` 不是边界），所以不要假设成员能读到仓库。需要仓库内容时用 `council_work`，或把必要的片段写进任务。
+
+## 工具级入口：`council_ui`
+
+装好后 dsh 里会出现 `council_ui` 工具。它没有参数，只做一件事：确保看板在跑，然后把 URL 交给模型。
+
+- 模型只在用户明确要求「看看板 / 打开看板」时调用；评审问题仍然走 `council` / `council_work`，这个工具不做评审。
+- 先 `GET http://127.0.0.1:<port>/api/health`（默认 800ms 超时）。通了就直接返回 `{url, running: true, started: false}`，不会再起进程——用户自己开着的看板不会被撞端口。
+- 没通才 spawn 一个**分离的** `council serve -addr 127.0.0.1:<port> [--config <path>]`：`detached: true`、`stdio: 'ignore'`、`windowsHide: true`，随后 `unref()`。stdout/stderr 直接丢弃——工具里没有终端可展示，看板日志该由用户在自己的终端看。
+- 之后每 150ms 探一次 `/api/health`，最多等 `startTimeoutMs`（默认 5 秒）。起来 → `{url, running: true, started: true}`。
+- 5 秒还没起来 → `{url, running: false, error: '<最后一条错误>'}`，**不 throw**：看板没起来不该让模型这一轮崩掉。
+- 单飞：同一进程内按 URL 缓存正在进行的启动 promise，并发调用只 spawn 一次；promise settle 后立刻清缓存，所以看板之后真挂了，下一次调用还能重新拉起。
+- **后台看板不会自动退出**（它是分离进程，dsh 退出也不带走）。要停它：`Get-Process council | Stop-Process`，或者直接关掉那个终端/任务管理器里结束 `council`。这是刻意的——工具不 kill 任何进程，免得把用户自己开着的看板(或正在跑议会的看板)一起杀掉。
+
+工具配置（与 provider 的配置是两套，各自独立）：
+
+| 字段 | 默认 | 语义 |
+|---|---|---|
+| `councilPath` | `council` | `council serve` 的 `argv[0]`；Windows 同样建议绝对路径或 `council.exe`，不能是 `.cmd` / `.bat` |
+| `port` | `8765` | 看板端口；URL 固定 `http://127.0.0.1:<port>` |
+| `configPath` | `''` | 空串表示不传 `--config`，由 `council serve` 自己按 `COUNCIL_CONFIG` / 默认位置找配置 |
+| `healthTimeoutMs` | `800` | 单次 `/api/health` 探测的超时 |
+| `startTimeoutMs` | `5000` | 拉起看板后等它应答的总时长 |
+
+返回值（`output.schema`）是 `{url, running, started?, error?}`：`started` 只在成功路径出现，`error` 只在失败路径出现。`--config` 用的是双横线，Go 的 `flag` 对 `-config` / `--config` 一视同仁（`serve` 的用法文本里写的是单横线）。
 
 ## 配置
 
@@ -113,9 +142,13 @@ README.md               本文件
 node --test contrib/dsh-subagent-council/lib/
 ```
 
-当前 42 个用例全绿：`command.test.js` 28 个，`index.test.js` 14 个。覆盖 `[conv:]` 行首/大小写/`conv_` 前缀/只剥第一个、workspace 开关与缺 cwd、members/summary 开关、rounds 触发 `-mode round`、引号/换行/`--flag` 不被拆参数、UTF-8 截断不劈码点且 marker 超预算时仍不越界、输出分段与 JSON 附录、500+ 文件头不超 8 KiB 且带「还有 M 个」、diff 只在 workspace 实例出现且截到 8 KiB、极端长文本下每个输出块仍 ≤ 8 KiB；`run.js` 侧覆盖 spawn ENOENT、超时/强制结算、abort、dispose 幂等、坏 JSON、空 stdout、BOM、exit≠0 带 JSON、4 KiB 诊断截断、exit 先于 taskkill、taskkill 非 0 fallback、pid 未就绪时的强制结算。
+这一条跑全部 49 个用例（`command.test.js` 28 个、`index.test.js` 14 个、`tool.test.js` 7 个）。`lib/index.test.js` 顶部 import 了另外两个测试文件，目录入口才跑得到它们（Node 24+ 不展开目录，见「差异」第 4 条）。也可以单跑 `node --test contrib/dsh-subagent-council/lib/tool.test.js`。
 
-`package.json` 的 `scripts.test` 是同一个命令，也可在包目录里 `npm test`。
+前 42 个覆盖 `[conv:]` 行首/大小写/`conv_` 前缀/只剥第一个、workspace 开关与缺 cwd、members/summary 开关、rounds 触发 `-mode round`、引号/换行/`--flag` 不被拆参数、UTF-8 截断不劈码点且 marker 超预算时仍不越界、输出分段与 JSON 附录、500+ 文件头不超 8 KiB 且带「还有 M 个」、diff 只在 workspace 实例出现且截到 8 KiB、极端长文本下每个输出块仍 ≤ 8 KiB；`run.js` 侧覆盖 spawn ENOENT、超时/强制结算、abort、dispose 幂等、坏 JSON、空 stdout、BOM、exit≠0 带 JSON、4 KiB 诊断截断、exit 先于 taskkill、taskkill 非 0 fallback、pid 未就绪时的强制结算。
+
+后 7 个是新增的 `council_ui` 用例：health 已通不 spawn、health 不通只 spawn 一次并返回 started、并发只 spawn 一次、启动超时收敛成 `running: false` 且不 throw、spawn 同步抛 ENOENT 同样收敛、argv 里 `-addr` 带端口且 `configPath` 为空不传 `--config`、`execute` 返回值符合 `output.schema`。用例用注入的 `spawn` / `fetch`，不真起进程、不真连端口；`@deepseek-ai/schemastery` 与 `@deepseek-ai/dsh-tools` 由 `module.registerHooks` 的 resolve 钩子换成忠实替身（仓库没装这两个包，见「差异」第 9 条）。
+
+`package.json` 的 `scripts.test` 也是 `node --test lib/`（49 个），可在包目录里 `npm test`。
 
 ## 与任务书 / 契约的差异
 
@@ -126,6 +159,11 @@ node --test contrib/dsh-subagent-council/lib/
 5. **片 2 状态**：任务书说 `workspace: true` 在片 2 落地前「可用但不通」。本仓库里 `internal/headless/workspace.go`、A7/A8/A9 测试已经存在，代码路径看起来已通；但本片没有在 dsh 里跑过 `council_work`，也没有跑真实 provider，所以仍按「未验收」对待。
 6. **`-p` 的命令行长度**：任务文本作为一个 argv 元素传给 Windows `CreateProcess`，上限约 32K 字符。超长任务会启动失败（诊断里是 spawn 错误），不会自动改走 stdin。写任务时请给路径和摘要，不要把整份文件塞进去。
 7. **`council_work` + `[conv:]` 追问的已知限制**：Council 的 worktree 副本路径固定为 `<data_dir>\workspaces\<convID>`，同一 conversation 再带 `-workspace` 跑会因「副本已存在」退 1；契约 §3.3 又要求不自动删副本。所以 worktree 模式的追问不要自行删除副本——把副本路径交给用户，或换一个新问题；`council` 的 `[conv:]` 追问不受影响。
+8. **`council_ui` 的实例 id 是 `tool-council-ui`**：任务书 §3 写「增加一行 `tool-council`」，但 `cordis.patch.yml` 里 `tool-council` 已经是委派工具 `council` 的实例 id，Cordis 的实例 id 必须唯一。插件本体（`lib/tool.js`）的 `name` 仍是 `tool-council`，patch 通过 `@council/dsh-subagent-council/tool` 子路径挂载它。
+9. **测试用 module hooks 顶替 dsh 包**：`tool.js` 照任务书 §0 静态 import `@deepseek-ai/schemastery` 与 `@deepseek-ai/dsh-tools`，但本仓库没装这两个包；`lib/tool.test.js` 用 `module.registerHooks` 的 resolve 钩子把它们换成只实现用到的形状的替身，再动态 import `tool.js`。所以测试跑的是真实的 `tool.js` 代码路径，只有 dsh 包本身是假的。
+10. **目录入口现在包含全部三个套件**：`lib/index.test.js` 顶部 import 了 `command.test.js` 与 `tool.test.js`，所以 `node --test lib/` 跑 49 个。这多改了一行测试文件（任务书原本只让改 5 个文件），但新增用例本身一条没动、原有 42 个断言也没动。Node 24+ 不展开目录，这行 import 是让目录入口覆盖新套件的最小改动。
+11. **`package.json` 多了一条 `@deepseek-ai/dsh-tools` peer dependency**：`lib/tool.js` import 了它，不声明 peer 的话安装后运行时会缺包。版本跟 `dsh-subagent` 一样钉 `0.2.1-rc.2`，并标成 optional（由 dsh 宿主提供）。
+12. **失败路径的返回值没有 `started`**：任务书 §1.4 的失败形状是 `{url, running: false, error}`，§4.7 又要求 schema 键名含 `started`。实现按 §1.4 走：`started` 在 `output.schema` 里是可选字段，只在成功路径出现；`error` 反之。
 
 ## 真机验收（未执行，留给 维护者）
 
@@ -137,5 +175,6 @@ node --test contrib/dsh-subagent-council/lib/
 | B2 | 委派后立刻取消 | 子进程树被杀；`Get-Process council` 为空 |
 | B3 | 把 `councilPath` 指向不存在的路径 | 启动即失败，`stopReason: 'error'`，diagnostic 带 ENOENT |
 | B4 | 同一 dsh 会话里用 `[conv:<id>]` 追问 | 第二次调用接到同一 conversation，`conversation_id` 不变 |
+| B5 | 看板没起时让模型调 `council_ui`，再调一次 | 第一次返回 `started: true` 与可打开的 URL，第二次返回 `started: false` 且 `Get-Process council` 仍只有一个 serve |
 
 另外建议一并确认：`council_work` 传的是 git 仓库根、返回的 diff 不被 8 KiB 截断时完整、`partial` 结果不会让父级把失败成员当成共识。

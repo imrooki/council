@@ -9,8 +9,10 @@ import test from 'node:test';
 import { KILL_SETTLE_MS, startCouncilRun } from './run.js';
 
 // `node --test lib/` resolves the directory entry to this file on Node 24+.
-// Import the command suite too so the required directory command runs both.
+// Import the command and tool suites too so the required directory command runs
+// everything, not just this file.
 import './command.test.js';
+import './tool.test.js';
 
 class FakeStream extends EventEmitter {
   setEncoding() {}

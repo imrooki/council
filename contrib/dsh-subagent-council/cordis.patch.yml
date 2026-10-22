@@ -1,4 +1,5 @@
-# DC1 slice 3: two Council providers and two model-facing delegation tools.
+# DC1 slice 3 + SRV3: two Council providers, two delegation tools, and the
+# dashboard URL tool.
 #
 # `council` is read-only. `council-work` passes `-workspace`, so each member
 # works in an isolated git worktree copy and the result carries the diff.
@@ -21,3 +22,8 @@
     - id: tool-council-work
       name: '@deepseek-ai/dsh-tool-subagent'
       config: { provider: council-work, toolName: council_work, maxDepth: provider-managed }
+    # 工具级入口：`council_ui`（确保看板在跑并返回 URL）。`inject: ['tools']`
+    # 由插件自己声明，patch 里不用写。id 不能叫 `tool-council`：那是上面委派
+    # 工具 `council` 的实例 id，Cordis 的实例 id 必须唯一；`-ui` 只是用来区分。
+    - id: tool-council-ui
+      name: '@council/dsh-subagent-council/tool'
