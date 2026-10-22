@@ -433,9 +433,9 @@ func TestUx2rJoinIsAdd(t *testing.T) {
 		}
 	}
 
-	tbl := newCommandTable()
-	add, okA := tbl["add"]
-	join, okJ := tbl["join"]
+	tbl := newCommandRegistry()
+	addSpec, add, okA := tbl.Lookup("add")
+	joinSpec, join, okJ := tbl.Lookup("join")
 	if !okA || !okJ {
 		t.Fatalf("命令表里必须同时有 add 与 join（add=%v join=%v）", okA, okJ)
 	}
@@ -446,13 +446,13 @@ func TestUx2rJoinIsAdd(t *testing.T) {
 		t.Errorf("add 与 join 的 run 都必须是 cmdAdd，不许两份实现并存")
 	}
 	const wantAddSummary = "把 agent 加进当前会话: /add 列出配置里可加的与识别出的模型；/add <全名|编号|前缀>[,...] 一次加多个；识别出的模型可以直接 /add 它的名字（识别表里的 ID，或模型名），也可以 /add +编号，都可带 [--id <新 id>] [--effort <强度>]，配置里还没有就先写进配置再加入；/add --refresh 重新识别"
-	if add.summary != wantAddSummary {
-		t.Errorf("add 的 summary 应当是 %q，实际 %q", wantAddSummary, add.summary)
+	if addSpec.Summary != wantAddSummary {
+		t.Errorf("add 的 summary 应当是 %q，实际 %q", wantAddSummary, addSpec.Summary)
 	}
-	if join.summary != "同 /add" {
-		t.Errorf("join 的 summary 应当是 %q，实际 %q", "同 /add", join.summary)
+	if joinSpec.Summary != "同 /add" {
+		t.Errorf("join 的 summary 应当是 %q，实际 %q", "同 /add", joinSpec.Summary)
 	}
-	for name, c := range map[string]command{"add": add, "join": join} {
+	for name, c := range map[string]cmdEntry{"add": add, "join": join} {
 		if !c.needsSvc || !c.needsConv || c.needsRunner {
 			t.Errorf("%s 的前置条件应当是 needsSvc、needsConv、不要 runner，实际 %+v", name, c)
 		}

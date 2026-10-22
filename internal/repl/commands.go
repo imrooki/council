@@ -12,25 +12,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"council/internal/command"
 	"council/internal/conversation"
 	"council/internal/turn"
 )
-
-// command 是命令表的一项。
-// name 与 summary 只在表里写一次，/help 直接遍历这张表生成帮助文本，
-// 不另写一份会走失同步的帮助字符串。
-//
-// needsSvc / needsConv / needsRunner 是前置条件，也只在表里写一次：dispatch
-// 统一检查，命令函数里不再重复判空。这样「持久化未就绪」、「先选一个会话」、
-// 「provider 调用未就绪」三句提示各自只有一个出处，加新命令时改表即可。
-type command struct {
-	name        string
-	summary     string
-	needsSvc    bool // 需要 conversation.Service
-	needsConv   bool // 需要当前会话（蕴含 needsSvc）
-	needsRunner bool // 需要 *turn.Runner；nil 表示 provider 调用未就绪
-	run         func(ctx context.Context, r *REPL, args cmdArgs) error
-}
 
 // cmdArgs 是一条命令拿到的参数。
 // fields 是命令名之后按空白切分的词，适合 /use、/leave 这类取单个 id 的命令；
@@ -119,11 +104,10 @@ const defaultLogLimit = 20
 // docs/08a_STEP5_API_CONTRACT.md 的「裸文本即发言」把这条列为硬性要求，
 // 明确禁止为裸文本另写一份前置条件判断。
 //
-// 用包级变量而不是 r.cmds["say"] 这种字符串查表：命令改名时编译器会直接报错，
-// 查表则会静默拿到零值 command，run 为 nil，到执行时才 panic。
-var sayCmd = command{
-	name:      "say",
-	summary:   "只记下、不让任何人回复: /say <文本>；/say /foo 发字面量 /foo；/say 不带参数进多行输入（/end 发送时与直接打字相同）",
+// 用包级变量而不是按名字查表：命令改名时编译器会直接报错，查表则会静默拿到
+// 查不到时的零值表项，run 为 nil，到执行时才 panic。元数据（name / summary）
+// 不在这里 —— 那是 Registry 的键，见 registry.go 里那一次 Register。
+var sayCmd = cmdEntry{
 	needsSvc:  true,
 	needsConv: true,
 	run:       cmdSay,
@@ -132,52 +116,11 @@ var sayCmd = command{
 // roundCmd 是 /round 的表项。照 sayCmd 的先例单独命名，是因为对话模式（#47）的自动一轮复用它：
 // 经 runCommand 走同一份前置条件（needsRunner 在这里拦住 rn 为 nil），再进 cmdRound 这一个处理函数，
 // 屏幕与手敲同样名单的 /round <ids> --go 是同一份输出。
-var roundCmd = command{
-	name:        "round",
-	summary:     "按名单问一轮，--go 时发言者同时起进程；多个成员跑完自动总结（只给你看）: /round [id...] [--go] [--rounds N] [--with-judge] [--no-summary]",
+var roundCmd = cmdEntry{
 	needsSvc:    true,
 	needsConv:   true,
 	needsRunner: true,
 	run:         cmdRound,
-}
-
-// newCommandTable 构造命令表。
-// 表在 New 里构造而不是写成包级变量，是因为 /help 要遍历这张表：
-// 包级变量里的初始化函数引用同一个变量会构成初始化循环，编译不过。
-func newCommandTable() map[string]command {
-	cmds := []command{
-		{name: "help", summary: "列出所有命令", run: cmdHelp},
-		{name: "quit", summary: "退出 council", run: cmdQuit},
-		{name: "providers", summary: "列出已配置的 provider", run: cmdProviders},
-		{name: "agents", summary: "列出已配置的 agent", run: cmdAgents},
-		{name: "teams", summary: "列出已配置的 team", run: cmdTeams},
-		{name: "team", summary: "绑定当前会话到一个 team，并把尚未加入的成员（总结成员除外）一次性加进来: /team use <team-id>", needsSvc: true, needsConv: true, run: cmdTeam},
-
-		{name: "new", summary: "建一个会话并切过去: /new <标题>", needsSvc: true, run: cmdNew},
-		{name: "conv", summary: "列出全部会话，标出当前那个", needsSvc: true, run: cmdConv},
-		{name: "use", summary: "切换当前会话: /use <id 或 id 前缀>", needsSvc: true, run: cmdUse},
-		{name: "resume", summary: "列出本机会话并接上: /resume 列出当前项目的会话；/resume --all 列出全部；/resume [--all] <编号> 按列表编号接上；/resume <id 前缀> 按 id 接上（同 /use，并回显概况）", needsSvc: true, run: cmdResume},
-		{name: "add", summary: "把 agent 加进当前会话: /add 列出配置里可加的与识别出的模型；/add <全名|编号|前缀>[,...] 一次加多个；识别出的模型可以直接 /add 它的名字（识别表里的 ID，或模型名），也可以 /add +编号，都可带 [--id <新 id>] [--effort <强度>]，配置里还没有就先写进配置再加入；/add --refresh 重新识别", needsSvc: true, needsConv: true, run: cmdAdd},
-		{name: "join", summary: "同 /add", needsSvc: true, needsConv: true, run: cmdAdd},
-		{name: "leave", summary: "让 agent 退出当前会话: /leave <agent-id>", needsSvc: true, needsConv: true, run: cmdLeave},
-		{name: "who", summary: "列出当前会话的成员", needsSvc: true, needsConv: true, run: cmdWho},
-		sayCmd,
-		{name: "to", summary: "定向发言，只有列出的成员会看到: /to <id>[,<id>...] <文本>", needsSvc: true, needsConv: true, run: cmdTo},
-		{name: "log", summary: "按 seq 升序打印当前会话最近的消息: /log [n]", needsSvc: true, needsConv: true, run: cmdLog},
-		{name: "cost", summary: "按成员汇总当前会话的账: /cost [<agent-id>]；/cost --round <round-id> 只看那一轮", needsSvc: true, needsConv: true, run: cmdCost},
-		{name: "ask", summary: "让一个成员说一轮: /ask <agent-id> [文本]", needsSvc: true, needsConv: true, needsRunner: true, run: cmdAsk},
-		roundCmd,
-		{name: "session", summary: "列出当前会话每个成员的 provider 会话；/session rebuild <agent-id> 先结清这个成员留在库里的陈旧在飞记录，再丢弃并重建", needsSvc: true, needsConv: true, needsRunner: true, run: cmdSession},
-		{name: "rules", summary: "显示规则文件与逐 provider 的指令环境；/rules reload [--rebuild] 重载规则文件", needsRunner: true, run: cmdRules},
-		{name: "config", summary: "显示当前配置文件路径与 agent / provider / team 计数；/config reload [--apply] 重载配置文件", run: cmdConfig},
-		{name: "verbose", summary: "切换输出档位: /verbose 在简洁与详细之间切换；/verbose on 详细；/verbose off 简洁", run: cmdVerbose},
-		{name: "auto", summary: "切换直接打字要不要让成员回复: /auto 切换；/auto on 自动回复（点名了谁就只问谁，没点名问全部成员）；/auto off 只记下", run: cmdAuto},
-	}
-	table := make(map[string]command, len(cmds))
-	for _, c := range cmds {
-		table[c.name] = c
-	}
-	return table
 }
 
 // dispatch 处理一行输入：空行什么都不做，斜杠开头查命令表，其余一律当作发言。
@@ -248,7 +191,9 @@ func (r *REPL) dispatch(ctx context.Context, line string) error {
 
 	fields := strings.Fields(text)
 	name := strings.TrimPrefix(fields[0], "/")
-	cmd, ok := r.cmds[name]
+	// Lookup 同时解析别名（/exit 与 /quit 是同一条命令）：别名表只在
+	// 注册表里维护一份，dispatch 不知道、也不需要知道哪些名字是别名。
+	_, cmd, ok := r.cmds.Lookup(name)
 	if !ok {
 		return r.printf("%s\n", msgUnknownCommand)
 	}
@@ -517,7 +462,7 @@ func cmdTo(ctx context.Context, r *REPL, args cmdArgs) error {
 //
 // 前置条件只在这一个地方判：msgNoStore、msgNoConv、msgNoRunner 各自只有一个出处，
 // 加新命令时改命令表即可，裸文本那条路也自动跟着一致 —— 那正是它必须存在的理由。
-func (r *REPL) runCommand(ctx context.Context, cmd command, args cmdArgs) error {
+func (r *REPL) runCommand(ctx context.Context, cmd cmdEntry, args cmdArgs) error {
 	// 顺序是有讲究的：持久化没起来时，连「有没有当前会话」都无从谈起；
 	// 没选会话时，provider 调用未就绪这句话还轮不到说。
 	// 所以 needsSvc -> needsConv -> needsRunner，先答 msgNoStore，再答 msgNoConv，
@@ -545,17 +490,11 @@ func restOf(text string) string {
 }
 
 // cmdHelp 从命令表生成帮助，按命令名字典序输出。
+//
+// 格式在 WriteCommandTable 里，与 council commands（不带 -json）共用同一份定义：
+// 帮助不再是一份手写的命令清单，加命令时不可能漏改。
 func cmdHelp(_ context.Context, r *REPL, _ cmdArgs) error {
-	names := sortedKeys(r.cmds)
-
-	// 表头用 ASCII，和其余几张表保持一致；中文表头按字节算宽度会让首列与下面各行错开两格。
-	// 说明文字是最后一列，中文不影响对齐。
-	tw := r.newTabWriter()
-	fmt.Fprintln(tw, "COMMAND\tSUMMARY")
-	for _, name := range names {
-		fmt.Fprintf(tw, "/%s\t%s\n", name, r.cmds[name].summary)
-	}
-	return tw.Flush()
+	return WriteCommandTable(r.out, r.cmds.List(command.ScopeTUI))
 }
 
 // cmdQuit 返回哨兵错误 errQuit，由 Run 翻译成正常退出。

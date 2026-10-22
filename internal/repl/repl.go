@@ -54,7 +54,7 @@ type REPL struct {
 	rn   *turn.Runner
 	in   io.Reader
 	out  io.Writer
-	cmds map[string]command
+	cmds *registry
 
 	// cur 是当前会话，nil 表示还没选。/new、/use 会改它；/team use
 	// 绑完之后也会用 Conversation 的读回整份替换它（库才是 TeamID 的真相，
@@ -170,7 +170,7 @@ func New(cfg *config.Config, svc *conversation.Service, rn *turn.Runner, in io.R
 		rn:       rn,
 		in:       in,
 		out:      out,
-		cmds:     newCommandTable(),
+		cmds:     newCommandRegistry(),
 		rulesCtx: rulesCtx,
 
 		discover:        turn.RunDiscovery,
@@ -313,6 +313,14 @@ func (r *REPL) reportErr(what string, err error) error {
 // 而中文在终端里占两格，于是每个中文字符都会被少算一格，
 // 所以可能含中文的字段（display_name、会话标题、消息正文）一律放最后一列，
 // 后面没有列可以被它撑歪。（这里原先写的是「按字节数算」，结论对、机制错，2026-09-23 订正。）
+//
+// 参数是 io.Writer 而不是取 r.out：/help 的格式要被 council commands 复用，
+// 那份代码拿到的只有输出流，没有 REPL。列宽只有这一处定义。
+func newTabWriter(w io.Writer) *tabwriter.Writer {
+	return tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+}
+
+// newTabWriter 是 newTabWriter(r.out) 的便捷写法，供各命令使用。
 func (r *REPL) newTabWriter() *tabwriter.Writer {
-	return tabwriter.NewWriter(r.out, 0, 0, 2, ' ', 0)
+	return newTabWriter(r.out)
 }

@@ -82,7 +82,8 @@ func (r *REPL) Submit(ctx context.Context, text string) error {
 	if name == "say" && restOf(text) == "" {
 		return r.printf("%s\n", msgDraftNotInTUI)
 	}
-	cmd, ok := r.cmds[name]
+	// 查表包含别名（与 dispatch 同一条路）：/exit 与 /quit 解析到同一条命令。
+	_, cmd, ok := r.cmds.Lookup(name)
 	if !ok {
 		return r.printf("%s\n", msgUnknownCommand)
 	}

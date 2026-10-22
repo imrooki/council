@@ -466,8 +466,10 @@ func TestRsmNewStampsProjectDir(t *testing.T) {
 	})
 }
 
+// 命令表在 SRV2 里改成注册表之后，取表项的方式从 map 下标换成 Lookup，
+// 下面的断言一条没动：查到的仍是 resume 的 summary、前置条件三连与处理函数。
 func TestRsmCommandRegistered(t *testing.T) {
-	cmd, ok := newCommandTable()["resume"]
+	spec, cmd, ok := newCommandRegistry().Lookup("resume")
 	if !ok {
 		t.Fatal("命令表里没有 resume")
 	}
@@ -481,8 +483,8 @@ func TestRsmCommandRegistered(t *testing.T) {
 		t.Error("resume.needsRunner = true，期望 false")
 	}
 	const wantSummary = "列出本机会话并接上: /resume 列出当前项目的会话；/resume --all 列出全部；/resume [--all] <编号> 按列表编号接上；/resume <id 前缀> 按 id 接上（同 /use，并回显概况）"
-	if cmd.summary != wantSummary {
-		t.Errorf("summary = %q，期望 %q", cmd.summary, wantSummary)
+	if spec.Summary != wantSummary {
+		t.Errorf("summary = %q，期望 %q", spec.Summary, wantSummary)
 	}
 	if cmd.run == nil {
 		t.Error("resume.run 是 nil，期望指向 cmdResume")
