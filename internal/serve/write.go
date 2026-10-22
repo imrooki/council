@@ -86,11 +86,22 @@ type WriteDeps struct {
 	// 同一件事，但进程若被别的代码 chdir 过（本仓库没有，防的是下一个人），
 	// 两次请求之间默认值就会漂。
 	Cwd string
-	// ClaudeAgents 是从 Claude Code 的 .claude/agents 只读导入的成员，
-	// 由 runWritable 在启动时扫一次后放进这里（key 是 frontmatter 的 name）。
-	// 它们只活在内存里，不写回配置；/api/options 把它们合进 agents 并标
-	// source = "claude"。直接构造 WriteDeps 的测试不填这一项，行为与以前一致。
+	// ClaudeAgents 是从 Claude Code 的 .claude/agents 只读导入的成员
+	// （key 是 frontmatter 的 name）。生产装配下它们已经合并进 Cfg.Agents；
+	// 启动时由 runWritable 扫一次放进这里，只活在内存里，不写回配置。
+	// /api/options 需要它来标 source = "claude"：合并之后 Cfg.Agents 里
+	// 配置成员与导入成员混在一起，单看那张表已经分不出来源。
+	// 直接构造 WriteDeps 的测试不填这几项，行为与以前一致。
 	ClaudeAgents map[string]config.AgentConfig
+	// ClaudeAgentsMerged 是 ClaudeAgents 的 id 集合，标记哪些 id 是本次启动
+	// 合并进来的。合并后它们也在 Cfg.Agents 里，/api/options 靠这一项把
+	// 它们画成 source = "claude" 而不是误标成配置成员。
+	ClaudeAgentsMerged map[string]struct{}
+	// ClaudeAgentsWithoutProvider 是扫到了、但因为配置缺 [providers.claude]
+	// 而整体跳过的 Claude agents。它们不在 Cfg.Agents 里、也不出现在
+	// /api/options；留着是为了 /api/ask 点到它们时能把「缺 provider」这个
+	// 真正的根因说清楚，而不是只回一句「未知成员」。
+	ClaudeAgentsWithoutProvider map[string]config.AgentConfig
 }
 
 // EnableWrite 把 Server 切到写模式。调用方必须先打开可写库、装配好
@@ -172,6 +183,36 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 		}
 	}()
 
+	// 启动目录决定新会话的项目归属，与 CLI 用同一个 NormalizeProjectDir，
+	// 网页里建的会话才能被同一个项目下的 /resume 看到。
+	// 同一个值也是工作台的默认 cwd（/api/options 的 cwd、/api/ask 不传
+	// cwd 时成员跑的那个目录），所以只取一次、两处共用。
+	projectDir := ""
+	cwd := ""
+	if wd, wdErr := os.Getwd(); wdErr == nil {
+		cwd = wd
+		projectDir = repl.NormalizeProjectDir(wd)
+	}
+
+	// Claude Code 的 agents 是只读外部来源：启动时扫一次，并在运行时合并
+	// 进内存里的 cfg.Agents（不写任何配置文件）。扫的是 serve 进程的启动
+	// 目录（与项目归属同一个 cwd），不是每个请求的 cwd —— 工作台的 cwd 可以
+	// 按请求变，成员列表不会跟着变，前端拿到的 options 才是稳定的。
+	//
+	// 必须放在 turn.NewRunner 之前：Runner 持有 cfg 指针，之后原地改
+	// Agents 会破坏它「交给 Runner 之后配置不再变」的不变量（见
+	// internal/turn/runner.go 的 SetConfig 注释）。
+	claude := importClaudeAgents(cfg, cwd)
+	if claude.warning != "" {
+		// 缺 provider 是一个可处理的配置问题，不藏在 -verbose 后面。
+		fmt.Fprintf(errOut, "council serve: %s\n", claude.warning)
+	}
+	if opts.Verbose {
+		for _, note := range claude.notices {
+			fmt.Fprintf(errOut, "council serve: %s\n", note)
+		}
+	}
+
 	// 以下装配与 internal/app/app.go 的 write 路径同源。thought 策略必须
 	// 接上，否则 store_thought=false 的配置在网页里跑议会时会静默把
 	// thought 存进库——同一个配置在 CLI 与网页下产生不同的事实源。
@@ -189,39 +230,19 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 	// 失败只提示、不阻止启动：对账本身读不了库时，看板仍值得开着。
 	reconcileLostTurns(ctx, rn, errOut)
 
-	// 启动目录决定新会话的项目归属，与 CLI 用同一个 NormalizeProjectDir，
-	// 网页里建的会话才能被同一个项目下的 /resume 看到。
-	// 同一个值也是工作台的默认 cwd（/api/options 的 cwd、/api/ask 不传
-	// cwd 时成员跑的那个目录），所以只取一次、两处共用。
-	projectDir := ""
-	cwd := ""
-	if wd, wdErr := os.Getwd(); wdErr == nil {
-		cwd = wd
-		projectDir = repl.NormalizeProjectDir(wd)
-	}
-
-	// Claude Code 的 agents 是只读外部来源：启动时扫一次，结果只进内存。
-	// 扫的是 serve 进程的启动目录（与项目归属同一个 cwd），不是每个请求的
-	// cwd —— 工作台的 cwd 可以按请求变，成员列表不会跟着变，前端拿到的
-	// options 才是稳定的。
-	claudeAgents := config.ScanClaudeAgents(cwd, cfg.Agents)
-	if opts.Verbose {
-		for _, note := range claudeAgents.Notices {
-			fmt.Fprintf(errOut, "council serve: %s\n", note)
-		}
-	}
-
 	srv := NewServer(st, version, modelsFromConfig(cfg))
 	srv.Verbose = opts.Verbose
 	srv.EnableWrite(WriteDeps{
-		Cfg:          cfg,
-		Svc:          svc,
-		Rn:           rn,
-		DataDir:      dataDir,
-		ProjectDir:   projectDir,
-		ConfigPath:   configPath,
-		Cwd:          cwd,
-		ClaudeAgents: claudeAgents.Agents,
+		Cfg:                         cfg,
+		Svc:                         svc,
+		Rn:                          rn,
+		DataDir:                     dataDir,
+		ProjectDir:                  projectDir,
+		ConfigPath:                  configPath,
+		Cwd:                         cwd,
+		ClaudeAgents:                claude.agents,
+		ClaudeAgentsMerged:          claude.merged,
+		ClaudeAgentsWithoutProvider: claude.withoutProvider,
 	})
 	// drainJobs 必须在 st.Close() 之前跑完：runWritable 的 defer 在
 	// listenAndServe 返回后立刻关库放锁，而这时后台议会可能还在写。
@@ -326,9 +347,9 @@ func modelsFromConfig(cfg *config.Config) map[string]string {
 // 翻译一次就多了一处会与 config 校验漂移的映射。
 //
 // Source 说明这条定义从哪来：配置里的 agent 是 "config"，从 Claude Code
-// 的 .claude/agents 只读导入的是 "claude"。本片两者都能列出来，但只有
-// 配置里的成员能被 /api/ask 真正选中——Claude 来源的多这个字段，前端
-// 才能在不猜的情况下把两者画得不一样。
+// 的 .claude/agents 只读导入的是 "claude"。两者启动后都能被 /api/ask 选中
+// （Claude 来源的已经合并进 cfg.Agents），但来源不同，前端据此把它们画得
+// 不一样，而不是让用户去猜某一条为什么改不了。
 type agentOption struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`
@@ -411,10 +432,18 @@ func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
 	// 配置里的成员与 Claude 导入的成员合成一张表再排序，前端拿到的仍是
 	// 一份按 id 字典序的稳定列表；只排两段再接起来的话，Claude id 落在
 	// 配置 id 中间时顺序会乱。
+	//
+	// 合并之后「配置成员」与「Claude 成员」都在 cfg.Agents 里，来源必须靠
+	// ClaudeAgentsMerged 区分：否则导入的成员会被误标成 source = "config"，
+	// 前端就再也没法把它们画成只读导入的那一类。
 	configAgents := cfgAgents(cfg)
 	agents := make([]agentOption, 0, len(configAgents)+len(s.write.ClaudeAgents))
 	for _, id := range sortedAgentIDs(configAgents) {
-		agents = append(agents, newAgentOption(id, configAgents[id], agentSourceConfig))
+		source := agentSourceConfig
+		if _, merged := s.write.ClaudeAgentsMerged[id]; merged {
+			source = agentSourceClaude
+		}
+		agents = append(agents, newAgentOption(id, configAgents[id], source))
 	}
 	for _, id := range sortedAgentIDs(s.write.ClaudeAgents) {
 		if _, ok := configAgents[id]; ok {
@@ -772,8 +801,12 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	// 先校验再建任务：未知成员、非法预算、round 模式缺汇总，这些在
 	// headless.Run 里也是同一套判据，但在这里挡住可以给调用方一个
 	// 干净的 400，不必开一个必然失败的后台任务再让 SSE 去报 error。
+	//
+	// 校验失败时再交给 claudeProviderHint 看一眼：名字确实来自
+	// .claude/agents、只是缺 [providers.claude] 的那几条，要在 400 里
+	// 说清根因，而不是让用户对着「配置里没有这个 agent」去改配置。
 	if err := headless.Validate(opts, s.write.Cfg); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, s.claudeProviderHint(err, opts.Members).Error())
 		return
 	}
 	// cwd / workspace / context 三道扩展在基础校验之后做：
