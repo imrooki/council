@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"council/internal/app"
 	"council/internal/headless"
 	"council/internal/repl"
+	"council/internal/serve"
 )
 
 // version 是构建版本号。发布时用 -ldflags "-X main.version=<版本>" 注入，
@@ -42,6 +44,16 @@ func run(args []string) int {
 	// 三条老路一个字节都不经过这里。
 	if len(args) > 0 && args[0] == "ask" {
 		return runAsk(args[1:])
+	}
+	// serve 同理。它的 -addr / -open 与全局 flag 没有同义关系，-verbose
+	// 的语义也不同（那边是每轮用量，这边是每请求一行），不能交给全局 FlagSet。
+	if len(args) > 0 && args[0] == "serve" {
+		return runServe(args[1:])
+	}
+	// commands 同理，而且它必须走到全局 FlagSet 之前：-json 与任何全局 flag
+	// 没有同义关系；这条路径也不读配置、不建库、不建 REPL，退出码全是它自己的。
+	if len(args) > 0 && args[0] == "commands" {
+		return runCommands(args[1:])
 	}
 
 	fs := flag.NewFlagSet("council", flag.ContinueOnError)
@@ -127,6 +139,81 @@ func runAsk(args []string) int {
 	// app.Run / headless.Run 已经把给人看的错误写进 stderr；这里只按
 	// UsageError 与其余错误分 2 / 1，不再重复打印。
 	return headless.ExitCode(err)
+}
+
+// runServe 是 `council serve` 的进程边界：解析私有 flag、建 root context、
+// 把只读看板交给 internal/serve，最后做退出码映射。用法错误退 2；
+// 配置、库、监听这类启动/运行失败退 1。
+func runServe(args []string) int {
+	opts, err := serve.Parse(args)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprint(os.Stderr, serve.Usage())
+			return exitOK
+		}
+		fmt.Fprintf(os.Stderr, "council serve: %v\n", err)
+		fmt.Fprint(os.Stderr, serve.Usage())
+		return exitUsage
+	}
+
+	// hardExit 与 ask 同体例：第二次 Ctrl-C 直接 130，不陪 http.Server
+	// 等那 5 秒的 Shutdown 上限。第一次 Ctrl-C 走 NotifyContext，serve 收到
+	// ctx.Done 之后走优雅关闭。
+	ctx, stop := newRootContext(true)
+	defer stop()
+
+	if err := serve.Run(ctx, opts, version); err != nil {
+		fmt.Fprintf(os.Stderr, "council serve: %v\n", err)
+		return exitConfigFailed
+	}
+	return exitOK
+}
+
+// runCommands 是 `council commands` 的进程边界：只读一份静态命令表，
+// 不加载配置、不建 REPL、不碰 TTY。
+//
+// 不带 -json 时按 /help 的列格式打印，方便人直接看；-json 打印元数据，
+// 给 GUI 的命令面板（M2）与 dsh 工具用。两种输出出自同一个注册表，
+// 不需要另写一份命令清单，也不可能与 /help 走失同步。
+//
+// 写法照 ask / serve 的体例：私有 FlagSet、用法错误退 2、-h 退 0。
+func runCommands(args []string) int {
+	fs := flag.NewFlagSet("council commands", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	asJSON := fs.Bool("json", false, "按 JSON 打印全部命令的元数据（name / aliases / args / summary / detail / scopes），给 GUI 面板与 dsh 工具用")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return exitOK
+		}
+		return exitUsage
+	}
+	// 位置参数没有含义，静默忽略会让用户以为它生效了（与全局 flag 同一条纪律）。
+	if fs.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "council commands 不接受位置参数，多出来的是: %v\n", fs.Args())
+		fs.Usage()
+		return exitUsage
+	}
+
+	specs := repl.CommandSpecs()
+	if !*asJSON {
+		// 纯文本与 /help 同源（TUISpecs），JSON 用全目录。两者今天内容相同，
+		// 但将来出现 TUI 专有命令时，纯文本不该跟着 JSON 一起变。
+		if err := repl.WriteCommandTable(os.Stdout, repl.TUISpecs()); err != nil {
+			fmt.Fprintf(os.Stderr, "council commands: %v\n", err)
+			return exitConfigFailed
+		}
+		return exitOK
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	// 元数据里有 <全名|编号|前缀> 这种尖括号。转义成 \u003c 仍是合法 JSON，
+	// 但这份输出既是给程序读的、也是给人核对字段的，没有必要牺牲可读性。
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(specs); err != nil {
+		fmt.Fprintf(os.Stderr, "council commands: %v\n", err)
+		return exitConfigFailed
+	}
+	return exitOK
 }
 
 // newRootContext 建 root context，并在 hardExit 时注册「第二次 Ctrl-C 硬退」。

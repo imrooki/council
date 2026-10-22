@@ -90,6 +90,36 @@ go build -ldflags "-X main.version=0.2.0-local" -o council.exe ./cmd/council
 
 更完整的用法（加成员、对话模式、`@` 点名）见 [docs/README.md](docs/README.md)。
 
+## 看板（本地网页）
+
+`council serve` 默认起一个**只读**的本地网页，看已有会话、消息、每个成员的用量与费用。它**不写库、不跑迁移、不抢 `council.lock`**，所以 TUI 开着的时候也能同时看。
+
+```sh
+council serve              # 默认 http://127.0.0.1:8765
+council serve -open        # 顺手打开浏览器
+council serve -addr 127.0.0.1:9000
+
+council serve -rw          # 写模式：网页底部可以输入问题、跑一次议会
+```
+
+- **只绑回环地址**：`-addr` 传非 `127.0.0.1`/`::1` 会直接退 2。
+- **没有登录与鉴权**：这是本机工具，本机任何进程都能读这个端口上的数据。别把它暴露到局域网。
+- 库的 schema 版本必须与当前二进制一致；库还是旧版本时它会让你先用新版 `council` 打开一次（只读打开不迁移，这是刻意的）。
+- 端点：`/api/health`、`/api/conversations`、`/api/conversations/{id}`、`/api/conversations/{id}/messages`、`/api/conversations/{id}/usage`。
+
+### `-rw` 写模式
+
+`council serve -rw` 会拿 `council.lock`、跑迁移，并在网页底部放出输入框、「跑一轮」按钮和成员多选。跑一次议会走的就是 `council ask` 同一套执行路径：建会话、记录问题、按成员跑轮次、可选汇总，花的是你配置里那几家 CLI 的额度。
+
+- **`-rw` 下本机任何进程都能通过这个端口跑议会（花你的额度）。** 不做鉴权，这是本机工具的取舍；写端点只接受 `POST`，读端点仍可用。
+- 写端点要求 `Content-Type: application/json`，否则 415；浏览器请求带 `Origin` / `Sec-Fetch-Site` 时必须是同源，否则 403。本机的 curl、脚本、工具调用没有这些头，照常可用。
+- 同一个 `data_dir` 只能有一个写进程：拿不到锁时 `serve` 直接退 1，提示你先关掉另一个 council（TUI 或另一个 `serve -rw`）。
+- `-rw` 与 TUI 不能同时开；`serve -rw` 开着时不要再启动交互界面。
+- 启动时会做 inflight 对账（清掉上次崩溃留下的在飞记录）；**不做** TUI 的 AuditDrift 漂移提醒，所以改 model / effort / 规则文件后不会有启动提示。
+- 进度用 SSE 推：`POST /api/ask` 立即返回 `202 {"job_id":"…"}`，`GET /api/jobs/{id}/events` 依次给 `started` / `turn` / `done`。关掉浏览器**不会**取消正在跑的议会；任务结束 60 秒后从内存表清理。
+- Ctrl-C 关闭时会先等运行中的议会收尾（10 秒上限）；到点还没完就显式取消，再等 2 秒，然后才关库放锁。
+- 已知限制：任务结束 60 秒后 job 从内存删除，如果浏览器在这之后才重连 EventSource，会收到 404 并按浏览器策略持续重试；刷新页面即可恢复。
+
 ## 文档
 
 - [docs/README.md](docs/README.md)：设计文档索引、路线图、用法。

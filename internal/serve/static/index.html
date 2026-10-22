@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Council 只读看板</title>
+<style>
+  :root {
+    --bg: #f5f3ee;
+    --panel: #fffdf8;
+    --line: #d9d3c7;
+    --ink: #2b2822;
+    --muted: #756e62;
+    --accent: #7a4b2a;
+    --danger: #a33a2a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.55 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  #app { display: flex; flex-direction: column; height: 100vh; }
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .brand { font-size: 17px; font-weight: 650; letter-spacing: .02em; }
+  .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .cost { margin-left: auto; display: flex; align-items: baseline; gap: 10px; }
+  .cost-value { font-size: 18px; font-variant-numeric: tabular-nums; }
+  .cost-note { color: var(--muted); font-size: 12px; }
+  .cost-note.warn { color: var(--danger); }
+  .status { color: var(--danger); font-size: 12px; min-height: 18px; }
+  /* 写模式才出现的底栏。只读模式整块 hidden，布局与 SRV1 完全一样。 */
+  .ask-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 9px 14px 12px;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .ask-panel[hidden] { display: none; }
+  .ask-progress {
+    max-height: 96px;
+    overflow: auto;
+    border: 1px solid #e9e3d7;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+    color: var(--muted);
+    background: #fbf8f1;
+  }
+  .ask-progress[hidden] { display: none; }
+  .ask-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ask-row { display: flex; align-items: flex-start; gap: 10px; }
+  .ask-members {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    max-width: 42%;
+    max-height: 44px;
+    overflow: auto;
+    font-size: 12px;
+  }
+  .ask-members label { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+  .ask-members input { margin: 0; }
+  .ask-hint { color: var(--muted); font-size: 12px; }
+  #ask-prompt {
+    flex: 1;
+    min-height: 38px;
+    max-height: 120px;
+    resize: vertical;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 9px;
+    font: inherit;
+    color: var(--ink);
+    background: #fff;
+  }
+  #ask-run {
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #ask-run:disabled { opacity: .5; cursor: default; }
+  .ask-error { color: var(--danger); font-size: 12px; min-height: 16px; }
+  .ask-error[hidden] { display: none; }
+  .layout {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr) 380px;
+    gap: 14px;
+    padding: 14px;
+    min-height: 0;
+    flex: 1;
+  }
+  .panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .panel-head h2 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 650;
+    letter-spacing: .06em;
+    color: var(--muted);
+  }
+  .panel-head button {
+    margin-left: auto;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .panel-head button:hover { color: var(--ink); border-color: var(--muted); }
+  .scroll { overflow: auto; min-height: 0; flex: 1; }
+  #conversation-list { list-style: none; margin: 0; padding: 6px; }
+  #conversation-list li { margin: 0 0 4px; }
+  .conversation {
+    width: 100%;
+    text-align: left;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    padding: 7px 9px;
+    cursor: pointer;
+  }
+  .conversation:hover { background: #f3eee4; }
+  .conversation.active { background: #efe6d7; border-color: #d9c8ad; }
+  .conversation .title {
+    display: block;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .conversation .meta { display: block; color: var(--muted); font-size: 12px; }
+  .empty { margin: 12px; color: var(--muted); font-size: 13px; }
+  #message-list { list-style: none; margin: 0; padding: 10px 12px; }
+  .message {
+    border-left: 3px solid var(--line);
+    border-radius: 0 6px 6px 0;
+    padding: 6px 10px;
+    margin: 0 0 8px;
+  }
+  .msg-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .msg-head .sender { font-weight: 650; font-size: 13px; }
+  .msg-head .kind {
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 0 4px;
+    font-size: 11px;
+  }
+  .msg-head time { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .msg-text {
+    margin-top: 3px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  #members-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  #members-table th, #members-table td {
+    padding: 5px 6px;
+    border-bottom: 1px solid #e9e3d7;
+    text-align: right;
+    white-space: nowrap;
+  }
+  #members-table th:first-child, #members-table td:first-child { text-align: left; white-space: normal; }
+  #members-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--panel);
+    color: var(--muted);
+    font-weight: 600;
+  }
+  #members-table td.num { font-variant-numeric: tabular-nums; }
+  #members-table .member-name { font-weight: 600; }
+  #members-table .member-sub { color: var(--muted); font-size: 11px; }
+  #members-table tr.inactive { opacity: .55; }
+  @media (max-width: 1050px) {
+    .layout { grid-template-columns: 220px minmax(0, 1fr); }
+    .layout .panel.side { grid-column: 1 / -1; max-height: 40vh; }
+  }
+  @media (max-width: 720px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .layout .panel.conversations { max-height: 30vh; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">Council <small>只读看板</small></div>
+    <div id="status" class="status" hidden></div>
+    <div class="cost">
+      <span class="cost-note" id="cost-note"></span>
+      <span class="cost-value" id="cost-value">—</span>
+    </div>
+  </header>
+  <main class="layout">
+    <aside class="panel conversations">
+      <div class="panel-head">
+        <h2>会话</h2>
+        <button id="refresh-conversations" type="button" title="重新读一次会话列表">刷新</button>
+      </div>
+      <div class="scroll">
+        <ul id="conversation-list"></ul>
+        <p id="conversations-empty" class="empty" hidden>还没有会话，先在终端里跑一次 council</p>
+      </div>
+    </aside>
+
+    <section class="panel messages">
+      <div class="panel-head"><h2 id="messages-title">消息</h2></div>
+      <div class="scroll">
+        <ol id="message-list"></ol>
+        <p id="messages-empty" class="empty" hidden></p>
+      </div>
+    </section>
+
+    <aside class="panel side">
+      <div class="panel-head"><h2>成员与费用</h2></div>
+      <div class="scroll">
+        <table id="members-table">
+          <thead>
+            <tr>
+              <th>成员</th>
+              <th>轮</th>
+              <th>IN</th>
+              <th>缓存建</th>
+              <th>缓存读</th>
+              <th>OUT</th>
+              <th>金额</th>
+            </tr>
+          </thead>
+          <tbody id="members-body"></tbody>
+        </table>
+        <p id="members-empty" class="empty" hidden>这个会话还没有成员</p>
+      </div>
+    </aside>
+  </main>
+
+  <section id="ask-panel" class="ask-panel" hidden>
+    <div id="ask-progress" class="ask-progress" hidden></div>
+    <div class="ask-error" id="ask-error" hidden></div>
+    <div class="ask-row">
+      <div id="ask-members" class="ask-members"></div>
+      <textarea id="ask-prompt" rows="2" placeholder="问这一次议会一个问题…"></textarea>
+      <button id="ask-run" type="button">跑一轮</button>
+    </div>
+  </section>
+</div>
+<script>
+(() => {
+  'use strict';
+
+  // 消息面板与账仍靠每 3 秒拉一次增量（SRV1 §5）；SSE 只服务写模式的
+  // 任务进度，不改变读侧的轮询节奏。
+  // 用 setTimeout 串行排队而不是 setInterval：一次请求慢于 3 秒时，
+  // setInterval 会叠加出多个在飞请求，慢接口会把看板拖成一串重复渲染。
+  const POLL_MS = 3000;
+  const PAGE_LIMIT = 1000;
+
+  const state = {
+    conversations: [],
+    currentId: null,
+    lastSeq: 0,
+    detail: null,
+    timer: null,
+    // 写模式（council serve -rw）才为 true，由 /api/health 的 writable
+    // 决定。只读模式下这些字段保持默认，底栏整块 hidden。
+    writable: false,
+    askRunning: false,
+    askSource: null,
+  };
+
+  const conversationList = document.getElementById('conversation-list');
+  const conversationsEmpty = document.getElementById('conversations-empty');
+  const messageList = document.getElementById('message-list');
+  const messagesEmpty = document.getElementById('messages-empty');
+  const messagesTitle = document.getElementById('messages-title');
+  const membersBody = document.getElementById('members-body');
+  const membersEmpty = document.getElementById('members-empty');
+  const costValue = document.getElementById('cost-value');
+  const costNote = document.getElementById('cost-note');
+  const statusLine = document.getElementById('status');
+  const brandNote = document.querySelector('.brand small');
+  const askPanel = document.getElementById('ask-panel');
+  const askMembers = document.getElementById('ask-members');
+  const askPrompt = document.getElementById('ask-prompt');
+  const askRun = document.getElementById('ask-run');
+  const askProgress = document.getElementById('ask-progress');
+  const askError = document.getElementById('ask-error');
+
+  function api(path) {
+    return fetch(path, { headers: { Accept: 'application/json' } }).then((res) => {
+      return res.text().then((text) => {
+        let body = null;
+        if (text) {
+          try {
+            body = JSON.parse(text);
+          } catch (err) {
+            throw new Error('接口返回的不是 JSON');
+          }
+        }
+        if (!res.ok) {
+          throw new Error((body && body.error) || ('HTTP ' + res.status));
+        }
+        return body;
+      });
+    });
+  }
+
+  // postJSON 是写模式唯一会改状态的请求。错误体与只读接口同一个
+  // {"error":"…"} 形状，所以能直接复用 api() 的展示逻辑。
+  function postJSON(path, payload) {
+    return fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(payload),
+    }).then((res) => res.text().then((text) => {
+      let body = null;
+      if (text) {
+        try {
+          body = JSON.parse(text);
+        } catch (err) {
+          throw new Error('接口返回的不是 JSON');
+        }
+      }
+      if (!res.ok) {
+        throw new Error((body && body.error) || ('HTTP ' + res.status));
+      }
+      return body;
+    }));
+  }
+
+  function showError(err) {
+    statusLine.textContent = '连接出错：' + err.message;
+    statusLine.hidden = false;
+  }
+
+  function clearError() {
+    statusLine.hidden = true;
+    statusLine.textContent = '';
+  }
+
+  function statusText(status) {
+    switch (status) {
+      case 'ok': return '成功';
+      case 'partial': return '部分成功';
+      case 'budget_exceeded': return '预算触线';
+      case 'error': return '出错';
+      default: return status || '未知';
+    }
+  }
+
+  function showAskError(message) {
+    askError.textContent = message;
+    askError.hidden = false;
+  }
+
+  function clearAskError() {
+    askError.textContent = '';
+    askError.hidden = true;
+  }
+
+  function appendAskProgress(text) {
+    const line = document.createElement('div');
+    line.className = 'ask-line';
+    line.textContent = text;
+    askProgress.appendChild(line);
+    askProgress.hidden = false;
+    askProgress.scrollTop = askProgress.scrollHeight;
+  }
+
+  function setAskRunning(running) {
+    state.askRunning = running;
+    askRun.disabled = running;
+    askRun.textContent = running ? '运行中…' : '跑一轮';
+  }
+
+  function closeJobStream() {
+    if (state.askSource) {
+      state.askSource.close();
+      state.askSource = null;
+    }
+  }
+
+  // 成员多选来自当前会话的活跃成员；一个都没选时后端按「配置里的全部
+  // agent」处理，与 council ask 不带 -members 同口径。没有会话可选时只
+  // 显示提示，不假装有一个空名单。
+  function renderAskMembers() {
+    askMembers.replaceChildren();
+    if (!state.writable) return;
+    const members = ((state.detail && state.detail.members) || [])
+      .filter((member) => member.active);
+    if (members.length === 0) {
+      const hint = document.createElement('span');
+      hint.className = 'ask-hint';
+      hint.textContent = '不选成员＝配置里的全部 agent';
+      askMembers.appendChild(hint);
+      return;
+    }
+    for (const member of members) {
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.value = member.agent_id;
+      input.checked = true;
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(member.display_name || member.agent_id));
+      askMembers.appendChild(label);
+    }
+  }
+
+  function selectedAskMembers() {
+    return Array.from(askMembers.querySelectorAll('input[type="checkbox"]'))
+      .filter((input) => input.checked)
+      .map((input) => input.value);
+  }
+
+  async function loadHealth() {
+    try {
+      const health = await api('/api/health');
+      state.writable = health && health.writable === true;
+    } catch (err) {
+      state.writable = false;
+    }
+    askPanel.hidden = !state.writable;
+    if (state.writable) {
+      // 只读模式的标题与空库文案一个字都不动；写模式把「只读」改成
+      // 事实，免得用户看着「只读看板」不敢在下面输入。
+      brandNote.textContent = '写模式';
+      document.title = 'Council 写模式';
+      conversationsEmpty.textContent = '还没有会话，问一句就会新建';
+      renderAskMembers();
+    }
+  }
+
+  // subscribeJob 把一次任务的一生接到页面上。done 之后主动 close：
+  // 服务端在任务结束后会关流，EventSource 默认会把它当成断线并自动
+  // 重连、把整段历史再放一遍；主动关闭才是「已完成」的正确收尾。
+  function subscribeJob(jobID) {
+    closeJobStream();
+    const source = new EventSource('/api/jobs/' + encodeURIComponent(jobID) + '/events');
+    state.askSource = source;
+
+    source.addEventListener('started', (event) => {
+      let data = null;
+      try {
+        data = JSON.parse(event.data);
+      } catch (err) {
+        showAskError('started 事件不是合法 JSON');
+        return;
+      }
+      if (!data.conversation_id) return;
+      appendAskProgress('开始 · 会话 ' + data.conversation_id);
+      // started 一到就切到新会话：议会跑的过程中，消息面板会按原来的
+      // 轮询节奏把新落库的消息补进来。
+      state.currentId = data.conversation_id;
+      renderConversationList();
+      api('/api/conversations').then((list) => {
+        state.conversations = list;
+        renderConversationList();
+        if (state.currentId === data.conversation_id) {
+          selectConversation(data.conversation_id);
+        }
+      }).catch(showError);
+    });
+
+    source.addEventListener('turn', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        appendAskProgress((data.agent_id || '?') + ' · ' + (data.outcome || '?') +
+          ' · ' + formatUSD(data.cost_usd));
+      } catch (err) {
+        // 单帧坏掉不该停掉整条流，也不值得把连接错误的状态条打红。
+      }
+    });
+
+    source.addEventListener('done', (event) => {
+      let data = null;
+      try {
+        data = JSON.parse(event.data);
+      } catch (err) {
+        showAskError('done 事件不是合法 JSON');
+      }
+      if (data) {
+        appendAskProgress('完成 · ' + statusText(data.status) + ' · ' +
+          formatUSD(data.cost_usd) + ' · 失败 ' + data.failed + '/' + data.total);
+        if (data.summary) appendAskProgress('汇总：' + data.summary);
+      }
+      closeJobStream();
+      setAskRunning(false);
+      refreshConversations();
+    });
+
+    source.addEventListener('error', (event) => {
+      // 服务端主动发的 error 带 data；EventSource 自己的连接错误没有
+      // data。后一种交给浏览器按 Last-Event-ID 自动重连（服务端保留
+      // 60 秒事件历史），所以这里只在确有消息时展示原因，不动按钮：
+      // 解锁由紧随其后的 done 负责。
+      if (!event.data) return;
+      let message = '议会出错';
+      try {
+        message = JSON.parse(event.data).message || message;
+      } catch (err) {
+        // 保留兜底文案。
+      }
+      showAskError(message);
+      appendAskProgress('错误 · ' + message);
+    });
+  }
+
+  async function runAsk() {
+    if (!state.writable || state.askRunning) return;
+    const prompt = askPrompt.value.trim();
+    if (!prompt) {
+      showAskError('先写一句要问的问题');
+      askPrompt.focus();
+      return;
+    }
+    clearAskError();
+    askProgress.replaceChildren();
+    askProgress.hidden = true;
+    appendAskProgress('已提交，等待会话开始…');
+    setAskRunning(true);
+    try {
+      const reply = await postJSON('/api/ask', {
+        prompt: prompt,
+        members: selectedAskMembers(),
+        rounds: 1,
+      });
+      subscribeJob(reply.job_id);
+    } catch (err) {
+      setAskRunning(false);
+      showAskError(err.message);
+    }
+  }
+
+  function formatUSD(value) {
+    if (typeof value !== 'number' || !isFinite(value)) return '—';
+    return value.toFixed(4) + ' USD';
+  }
+
+  function formatNumber(value) {
+    return typeof value === 'number' && isFinite(value) ? value.toLocaleString('zh-CN') : '0';
+  }
+
+  function formatTime(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (isNaN(date.getTime())) return value;
+    return date.toLocaleString('zh-CN', { hour12: false });
+  }
+
+  // sender 着色：同一 id 永远得到同一个色相；user / system 是保留 id，
+  // 固定用中性色，避免把「人」和某个成员混成一种颜色。
+  function senderHue(senderID) {
+    if (senderID === 'user' || senderID === 'system') return null;
+    let hash = 0;
+    for (let i = 0; i < senderID.length; i += 1) {
+      hash = (hash * 31 + senderID.charCodeAt(i)) >>> 0;
+    }
+    return hash % 360;
+  }
+
+  function renderMessage(message) {
+    const article = document.createElement('article');
+    article.className = 'message';
+    const hue = senderHue(message.sender_id);
+    if (hue === null) {
+      article.style.borderLeftColor = '#a9a294';
+      article.style.background = '#f0ece3';
+    } else {
+      article.style.borderLeftColor = 'hsl(' + hue + ' 62% 42%)';
+      article.style.background = 'hsl(' + hue + ' 55% 96%)';
+    }
+
+    const head = document.createElement('div');
+    head.className = 'msg-head';
+
+    const sender = document.createElement('span');
+    sender.className = 'sender';
+    sender.textContent = message.sender_id || '(未知)';
+    head.appendChild(sender);
+
+    const kind = document.createElement('span');
+    const kindName = String(message.kind || '').replace(/[^a-z_]/g, '');
+    kind.className = 'kind kind-' + (kindName || 'system');
+    kind.textContent = message.kind || '';
+    head.appendChild(kind);
+
+    const time = document.createElement('time');
+    time.textContent = formatTime(message.created_at);
+    head.appendChild(time);
+
+    article.appendChild(head);
+
+    if (message.text) {
+      const text = document.createElement('div');
+      text.className = 'msg-text';
+      text.textContent = message.text;
+      article.appendChild(text);
+    }
+    return article;
+  }
+
+  function appendMessages(messages, initial) {
+    if (!messages || messages.length === 0) return;
+    const wasAtBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 40;
+    let appended = 0;
+    for (const message of messages) {
+      // 按 seq 去重：切会话或两个请求竞态时，同一页可能被追加两次；
+      // 重复渲染既会让人以为多了消息，也会把左侧条数加错。
+      if (typeof message.seq === 'number' && message.seq <= state.lastSeq) continue;
+      messageList.appendChild(renderMessage(message));
+      appended += 1;
+      if (typeof message.seq === 'number' && message.seq > state.lastSeq) {
+        state.lastSeq = message.seq;
+      }
+    }
+    if (appended === 0) return;
+    messagesEmpty.hidden = true;
+    // 轮询到新消息时顺手更新左侧当前会话那一行，不必为了条数与最后活动
+    // 再拉一次整个会话列表。初始加载不更新：那份列表本来就是刚读的。
+    if (!initial) {
+      const conversation = state.conversations.find((item) => item.id === state.currentId);
+      if (conversation) {
+        conversation.message_count += appended;
+        conversation.last_seq = state.lastSeq;
+        conversation.last_activity = messages[messages.length - 1].created_at;
+        renderConversationList();
+      }
+    }
+    if (initial || wasAtBottom) {
+      messageList.scrollTop = messageList.scrollHeight;
+    }
+  }
+
+  function renderConversationList() {
+    conversationList.replaceChildren();
+    for (const conversation of state.conversations) {
+      const item = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'conversation' + (conversation.id === state.currentId ? ' active' : '');
+      button.dataset.conversationId = conversation.id;
+
+      const title = document.createElement('span');
+      title.className = 'title';
+      title.textContent = conversation.title || '(无标题)';
+      button.appendChild(title);
+
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      const bits = [];
+      bits.push(conversation.members + ' 人');
+      bits.push(conversation.message_count + ' 条');
+      if (conversation.last_activity) bits.push(formatTime(conversation.last_activity));
+      meta.textContent = bits.join(' · ');
+      button.appendChild(meta);
+
+      button.addEventListener('click', () => {
+        if (conversation.id !== state.currentId) selectConversation(conversation.id);
+      });
+      item.appendChild(button);
+      conversationList.appendChild(item);
+    }
+    conversationsEmpty.hidden = state.conversations.length > 0;
+  }
+
+  function renderCost(usage) {
+    if (!usage) {
+      costValue.textContent = '—';
+      costNote.textContent = '';
+      costNote.className = 'cost-note';
+      return;
+    }
+    costValue.textContent = formatUSD(usage.cost_usd);
+    if (usage.complete) {
+      costNote.textContent = '金额完整';
+      costNote.className = 'cost-note';
+    } else {
+      costNote.textContent = '金额不完整：有成员不报金额';
+      costNote.className = 'cost-note warn';
+    }
+  }
+
+  function addCell(row, text, className) {
+    const cell = document.createElement('td');
+    if (className) cell.className = className;
+    cell.textContent = text;
+    row.appendChild(cell);
+  }
+
+  function renderMembers(detail, usage) {
+    membersBody.replaceChildren();
+
+    const members = (detail && detail.members) || [];
+    const perAgent = (usage && usage.per_agent) || [];
+    const byAgent = new Map();
+    for (const member of members) byAgent.set(member.agent_id, member);
+    for (const row of perAgent) {
+      if (!byAgent.has(row.agent_id)) byAgent.set(row.agent_id, null);
+    }
+
+    const ids = Array.from(byAgent.keys()).sort();
+    if (ids.length === 0) {
+      membersEmpty.hidden = false;
+      return;
+    }
+    membersEmpty.hidden = true;
+
+    const usageById = new Map();
+    for (const row of perAgent) usageById.set(row.agent_id, row);
+
+    for (const id of ids) {
+      const member = byAgent.get(id);
+      const row = document.createElement('tr');
+      if (member && !member.active) row.className = 'inactive';
+
+      const memberCell = document.createElement('td');
+      const name = document.createElement('div');
+      name.className = 'member-name';
+      name.textContent = (member && member.display_name) || id;
+      memberCell.appendChild(name);
+      const sub = document.createElement('div');
+      sub.className = 'member-sub';
+      const provider = (member && member.provider) || (usageById.get(id) || {}).provider || '';
+      const model = (usageById.get(id) || {}).model || '';
+      const suffix = member && !member.active ? ' · 已退出' : '';
+      sub.textContent = [id, provider, model].filter(Boolean).join(' · ') + suffix;
+      memberCell.appendChild(sub);
+      row.appendChild(memberCell);
+
+      const stat = usageById.get(id) || {};
+      addCell(row, String(stat.turns || 0), 'num');
+      addCell(row, formatNumber(stat.in), 'num');
+      addCell(row, formatNumber(stat.cache_create), 'num');
+      addCell(row, formatNumber(stat.cache_read), 'num');
+      addCell(row, formatNumber(stat.out), 'num');
+      addCell(row, stat.cost_reported === false ? '不报' : formatUSD(stat.cost_usd || 0), 'num');
+      membersBody.appendChild(row);
+    }
+  }
+
+  function resetToEmptyLibrary() {
+    state.currentId = null;
+    state.lastSeq = 0;
+    state.detail = null;
+    state.conversations = [];
+    renderConversationList();
+    messageList.replaceChildren();
+    messagesTitle.textContent = '消息';
+    // 只读模式下的原文案保持不动；写模式可以直接在下面新建会话，
+    // 再让用户「先去终端跑一次」就是把唯一的入口藏起来。
+    messagesEmpty.textContent = state.writable
+      ? '还没有会话，在下面问一句就会新建一个'
+      : '还没有会话，先在终端里跑一次 council';
+    messagesEmpty.hidden = false;
+    membersBody.replaceChildren();
+    membersEmpty.hidden = true;
+    renderCost(null);
+    renderAskMembers();
+  }
+
+  async function selectConversation(id) {
+    // 切会话先停掉已排队的轮询：旧 timer 若在这一页请求完成前触发，会用
+    // 新的 currentId 配 lastSeq=0 再拉一遍第一页，和这里撞车。
+    stopPolling();
+    state.currentId = id;
+    state.lastSeq = 0;
+    state.detail = null;
+    renderConversationList();
+    messageList.replaceChildren();
+    messagesEmpty.hidden = true;
+    membersBody.replaceChildren();
+    membersEmpty.hidden = true;
+    renderCost(null);
+
+    const encoded = encodeURIComponent(id);
+    // 三份数据各管各的面板：usage 挂了不该让消息也停更，所以不用
+    // Promise.all（它把任何一个失败变成整体失败）。
+    const [detailRes, usageRes, pageRes] = await Promise.allSettled([
+      api('/api/conversations/' + encoded),
+      api('/api/conversations/' + encoded + '/usage'),
+      api('/api/conversations/' + encoded + '/messages?after=0&limit=' + PAGE_LIMIT),
+    ]);
+    if (state.currentId !== id) return;
+    let failed = false;
+    if (detailRes.status === 'fulfilled') {
+      state.detail = detailRes.value;
+      messagesTitle.textContent = detailRes.value.title || '(无标题)';
+      // 只有真的换了会话才重画成员勾选：轮询里不调它，否则每次刷新都会
+      // 把用户手动取消的勾选恢复成全选。
+      renderAskMembers();
+    } else {
+      failed = true;
+      showError(detailRes.reason);
+    }
+    if (usageRes.status === 'fulfilled') {
+      renderCost(usageRes.value);
+      if (detailRes.status === 'fulfilled') {
+        renderMembers(detailRes.value, usageRes.value);
+      }
+    } else {
+      failed = true;
+      showError(usageRes.reason);
+    }
+    if (pageRes.status === 'fulfilled') {
+      const page = pageRes.value;
+      if (page.messages.length === 0) {
+        messagesEmpty.textContent = '这个会话还没有消息';
+        messagesEmpty.hidden = false;
+      } else {
+        appendMessages(page.messages, true);
+      }
+      if (typeof page.last_seq === 'number' && page.last_seq > state.lastSeq) {
+        state.lastSeq = page.last_seq;
+      }
+    } else {
+      failed = true;
+      showError(pageRes.reason);
+    }
+    if (!failed) clearError();
+    schedulePoll();
+  }
+
+  async function refreshConversations() {
+    try {
+      const list = await api('/api/conversations');
+      state.conversations = list;
+      renderConversationList();
+      if (list.length === 0) {
+        resetToEmptyLibrary();
+        return;
+      }
+      if (!state.currentId || !list.some((conversation) => conversation.id === state.currentId)) {
+        await selectConversation(list[0].id);
+      }
+      clearError();
+    } catch (err) {
+      showError(err);
+    }
+  }
+
+  async function pollOnce() {
+    state.timer = null;
+    if (document.hidden) return;
+    const id = state.currentId;
+    if (!id) {
+      schedulePoll();
+      return;
+    }
+    const encoded = encodeURIComponent(id);
+    const [pageRes, usageRes] = await Promise.allSettled([
+      api('/api/conversations/' + encoded + '/messages?after=' +
+        encodeURIComponent(String(state.lastSeq)) + '&limit=' + PAGE_LIMIT),
+      api('/api/conversations/' + encoded + '/usage'),
+    ]);
+    if (state.currentId !== id) {
+      schedulePoll();
+      return;
+    }
+    let failed = false;
+    if (usageRes.status === 'fulfilled') {
+      renderCost(usageRes.value);
+      renderMembers(state.detail, usageRes.value);
+    } else {
+      failed = true;
+      showError(usageRes.reason);
+    }
+    if (pageRes.status === 'fulfilled') {
+      appendMessages(pageRes.value.messages, false);
+      if (typeof pageRes.value.last_seq === 'number' && pageRes.value.last_seq > state.lastSeq) {
+        state.lastSeq = pageRes.value.last_seq;
+      }
+    } else {
+      failed = true;
+      showError(pageRes.reason);
+    }
+    if (!failed) clearError();
+    schedulePoll();
+  }
+
+  function schedulePoll() {
+    if (state.timer !== null || document.hidden) return;
+    state.timer = window.setTimeout(pollOnce, POLL_MS);
+  }
+
+  function stopPolling() {
+    if (state.timer !== null) {
+      window.clearTimeout(state.timer);
+      state.timer = null;
+    }
+  }
+
+  document.getElementById('refresh-conversations').addEventListener('click', () => {
+    refreshConversations();
+  });
+
+  askRun.addEventListener('click', () => {
+    runAsk();
+  });
+
+  // Ctrl/Cmd+Enter 直接提交；单独 Enter 留给换行——问题经常不止一句。
+  askPrompt.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      runAsk();
+    }
+  });
+
+  // 页面隐藏时停掉轮询，回到前台立刻补一次再继续；任务书 §5 要求
+  // 中途能停，这比在隐藏页里空转省电，也避免后台标签页攒一堆请求。
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      stopPolling();
+      return;
+    }
+    refreshConversations();
+    pollOnce();
+  });
+
+  // health 先问一次：只有写模式才把底栏放出来。health 失败按只读处理，
+  // 看板本来的四个端点照常工作，不必因为一个可选能力把整页变红。
+  loadHealth().then(() => refreshConversations()).then(() => {
+    if (state.currentId) schedulePoll();
+  });
+})();
+</script>
+</body>
+</html>

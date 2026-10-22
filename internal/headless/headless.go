@@ -175,6 +175,13 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 		return s.finish(statusError)
 	}
 	s.convID = convID
+	// 会话已经确定：serve 在这里就能把浏览器切到新会话，不必等第一轮回来。
+	// 放在落问题之前，是因为「这次问哪个会话」在 Post 之前就已经是不可变的
+	// 事实了；万一后面的成员入会/落问题失败，也已经有一个真实存在的会话
+	// 被创建出来，started 报它并不是谎报。
+	if deps.OnStart != nil {
+		deps.OnStart(convID)
+	}
 
 	if repoRoot != "" {
 		copyDir, prepErr := prepareWorkspace(runCtx, repoRoot, deps.DataDir, convID)
@@ -281,6 +288,13 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 		recs := s.runPlan(runCtx, plan, snap, k)
 		for _, rec := range recs {
 			s.addTurn(rec, k)
+			// 记账完成之后才通知：回调看到的一定是已经进了 turns / failed /
+			// costUSD 的那条结果，serve 推给浏览器的费用与最终 done 同源。
+			// 只在这一处调，汇总轮不经过 addTurn，也就不会在这里出现——
+			// 汇总正文最终由 done.summary 一次交付。
+			if deps.OnRecord != nil {
+				deps.OnRecord(rec)
+			}
 		}
 		// 每一条都在起进程之前被拒，说明问题不在成员，而在这套装配
 		// （库、规则、身份指纹、权限闸）。这不是「有人失败」那一档的

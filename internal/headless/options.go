@@ -50,6 +50,18 @@ type Deps struct {
 	DataDir, ProjectDir string
 	Out, Err            io.Writer
 	Verbose             bool
+
+	// OnRecord 每记录到一条 turn 结果就调一次（在 Run 的主 goroutine 上）。
+	// 它存在的理由：`council serve -rw` 要把每条结果实时推到浏览器，而 Result
+	// 要等整趟跑完才拿得到。回调里不许阻塞——serve 只往内存里追加事件，
+	// 绝不把网络读者接在轮次路径上。nil 时零开销，行为与没有这个字段时一致。
+	OnRecord func(turn.Record)
+
+	// OnStart 在会话确定之后（新建完或确认续接目标存在）、落问题之前调一次，
+	// 参数是本次议会的会话 id。它让 serve 能在第一位成员开口之前就告诉浏览器
+	// 「切到哪个会话」；只靠 OnRecord 要等一轮回来才知道 id，进度页会长时间
+	// 没有目标。nil 时零开销；与 OnRecord 一样在主 goroutine 上同步调用。
+	OnStart func(conversationID string)
 }
 
 // UsageError 是「命令行用错了」这一档的哨兵。退出码 2 只认它，
