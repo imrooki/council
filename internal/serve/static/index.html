@@ -370,6 +370,64 @@
   .ask-error { color: var(--danger); font-size: 12px; }
   .ask-error[hidden] { display: none; }
 
+  /* 收起右栏：给正文腾地方，状态记在 localStorage 里 */
+  #app.no-inspector .workspace { grid-template-columns: 288px minmax(0, 1fr); }
+  #app.no-inspector .inspector { display: none; }
+  #toggle-inspector {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px; height: 28px;
+    margin-left: 4px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  #toggle-inspector:hover { background: var(--surface-2); color: var(--ink); }
+  #app.no-inspector #toggle-inspector { color: var(--ink); background: var(--surface-2); }
+  .conv-meta { font-size: 12px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+
+  /* 每条消息悬停时才出现的复制按钮：平时不占视线 */
+  .msg-copy {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity .12s ease, color .12s ease;
+  }
+  .message:hover .msg-copy, .msg-copy:focus-visible { opacity: 1; }
+  .msg-copy:hover { color: var(--ink); }
+  .msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .message.is-user .msg-foot { justify-content: flex-end; }
+  .msg-foot time { font-size: 11px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 26px;
+    transform: translateX(-50%);
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: var(--brand);
+    color: var(--brand-ink);
+    font-size: 12.5px;
+    box-shadow: 0 8px 28px -12px rgba(15, 17, 21, .5);
+    z-index: 20;
+  }
+  .toast[hidden] { display: none; }
+
   @media (max-width: 1180px) {
     .workspace { grid-template-columns: 250px minmax(0, 1fr); }
     .inspector { display: none; }
@@ -385,6 +443,12 @@
   <header class="topbar">
     <div class="brand">Council <small>只读看板</small></div>
     <div id="status" class="status" hidden></div>
+    <button id="toggle-inspector" type="button" title="收起/展开「成员与费用」" aria-label="收起或展开成员与费用">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M10.5 2.5v11" fill="none" stroke="currentColor" stroke-width="1.4"/>
+      </svg>
+    </button>
     <div class="cost">
       <span class="cost-note" id="cost-note"></span>
       <span class="cost-value" id="cost-value">—</span>
@@ -408,7 +472,7 @@
     </aside>
 
     <section class="conversation">
-      <div class="conv-head"><h2 id="messages-title">消息</h2></div>
+      <div class="conv-head"><h2 id="messages-title">消息</h2><span id="messages-meta" class="conv-meta"></span></div>
       <div class="conv-scroll">
         <ol id="message-list"></ol>
         <p id="messages-empty" class="empty" hidden></p>
@@ -444,6 +508,7 @@
       <button id="ask-run" type="button">跑一轮</button>
     </div>
   </section>
+  <div id="toast" class="toast" hidden></div>
 </div>
 <script>
 (() => {
@@ -486,6 +551,55 @@
   const askRun = document.getElementById('ask-run');
   const askProgress = document.getElementById('ask-progress');
   const askError = document.getElementById('ask-error');
+  const messagesMeta = document.getElementById('messages-meta');
+  const appRoot = document.getElementById('app');
+  const toggleInspector = document.getElementById('toggle-inspector');
+  const toast = document.getElementById('toast');
+
+  // 收起右栏是个偏好，不是一次性的动作：刷新之后还应该收着。
+  const INSPECTOR_KEY = 'council.inspector.collapsed';
+  try {
+    if (window.localStorage.getItem(INSPECTOR_KEY) === '1') appRoot.classList.add('no-inspector');
+  } catch (err) {
+    // 隐私模式禁 localStorage 时按默认展开走，不影响功能。
+  }
+  toggleInspector.addEventListener('click', () => {
+    appRoot.classList.toggle('no-inspector');
+    try {
+      window.localStorage.setItem(INSPECTOR_KEY, appRoot.classList.contains('no-inspector') ? '1' : '0');
+    } catch (err) { /* 同上 */ }
+  });
+
+  let toastTimer = null;
+  function showToast(text) {
+    toast.textContent = text;
+    toast.hidden = false;
+    if (toastTimer !== null) window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => { toast.hidden = true; toastTimer = null; }, 2000);
+  }
+
+  // 复制：127.0.0.1 是安全上下文，clipboard 可用；老终端里退回 execCommand。
+  function copyText(text) {
+    if (!text) return;
+    const done = () => showToast('已复制 ' + Array.from(text).length + ' 个字符');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => legacyCopy(text, done));
+      return;
+    }
+    legacyCopy(text, done);
+  }
+
+  function legacyCopy(text, done) {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    try { document.execCommand('copy'); done(); } catch (err) { showError(err); }
+    document.body.removeChild(area);
+  }
 
   function api(path) {
     return fetch(path, { headers: { Accept: 'application/json' } }).then((res) => {
@@ -812,9 +926,11 @@
       head.appendChild(kind);
     }
 
-    const time = document.createElement('time');
-    time.textContent = formatTime(message.created_at);
-    head.appendChild(time);
+    if (!isUser) {
+      const time = document.createElement('time');
+      time.textContent = formatTime(message.created_at);
+      head.appendChild(time);
+    }
     body.appendChild(head);
 
     if (message.text) {
@@ -822,6 +938,28 @@
       text.className = 'msg-text';
       text.textContent = message.text;
       body.appendChild(text);
+    }
+
+    // 复制按钮跟着身份走：成员放在名字那一行的右端，用户跟着气泡底部的时间。
+    const makeCopy = () => {
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'msg-copy';
+      copy.textContent = '复制';
+      copy.title = '复制这条消息的正文';
+      copy.addEventListener('click', () => copyText(message.text));
+      return copy;
+    };
+    if (!isUser && message.text) body.querySelector('.msg-head').appendChild(makeCopy());
+
+    const foot = document.createElement('div');
+    foot.className = 'msg-foot';
+    if (isUser) {
+      const time = document.createElement('time');
+      time.textContent = formatTime(message.created_at);
+      foot.appendChild(time);
+      if (message.text) foot.appendChild(makeCopy());
+      body.appendChild(foot);
     }
 
     article.appendChild(body);
@@ -978,6 +1116,7 @@
     renderConversationList();
     messageList.replaceChildren();
     messagesTitle.textContent = '消息';
+    messagesMeta.textContent = '';
     // 只读模式下的原文案保持不动；写模式可以直接在下面新建会话，
     // 再让用户「先去终端跑一次」就是把唯一的入口藏起来。
     messagesEmpty.textContent = state.writable
@@ -1017,6 +1156,10 @@
     if (detailRes.status === 'fulfilled') {
       state.detail = detailRes.value;
       messagesTitle.textContent = detailRes.value.title || '(无标题)';
+      if (pageRes.status === 'fulfilled') {
+        const members = (detailRes.value.members || []).filter((m) => m.active).length;
+        messagesMeta.textContent = (pageRes.value.messages || []).length + ' 条 · ' + members + ' 位成员';
+      }
       // 只有真的换了会话才重画成员勾选：轮询里不调它，否则每次刷新都会
       // 把用户手动取消的勾选恢复成全选。
       renderAskMembers();
