@@ -5,42 +5,56 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Council 只读看板</title>
 <style>
+  /* 设计令牌照 deepseek-harness 的那一套：中性偏冷的灰阶（neutral-bluish）、
+     几乎不可见的描边（黑/白 6%–12% 的透明度，而不是实心灰线）、近黑作为
+     品牌色、蓝色只做交互强调。圆角比常见后台大一档。 */
   :root {
     color-scheme: light;
-    --bg: #f6f7f9;
+    --bg: #f9fafb;
     --surface: #ffffff;
-    --surface-2: #f8f9fb;
-    --line: #e7e9ee;
-    --line-strong: #d7dae1;
-    --ink: #15171c;
-    --ink-2: #3c424e;
-    --muted: #6b7383;
-    --muted-2: #98a0ae;
-    --accent: #3a5bd9;
-    --accent-soft: #eef1fd;
-    --warn: #a9660b;
-    --warn-soft: #fcf2e2;
-    --danger: #c0392b;
-    --shadow: 0 1px 2px rgba(16, 24, 40, .04);
+    --surface-2: #f1f3f5;
+    --surface-3: #e9ecf2;
+    --bubble: #f1f3f5;
+    --line: rgba(0, 0, 0, .06);
+    --line-strong: rgba(0, 0, 0, .12);
+    --ink: #0f1115;
+    --ink-2: #43454a;
+    --muted: #61666b;
+    --muted-2: #81858c;
+    --brand: #0f1115;
+    --brand-ink: #ffffff;
+    --accent: #3b82f6;
+    --accent-soft: #eff6ff;
+    --warn: #b45309;
+    --warn-soft: #fef5e7;
+    --danger: #ec1313;
+    --r-sm: 8px;
+    --r-md: 12px;
+    --r-lg: 16px;
+    --shadow: 0 1px 2px rgba(15, 17, 21, .04), 0 8px 24px -18px rgba(15, 17, 21, .28);
   }
   @media (prefers-color-scheme: dark) {
     :root {
       color-scheme: dark;
-      --bg: #0b0d11;
-      --surface: #11141a;
-      --surface-2: #171b22;
-      --line: #222733;
-      --line-strong: #2f3542;
-      --ink: #e9ecf2;
-      --ink-2: #c3c9d6;
-      --muted: #8b93a3;
-      --muted-2: #6c7484;
-      --accent: #8ea6ff;
-      --accent-soft: #1a2133;
-      --warn: #e2a95f;
-      --warn-soft: #2a2117;
-      --danger: #ef8074;
-      --shadow: 0 1px 2px rgba(0, 0, 0, .35);
+      --bg: #151517;
+      --surface: #1b1b1c;
+      --surface-2: #232324;
+      --surface-3: #2c2c2e;
+      --bubble: #2c2c2e;
+      --line: rgba(255, 255, 255, .07);
+      --line-strong: rgba(255, 255, 255, .14);
+      --ink: #f9fafb;
+      --ink-2: #cfd2d8;
+      --muted: #979da6;
+      --muted-2: #81858c;
+      --brand: #f9fafb;
+      --brand-ink: #0f1115;
+      --accent: #4d93f8;
+      --accent-soft: #17233a;
+      --warn: #f7ad31;
+      --warn-soft: #2a2118;
+      --danger: #f25a5a;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -18px rgba(0, 0, 0, .8);
     }
   }
   * { box-sizing: border-box; }
@@ -49,8 +63,8 @@
     margin: 0;
     background: var(--bg);
     color: var(--ink);
-    font: 13px/1.5 -apple-system, "Segoe UI Variable Text", "Segoe UI",
-          "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei UI", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
@@ -61,25 +75,24 @@
     background-clip: content-box;
     border-radius: 999px;
   }
+  ::selection { background: var(--accent-soft); color: var(--ink); }
   #app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100vh; }
 
-  /* 顶栏：一条实线收口，不做卡片 */
   .topbar {
     display: flex;
     align-items: center;
-    gap: 14px;
-    height: 54px;
-    padding: 0 18px;
+    gap: 12px;
+    height: 52px;
+    padding: 0 16px;
     background: var(--surface);
     border-bottom: 1px solid var(--line);
   }
-  .brand { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; letter-spacing: .01em; }
+  .brand { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
   .brand::before {
     content: "";
     width: 18px; height: 18px;
     border-radius: 6px;
-    background: linear-gradient(140deg, var(--accent), #7d8cff);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25);
+    background: var(--brand);
   }
   .brand small {
     font-size: 11px;
@@ -93,16 +106,16 @@
   .status { color: var(--danger); font-size: 12px; }
   .status[hidden] { display: none; }
   .cost { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-  .cost-note { font-size: 11.5px; color: var(--muted); }
-  .cost-note.warn { color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 2px 8px; }
+  .cost-note { font-size: 12px; color: var(--muted); }
+  .cost-note.warn { color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 3px 9px; }
   .cost-value { font-size: 15px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 
-  /* 三栏工作区：靠 1px 分割线分区，栏内各自滚动 */
   .workspace { display: grid; grid-template-columns: 288px minmax(0, 1fr) 352px; min-height: 0; }
   .sidebar, .inspector, .conversation { display: flex; flex-direction: column; min-height: 0; }
   .sidebar { background: var(--surface); border-right: 1px solid var(--line); }
   .inspector { background: var(--surface); border-left: 1px solid var(--line); }
   .conversation { background: var(--bg); }
+
   .side-head, .conv-head {
     display: flex;
     align-items: center;
@@ -112,19 +125,19 @@
     flex: none;
     border-bottom: 1px solid var(--line);
   }
-  .side-head h2, .conv-head h2 {
+  .side-head h2 {
     margin: 0;
-    font-size: 11px;
+    font-size: 11.5px;
     font-weight: 600;
-    letter-spacing: .09em;
+    letter-spacing: .04em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--muted-2);
   }
   .conv-head h2 {
-    font-size: 13px;
+    margin: 0;
+    font-size: 13.5px;
     font-weight: 600;
-    letter-spacing: 0;
-    text-transform: none;
+    letter-spacing: -.01em;
     color: var(--ink);
     white-space: nowrap;
     overflow: hidden;
@@ -135,20 +148,20 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 26px; height: 26px;
+    width: 28px; height: 28px;
     padding: 0;
     border: 1px solid var(--line);
-    border-radius: 7px;
+    border-radius: var(--r-sm);
     background: var(--surface);
     color: var(--muted);
     cursor: pointer;
+    transition: background .12s ease, color .12s ease;
   }
-  #refresh-conversations:hover { color: var(--ink); border-color: var(--line-strong); }
+  #refresh-conversations:hover { background: var(--surface-2); color: var(--ink); }
   .side-scroll, .conv-scroll { flex: 1; min-height: 0; overflow: auto; }
   .side-scroll { padding: 8px; }
-  .conv-scroll { padding: 14px 8px 28px; }
+  .conv-scroll { padding: 16px 10px 32px; }
 
-  /* 会话列表 */
   #conversation-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .conversation {
     position: relative;
@@ -158,22 +171,23 @@
     width: 100%;
     padding: 9px 10px 9px 12px;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--r-sm);
     background: transparent;
     color: inherit;
     font: inherit;
     text-align: left;
     cursor: pointer;
+    transition: background .12s ease;
   }
   .conversation:hover { background: var(--surface-2); }
-  .conversation.active { background: var(--accent-soft); }
+  .conversation.active { background: var(--surface-2); }
   .conversation.active::before {
     content: "";
     position: absolute;
-    left: 3px; top: 9px; bottom: 9px;
+    left: 3px; top: 10px; bottom: 10px;
     width: 3px;
     border-radius: 3px;
-    background: var(--accent);
+    background: var(--brand);
   }
   .conversation .title {
     font-size: 13px;
@@ -183,63 +197,76 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .conversation .meta { font-size: 11.5px; color: var(--muted); }
+  .conversation .meta { font-size: 11.5px; color: var(--muted-2); }
 
-  /* 消息流：没有气泡，靠头像色与留白区分 */
   #message-list {
     list-style: none;
     margin: 0 auto;
     padding: 0;
-    max-width: 860px;
+    max-width: 840px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
   }
   .message {
     display: grid;
-    grid-template-columns: 26px minmax(0, 1fr);
+    grid-template-columns: 28px minmax(0, 1fr);
     gap: 12px;
-    padding: 13px 14px;
-    border-radius: 10px;
+    padding: 14px 12px;
+    border-radius: var(--r-md);
   }
   .message + .message { box-shadow: 0 -1px 0 var(--line); border-radius: 0; }
-  .message:hover { background: var(--surface); }
+  .message:not(.is-user):hover { background: var(--surface); }
+  /* 用户的话是气泡、成员的话是正文：两种消息如果长得一样，对话的走向就没了。 */
+  .message.is-user { grid-template-columns: minmax(0, 1fr); padding-left: 56px; box-shadow: none !important; }
+  .message.is-user .msg-body {
+    justify-self: end;
+    width: fit-content;
+    max-width: 78%;
+    padding: 10px 14px;
+    border-radius: var(--r-lg);
+    background: var(--bubble);
+  }
+  .message.is-user .msg-head { justify-content: flex-end; margin-bottom: 3px; }
+  .message.is-user .msg-text { max-width: none; color: var(--ink); }
   .avatar {
-    width: 26px; height: 26px;
-    border-radius: 8px;
+    width: 28px; height: 28px;
+    border-radius: 9px;
     display: grid;
     place-items: center;
-    font-size: 11px;
+    font-size: 11.5px;
     font-weight: 650;
     color: #fff;
-    background: hsl(var(--hue, 220) 52% 50%);
+    background: hsl(var(--hue, 220) 42% 46%);
     user-select: none;
   }
-  .avatar.neutral { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
-  .msg-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 1px; }
+  .avatar.neutral {
+    background: var(--surface-2);
+    color: var(--muted);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .msg-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
   .who { font-size: 12.5px; font-weight: 600; color: var(--ink); }
   .kind {
     font-size: 10.5px;
     font-weight: 600;
-    letter-spacing: .04em;
+    letter-spacing: .03em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--muted-2);
     background: var(--surface-2);
     border: 1px solid var(--line);
-    border-radius: 5px;
+    border-radius: 6px;
     padding: 0 5px;
   }
-  .msg-head time { font-size: 11px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+  .msg-head time { font-size: 11.5px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
   .msg-text {
     max-width: 76ch;
     font-size: 14.5px;
-    line-height: 1.72;
+    line-height: 1.75;
     color: var(--ink-2);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
 
-  /* 成员与费用 */
   #members-table { width: 100%; border-collapse: collapse; font-size: 12px; }
   #members-table thead th {
     position: sticky;
@@ -249,7 +276,7 @@
     text-align: right;
     font-size: 10.5px;
     font-weight: 600;
-    letter-spacing: .07em;
+    letter-spacing: .04em;
     text-transform: uppercase;
     color: var(--muted-2);
     border-bottom: 1px solid var(--line);
@@ -260,19 +287,11 @@
   #members-table tbody tr:last-child td { border-bottom: 0; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); white-space: nowrap; }
   .member-name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
-  .member-sub { margin-top: 2px; font-size: 11px; color: var(--muted); }
+  .member-sub { margin-top: 2px; font-size: 11px; color: var(--muted-2); }
   tr.inactive .member-name { color: var(--muted); }
 
-  .empty {
-    margin: 32px 12px;
-    font-size: 12.5px;
-    line-height: 1.7;
-    color: var(--muted);
-    text-align: center;
-  }
+  .empty { margin: 34px 12px; font-size: 12.5px; line-height: 1.7; color: var(--muted-2); text-align: center; }
 
-
-  /* 写模式底栏 */
   .ask {
     display: flex;
     flex-direction: column;
@@ -287,7 +306,7 @@
     overflow: auto;
     padding: 8px 10px;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     font-size: 11.5px;
     color: var(--muted);
@@ -316,17 +335,17 @@
     white-space: nowrap;
     cursor: pointer;
   }
-  .ask-members input { margin: 0; accent-color: var(--accent); }
+  .ask-members input { margin: 0; accent-color: var(--brand); }
   .ask-hint { font-size: 11.5px; color: var(--muted); }
   #ask-prompt {
     flex: 1;
-    min-height: 42px;
+    min-height: 44px;
     max-height: 160px;
     resize: vertical;
-    padding: 10px 12px;
+    padding: 11px 12px;
     border: 1px solid var(--line-strong);
-    border-radius: 10px;
-    background: var(--surface-2);
+    border-radius: var(--r-md);
+    background: var(--surface);
     color: var(--ink);
     font: inherit;
     font-size: 13.5px;
@@ -334,19 +353,20 @@
   }
   #ask-prompt:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   #ask-run {
-    height: 42px;
+    height: 44px;
     padding: 0 20px;
     border: 0;
-    border-radius: 10px;
-    background: var(--accent);
-    color: #fff;
+    border-radius: var(--r-md);
+    background: var(--brand);
+    color: var(--brand-ink);
     font: inherit;
     font-weight: 600;
     white-space: nowrap;
     cursor: pointer;
+    transition: opacity .12s ease;
   }
-  #ask-run:hover { filter: brightness(1.06); }
-  #ask-run:disabled { opacity: .5; cursor: default; filter: none; }
+  #ask-run:hover { opacity: .88; }
+  #ask-run:disabled { opacity: .4; cursor: default; }
   .ask-error { color: var(--danger); font-size: 12px; }
   .ask-error[hidden] { display: none; }
 
@@ -761,14 +781,18 @@
     const hue = senderHue(message.sender_id);
     article.className = 'message' + (isUser ? ' is-user' : '');
 
-    const avatar = document.createElement('div');
-    avatar.className = 'avatar' + (hue === null ? ' neutral' : '');
-    if (hue !== null) avatar.style.setProperty('--hue', String(hue));
     const who = message.sender_id || '';
-    avatar.textContent = isUser ? '你' : (who.slice(0, 1) || '?').toUpperCase();
-    article.appendChild(avatar);
+    // 用户的消息是右对齐气泡，身份由位置表达，不需要头像；成员才需要色块。
+    if (!isUser) {
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar' + (hue === null ? ' neutral' : '');
+      if (hue !== null) avatar.style.setProperty('--hue', String(hue));
+      avatar.textContent = (who.slice(0, 1) || '?').toUpperCase();
+      article.appendChild(avatar);
+    }
 
     const body = document.createElement('div');
+    body.className = 'msg-body';
     const head = document.createElement('div');
     head.className = 'msg-head';
 
