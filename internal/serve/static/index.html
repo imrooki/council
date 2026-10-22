@@ -6,13 +6,42 @@
 <title>Council 只读看板</title>
 <style>
   :root {
-    --bg: #f5f3ee;
-    --panel: #fffdf8;
-    --line: #d9d3c7;
-    --ink: #2b2822;
-    --muted: #756e62;
-    --accent: #7a4b2a;
-    --danger: #a33a2a;
+    color-scheme: light;
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #f8f9fb;
+    --line: #e7e9ee;
+    --line-strong: #d7dae1;
+    --ink: #15171c;
+    --ink-2: #3c424e;
+    --muted: #6b7383;
+    --muted-2: #98a0ae;
+    --accent: #3a5bd9;
+    --accent-soft: #eef1fd;
+    --warn: #a9660b;
+    --warn-soft: #fcf2e2;
+    --danger: #c0392b;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d11;
+      --surface: #11141a;
+      --surface-2: #171b22;
+      --line: #222733;
+      --line-strong: #2f3542;
+      --ink: #e9ecf2;
+      --ink-2: #c3c9d6;
+      --muted: #8b93a3;
+      --muted-2: #6c7484;
+      --accent: #8ea6ff;
+      --accent-soft: #1a2133;
+      --warn: #e2a95f;
+      --warn-soft: #2a2117;
+      --danger: #ef8074;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .35);
+    }
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
@@ -20,212 +49,320 @@
     margin: 0;
     background: var(--bg);
     color: var(--ink);
-    font: 14px/1.55 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font: 13px/1.5 -apple-system, "Segoe UI Variable Text", "Segoe UI",
+          "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
-  #app { display: flex; flex-direction: column; height: 100vh; }
-  header {
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  #app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100vh; }
+
+  /* 顶栏：一条实线收口，不做卡片 */
+  .topbar {
     display: flex;
-    align-items: baseline;
-    gap: 16px;
-    padding: 10px 18px;
-    border-bottom: 1px solid var(--line);
-    background: var(--panel);
-  }
-  .brand { font-size: 17px; font-weight: 650; letter-spacing: .02em; }
-  .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
-  .cost { margin-left: auto; display: flex; align-items: baseline; gap: 10px; }
-  .cost-value { font-size: 18px; font-variant-numeric: tabular-nums; }
-  .cost-note { color: var(--muted); font-size: 12px; }
-  .cost-note.warn { color: var(--danger); }
-  .status { color: var(--danger); font-size: 12px; min-height: 18px; }
-  /* 写模式才出现的底栏。只读模式整块 hidden，布局与 SRV1 完全一样。 */
-  .ask-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-    padding: 9px 14px 12px;
-    border-top: 1px solid var(--line);
-    background: var(--panel);
-  }
-  .ask-panel[hidden] { display: none; }
-  .ask-progress {
-    max-height: 96px;
-    overflow: auto;
-    border: 1px solid #e9e3d7;
-    border-radius: 6px;
-    padding: 5px 8px;
-    font-size: 12px;
-    color: var(--muted);
-    background: #fbf8f1;
-  }
-  .ask-progress[hidden] { display: none; }
-  .ask-line { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .ask-row { display: flex; align-items: flex-start; gap: 10px; }
-  .ask-members {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 10px;
-    max-width: 42%;
-    max-height: 44px;
-    overflow: auto;
-    font-size: 12px;
-  }
-  .ask-members label { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
-  .ask-members input { margin: 0; }
-  .ask-hint { color: var(--muted); font-size: 12px; }
-  #ask-prompt {
-    flex: 1;
-    min-height: 38px;
-    max-height: 120px;
-    resize: vertical;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 6px 9px;
-    font: inherit;
-    color: var(--ink);
-    background: #fff;
-  }
-  #ask-run {
-    border: 1px solid var(--accent);
-    background: var(--accent);
-    color: #fff;
-    border-radius: 6px;
-    padding: 8px 16px;
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  #ask-run:disabled { opacity: .5; cursor: default; }
-  .ask-error { color: var(--danger); font-size: 12px; min-height: 16px; }
-  .ask-error[hidden] { display: none; }
-  .layout {
-    display: grid;
-    grid-template-columns: 250px minmax(0, 1fr) 380px;
+    align-items: center;
     gap: 14px;
-    padding: 14px;
-    min-height: 0;
-    flex: 1;
+    height: 54px;
+    padding: 0 18px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
   }
-  .panel {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    background: var(--panel);
+  .brand { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; letter-spacing: .01em; }
+  .brand::before {
+    content: "";
+    width: 18px; height: 18px;
+    border-radius: 6px;
+    background: linear-gradient(140deg, var(--accent), #7d8cff);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25);
+  }
+  .brand small {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    background: var(--surface-2);
     border: 1px solid var(--line);
-    border-radius: 8px;
-    overflow: hidden;
+    border-radius: 999px;
+    padding: 2px 8px;
   }
-  .panel-head {
+  .status { color: var(--danger); font-size: 12px; }
+  .status[hidden] { display: none; }
+  .cost { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .cost-note { font-size: 11.5px; color: var(--muted); }
+  .cost-note.warn { color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 2px 8px; }
+  .cost-value { font-size: 15px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+
+  /* 三栏工作区：靠 1px 分割线分区，栏内各自滚动 */
+  .workspace { display: grid; grid-template-columns: 288px minmax(0, 1fr) 352px; min-height: 0; }
+  .sidebar, .inspector, .conversation { display: flex; flex-direction: column; min-height: 0; }
+  .sidebar { background: var(--surface); border-right: 1px solid var(--line); }
+  .inspector { background: var(--surface); border-left: 1px solid var(--line); }
+  .conversation { background: var(--bg); }
+  .side-head, .conv-head {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 9px 12px;
+    height: 46px;
+    padding: 0 14px;
+    flex: none;
     border-bottom: 1px solid var(--line);
   }
-  .panel-head h2 {
+  .side-head h2, .conv-head h2 {
     margin: 0;
-    font-size: 13px;
-    font-weight: 650;
-    letter-spacing: .06em;
-    color: var(--muted);
-  }
-  .panel-head button {
-    margin-left: auto;
-    border: 1px solid var(--line);
-    background: transparent;
-    color: var(--muted);
-    border-radius: 4px;
-    padding: 2px 8px;
-    font: inherit;
-    font-size: 12px;
-    cursor: pointer;
-  }
-  .panel-head button:hover { color: var(--ink); border-color: var(--muted); }
-  .scroll { overflow: auto; min-height: 0; flex: 1; }
-  #conversation-list { list-style: none; margin: 0; padding: 6px; }
-  #conversation-list li { margin: 0 0 4px; }
-  .conversation {
-    width: 100%;
-    text-align: left;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    padding: 7px 9px;
-    cursor: pointer;
-  }
-  .conversation:hover { background: #f3eee4; }
-  .conversation.active { background: #efe6d7; border-color: #d9c8ad; }
-  .conversation .title {
-    display: block;
+    font-size: 11px;
     font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .conv-head h2 {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .conversation .meta { display: block; color: var(--muted); font-size: 12px; }
-  .empty { margin: 12px; color: var(--muted); font-size: 13px; }
-  #message-list { list-style: none; margin: 0; padding: 10px 12px; }
-  .message {
-    border-left: 3px solid var(--line);
-    border-radius: 0 6px 6px 0;
-    padding: 6px 10px;
-    margin: 0 0 8px;
-  }
-  .msg-head {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .msg-head .sender { font-weight: 650; font-size: 13px; }
-  .msg-head .kind {
+  #refresh-conversations {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px; height: 26px;
+    padding: 0;
     border: 1px solid var(--line);
-    border-radius: 3px;
-    padding: 0 4px;
-    font-size: 11px;
+    border-radius: 7px;
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
   }
-  .msg-head time { margin-left: auto; font-variant-numeric: tabular-nums; }
+  #refresh-conversations:hover { color: var(--ink); border-color: var(--line-strong); }
+  .side-scroll, .conv-scroll { flex: 1; min-height: 0; overflow: auto; }
+  .side-scroll { padding: 8px; }
+  .conv-scroll { padding: 14px 8px 28px; }
+
+  /* 会话列表 */
+  #conversation-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .conversation {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    width: 100%;
+    padding: 9px 10px 9px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .conversation:hover { background: var(--surface-2); }
+  .conversation.active { background: var(--accent-soft); }
+  .conversation.active::before {
+    content: "";
+    position: absolute;
+    left: 3px; top: 9px; bottom: 9px;
+    width: 3px;
+    border-radius: 3px;
+    background: var(--accent);
+  }
+  .conversation .title {
+    font-size: 13px;
+    font-weight: 550;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .conversation .meta { font-size: 11.5px; color: var(--muted); }
+
+  /* 消息流：没有气泡，靠头像色与留白区分 */
+  #message-list {
+    list-style: none;
+    margin: 0 auto;
+    padding: 0;
+    max-width: 860px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .message {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 12px;
+    padding: 13px 14px;
+    border-radius: 10px;
+  }
+  .message + .message { box-shadow: 0 -1px 0 var(--line); border-radius: 0; }
+  .message:hover { background: var(--surface); }
+  .avatar {
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 650;
+    color: #fff;
+    background: hsl(var(--hue, 220) 52% 50%);
+    user-select: none;
+  }
+  .avatar.neutral { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .msg-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 1px; }
+  .who { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+  .kind {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 0 5px;
+  }
+  .msg-head time { font-size: 11px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
   .msg-text {
-    margin-top: 3px;
+    max-width: 76ch;
+    font-size: 14.5px;
+    line-height: 1.72;
+    color: var(--ink-2);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
+
+  /* 成员与费用 */
   #members-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  #members-table th, #members-table td {
-    padding: 5px 6px;
-    border-bottom: 1px solid #e9e3d7;
-    text-align: right;
-    white-space: nowrap;
-  }
-  #members-table th:first-child, #members-table td:first-child { text-align: left; white-space: normal; }
   #members-table thead th {
     position: sticky;
-    top: 0;
-    background: var(--panel);
-    color: var(--muted);
+    top: -8px;
+    background: var(--surface);
+    padding: 6px 6px 8px;
+    text-align: right;
+    font-size: 10.5px;
     font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
   }
-  #members-table td.num { font-variant-numeric: tabular-nums; }
-  #members-table .member-name { font-weight: 600; }
-  #members-table .member-sub { color: var(--muted); font-size: 11px; }
-  #members-table tr.inactive { opacity: .55; }
-  @media (max-width: 1050px) {
-    .layout { grid-template-columns: 220px minmax(0, 1fr); }
-    .layout .panel.side { grid-column: 1 / -1; max-height: 40vh; }
+  #members-table thead th:first-child { text-align: left; }
+  #members-table tbody td { padding: 9px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  #members-table tbody tr:last-child td { border-bottom: 0; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); white-space: nowrap; }
+  .member-name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+  .member-sub { margin-top: 2px; font-size: 11px; color: var(--muted); }
+  tr.inactive .member-name { color: var(--muted); }
+
+  .empty {
+    margin: 32px 12px;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--muted);
+    text-align: center;
   }
-  @media (max-width: 720px) {
-    .layout { grid-template-columns: minmax(0, 1fr); }
-    .layout .panel.conversations { max-height: 30vh; }
+
+
+  /* 写模式底栏 */
+  .ask {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 16px 14px;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+  }
+  .ask[hidden] { display: none; }
+  .ask-progress {
+    max-height: 108px;
+    overflow: auto;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-2);
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .ask-progress[hidden] { display: none; }
+  .ask-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ask-row { display: flex; align-items: flex-end; gap: 10px; }
+  .ask-members {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-width: 46%;
+    max-height: 42px;
+    overflow: auto;
+    font-size: 12px;
+  }
+  .ask-members label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .ask-members input { margin: 0; accent-color: var(--accent); }
+  .ask-hint { font-size: 11.5px; color: var(--muted); }
+  #ask-prompt {
+    flex: 1;
+    min-height: 42px;
+    max-height: 160px;
+    resize: vertical;
+    padding: 10px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    background: var(--surface-2);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13.5px;
+    line-height: 1.6;
+  }
+  #ask-prompt:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  #ask-run {
+    height: 42px;
+    padding: 0 20px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  #ask-run:hover { filter: brightness(1.06); }
+  #ask-run:disabled { opacity: .5; cursor: default; filter: none; }
+  .ask-error { color: var(--danger); font-size: 12px; }
+  .ask-error[hidden] { display: none; }
+
+  @media (max-width: 1180px) {
+    .workspace { grid-template-columns: 250px minmax(0, 1fr); }
+    .inspector { display: none; }
+  }
+  @media (max-width: 820px) {
+    .workspace { grid-template-columns: minmax(0, 1fr); }
+    .sidebar { display: none; }
   }
 </style>
 </head>
 <body>
 <div id="app">
-  <header>
+  <header class="topbar">
     <div class="brand">Council <small>只读看板</small></div>
     <div id="status" class="status" hidden></div>
     <div class="cost">
@@ -233,37 +370,40 @@
       <span class="cost-value" id="cost-value">—</span>
     </div>
   </header>
-  <main class="layout">
-    <aside class="panel conversations">
-      <div class="panel-head">
+  <main class="workspace">
+    <aside class="sidebar">
+      <div class="side-head">
         <h2>会话</h2>
-        <button id="refresh-conversations" type="button" title="重新读一次会话列表">刷新</button>
+        <button id="refresh-conversations" type="button" title="重新读一次会话列表" aria-label="刷新会话列表">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path d="M12.6 6.2A5 5 0 1 0 13 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M13.4 3.3v3.1H10.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
       </div>
-      <div class="scroll">
+      <div class="side-scroll">
         <ul id="conversation-list"></ul>
         <p id="conversations-empty" class="empty" hidden>还没有会话，先在终端里跑一次 council</p>
       </div>
     </aside>
 
-    <section class="panel messages">
-      <div class="panel-head"><h2 id="messages-title">消息</h2></div>
-      <div class="scroll">
+    <section class="conversation">
+      <div class="conv-head"><h2 id="messages-title">消息</h2></div>
+      <div class="conv-scroll">
         <ol id="message-list"></ol>
         <p id="messages-empty" class="empty" hidden></p>
       </div>
     </section>
 
-    <aside class="panel side">
-      <div class="panel-head"><h2>成员与费用</h2></div>
-      <div class="scroll">
+    <aside class="inspector">
+      <div class="side-head"><h2>成员与费用</h2></div>
+      <div class="side-scroll">
         <table id="members-table">
           <thead>
             <tr>
               <th>成员</th>
               <th>轮</th>
               <th>IN</th>
-              <th>缓存建</th>
-              <th>缓存读</th>
               <th>OUT</th>
               <th>金额</th>
             </tr>
@@ -275,7 +415,7 @@
     </aside>
   </main>
 
-  <section id="ask-panel" class="ask-panel" hidden>
+  <section id="ask-panel" class="ask" hidden>
     <div id="ask-progress" class="ask-progress" hidden></div>
     <div class="ask-error" id="ask-error" hidden></div>
     <div class="ask-row">
@@ -573,7 +713,12 @@
     }
   }
 
+  // 表格里一列塞不下 "0.0421 USD"：USD 由表头说明，值只留数字。
   function formatUSD(value) {
+    if (typeof value !== 'number' || !isFinite(value)) return '—';
+    return '$' + value.toFixed(4);
+  }
+  function formatUSDFull(value) {
     if (typeof value !== 'number' || !isFinite(value)) return '—';
     return value.toFixed(4) + ' USD';
   }
@@ -582,11 +727,19 @@
     return typeof value === 'number' && isFinite(value) ? value.toLocaleString('zh-CN') : '0';
   }
 
+  // 记录里时间戳是次要信息：今天的消息只显示时分，跨天的才带日期。
+  // 每条都写全年月日会把眼睛从正文上拽走。
   function formatTime(value) {
     if (!value) return '';
     const date = new Date(value);
     if (isNaN(date.getTime())) return value;
-    return date.toLocaleString('zh-CN', { hour12: false });
+    const clock = date.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
+    const now = new Date();
+    const sameDay = date.getFullYear() === now.getFullYear()
+      && date.getMonth() === now.getMonth()
+      && date.getDate() === now.getDate();
+    if (sameDay) return clock;
+    return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) + ' ' + clock;
   }
 
   // sender 着色：同一 id 永远得到同一个色相；user / system 是保留 id，
@@ -600,44 +753,54 @@
     return hash % 360;
   }
 
+  // 消息行：头像色只用来区分「谁」，正文才是主角。kind 只在它带来额外
+  // 信息时显示——给一条 agent 消息再标一遍 "agent" 是重复。
   function renderMessage(message) {
     const article = document.createElement('article');
-    article.className = 'message';
+    const isUser = message.sender_id === 'user';
     const hue = senderHue(message.sender_id);
-    if (hue === null) {
-      article.style.borderLeftColor = '#a9a294';
-      article.style.background = '#f0ece3';
-    } else {
-      article.style.borderLeftColor = 'hsl(' + hue + ' 62% 42%)';
-      article.style.background = 'hsl(' + hue + ' 55% 96%)';
-    }
+    article.className = 'message' + (isUser ? ' is-user' : '');
 
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar' + (hue === null ? ' neutral' : '');
+    if (hue !== null) avatar.style.setProperty('--hue', String(hue));
+    const who = message.sender_id || '';
+    avatar.textContent = isUser ? '你' : (who.slice(0, 1) || '?').toUpperCase();
+    article.appendChild(avatar);
+
+    const body = document.createElement('div');
     const head = document.createElement('div');
     head.className = 'msg-head';
 
-    const sender = document.createElement('span');
-    sender.className = 'sender';
-    sender.textContent = message.sender_id || '(未知)';
-    head.appendChild(sender);
+    // 用户的头像已经写着「你」，名字再写一遍就是重复；成员才需要名字。
+    if (!isUser) {
+      const name = document.createElement('span');
+      name.className = 'who';
+      name.textContent = who || '(未知)';
+      head.appendChild(name);
+    }
 
-    const kind = document.createElement('span');
     const kindName = String(message.kind || '').replace(/[^a-z_]/g, '');
-    kind.className = 'kind kind-' + (kindName || 'system');
-    kind.textContent = message.kind || '';
-    head.appendChild(kind);
+    if (kindName && kindName !== 'user' && kindName !== 'agent') {
+      const kind = document.createElement('span');
+      kind.className = 'kind';
+      kind.textContent = kindName;
+      head.appendChild(kind);
+    }
 
     const time = document.createElement('time');
     time.textContent = formatTime(message.created_at);
     head.appendChild(time);
-
-    article.appendChild(head);
+    body.appendChild(head);
 
     if (message.text) {
       const text = document.createElement('div');
       text.className = 'msg-text';
       text.textContent = message.text;
-      article.appendChild(text);
+      body.appendChild(text);
     }
+
+    article.appendChild(body);
     return article;
   }
 
@@ -712,12 +875,13 @@
       costNote.className = 'cost-note';
       return;
     }
-    costValue.textContent = formatUSD(usage.cost_usd);
+    costValue.textContent = formatUSDFull(usage.cost_usd);
     if (usage.complete) {
       costNote.textContent = '金额完整';
       costNote.className = 'cost-note';
     } else {
-      costNote.textContent = '金额不完整：有成员不报金额';
+      costNote.textContent = '金额不完整';
+      costNote.title = '有成员的 provider 不报金额，合计只是报了金额的那些轮之和';
       costNote.className = 'cost-note warn';
     }
   }
@@ -764,16 +928,18 @@
       sub.className = 'member-sub';
       const provider = (member && member.provider) || (usageById.get(id) || {}).provider || '';
       const model = (usageById.get(id) || {}).model || '';
+      const stat = usageById.get(id) || {};
       const suffix = member && !member.active ? ' · 已退出' : '';
-      sub.textContent = [id, provider, model].filter(Boolean).join(' · ') + suffix;
+      const cacheBits = [];
+      if (stat.cache_create) cacheBits.push('建 ' + formatNumber(stat.cache_create));
+      if (stat.cache_read) cacheBits.push('读 ' + formatNumber(stat.cache_read));
+      const cacheNote = cacheBits.length ? '缓存 ' + cacheBits.join(' / ') : '';
+      sub.textContent = [id, provider, model, cacheNote].filter(Boolean).join(' · ') + suffix;
       memberCell.appendChild(sub);
       row.appendChild(memberCell);
 
-      const stat = usageById.get(id) || {};
       addCell(row, String(stat.turns || 0), 'num');
       addCell(row, formatNumber(stat.in), 'num');
-      addCell(row, formatNumber(stat.cache_create), 'num');
-      addCell(row, formatNumber(stat.cache_read), 'num');
       addCell(row, formatNumber(stat.out), 'num');
       addCell(row, stat.cost_reported === false ? '不报' : formatUSD(stat.cost_usd || 0), 'num');
       membersBody.appendChild(row);
