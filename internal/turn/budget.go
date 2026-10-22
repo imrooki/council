@@ -114,7 +114,7 @@ func (r *Runner) budgetOne(ctx context.Context, convID, agentID string, snap Rou
 		return row, nil
 	}
 
-	fp, fpErr := identityFPFor(p, agentID, ac, r.workDir, convID, tier, snap.Rules)
+	fp, fpErr := identityFPAt(p, agentID, ac, r.dirFor(convID, agentID, tier), r.roleDirFor(agentID), tier, snap.Rules)
 	if fpErr != nil || fp == "" {
 		// 指纹算不出就不要拿空串去查。identity_fp 的历史行全是空串，
 		// 空串会命中片 2a 之前的空窗，那是在用另一份前缀的数字冒充。
@@ -160,7 +160,7 @@ func (r *Runner) budgetOne(ctx context.Context, convID, agentID string, snap Rou
 		return row, nil
 	}
 
-	headroom := argvHeadroom(p, agentID, ac, tier, snap.Rules, view.providerSession, prompt, r.workDir, convID, cfg)
+	headroom := argvHeadroom(p, agentID, ac, tier, snap.Rules, view.providerSession, prompt, r.dirFor(convID, agentID, tier), r.roleDirFor(agentID), cfg)
 	row.ArgvHeadroom = headroom
 
 	samples, err := r.svc.UsageSamples(ctx, agentID, fp, -1)
@@ -328,13 +328,15 @@ func scaleTokens(sampleTokens, sampleBytes, thisBytes int) (int, bool) {
 //
 // ProviderSession 用预报看到的那条：空串是 bootstrap，agy 会把身份块拼进正文，
 // 命令行比 resume 更长。用错形状，余量会偏乐观。
+// dir / roleDir 必须由调用方的 dirFor / roleDirFor 解析好：固定副本模式下
+// 它们与真正发出去的 TurnRequest 是同一对路径，量出来的余量才作数。
 func argvHeadroom(
 	p provider.Provider,
 	agentID string,
 	ac config.AgentConfig,
 	tier provider.PermissionTier,
 	rules RulesBlocks,
-	providerSession, prompt, baseWorkDir, convID string,
+	providerSession, prompt, dir, roleDir string,
 	cfg *config.Config,
 ) *int {
 	identity := renderIdentity(agentID, ac, rules)
@@ -347,7 +349,8 @@ func argvHeadroom(
 		Permission:      tier,
 		ProviderSession: providerSession,
 		Prompt:          prompt,
-		WorkDir:         agentWorkDir(baseWorkDir, convID, agentID, tier),
+		WorkDir:         dir,
+		RoleDir:         roleDir,
 		MaxTurns:        0,
 	}
 	caps := p.Capabilities()

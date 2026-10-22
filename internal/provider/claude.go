@@ -89,7 +89,11 @@ func (p claudeProvider) BuildTurn(req TurnRequest) (Command, error) {
 		return Command{}, err
 	}
 
-	rolePath := filepath.Join(req.WorkDir, "council-role.txt")
+	roleDir := req.RoleDir
+	if roleDir == "" {
+		roleDir = req.WorkDir
+	}
+	rolePath := filepath.Join(roleDir, "council-role.txt")
 
 	args := make([]string, 0, 16)
 	args = append(args, "-p", "--output-format", "json")

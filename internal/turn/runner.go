@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -98,6 +99,13 @@ type Runner struct {
 	workDir string // Council 自己的干净目录，data_dir 下，绝不是 council 的启动目录
 	timeout time.Duration
 
+	// fixedWorkDir 非空时，所有成员这一轮都用它当 cwd，不再按
+	// agentWorkDir 拼 agentID / convID。-workspace 副本模式用它把
+	// 所有成员（含只读成员）放进同一份 worktree；空串是既有行为。
+	// 此时 workDir 仍是 <data_dir>/workdir，claude 的 council-role.txt
+	// 要从这里拼回去，不能落进副本。
+	fixedWorkDir string
+
 	// gatesMu 只护 gates 这张 map 的 get-or-create。临界区里只做 map
 	// 读写，拿完立刻放，绝不在持有它时做 IO，也绝不在持有它时去取
 	// g.mu —— 否则 Ask 整轮持有 g.mu 再回头碰 map，就和旧的全局锁
@@ -136,6 +144,30 @@ func NewRunner(cfg *config.Config, svc *conversation.Service, workDir string, ru
 		gates:   make(map[sessionKey]*sessionGate),
 		rules:   rules,
 	}
+}
+
+// NewRunnerFixedWorkDir 构造一个所有成员共用 dir 当 cwd 的 Runner。
+// 它只给 -workspace 副本模式用：那份副本在 <data_dir>\workspaces\<convID>，
+// 成员不再按 agentWorkDir 分成 <data_dir>\workdir\<agentID>。
+//
+// workBase 是 <data_dir>\workdir，固定模式下的 council-role.txt 仍从这里
+// 按 <workBase>\<agentID> 落盘，不落进副本。两个路径都必须显式、绝对：
+// 早先版本想从副本路径反推 data_dir，dir="" 或相对路径时会让成员在进程
+// 启动目录里跑、角色文件落到无关的 sibling workdir。这里返回 error 而不是
+// 在构造函数里 panic：调用方（headless）能把“路径没解析好”折成一次明确的
+// 执行失败，而 panic 会把一次参数错误变成整个进程崩掉。
+func NewRunnerFixedWorkDir(cfg *config.Config, svc *conversation.Service, dir, workBase string, rules RulesBlocks) (*Runner, error) {
+	cleanDir := filepath.Clean(dir)
+	if !filepath.IsAbs(cleanDir) {
+		return nil, fmt.Errorf("fixed work dir %q must be absolute", dir)
+	}
+	cleanBase := filepath.Clean(workBase)
+	if !filepath.IsAbs(cleanBase) {
+		return nil, fmt.Errorf("work base dir %q must be absolute", workBase)
+	}
+	r := NewRunner(cfg, svc, cleanBase, rules)
+	r.fixedWorkDir = cleanDir
+	return r, nil
 }
 
 // gate 按 key 取出这条 (会话, 成员) 的闸，没有就建一把。
@@ -421,7 +453,7 @@ func (r *Runner) askUpToWith(ctx context.Context, convID, agentID string, upTo i
 		// 拿到写盘权限的成员还会把文件写进那个仓库。起进程之前拒绝。
 		return r.refuse(ctx, &rec, st, began, fmt.Errorf("agent %q: %w", agentID, provider.ErrNoWorkDir))
 	}
-	dir := agentWorkDir(r.workDir, convID, agentID, tier)
+	dir := r.dirFor(convID, agentID, tier)
 
 	// 每轮起进程之前 MkdirAll，取代 app.go 里那个「启动时一次建齐」的旧循环
 	// （11c 契约第 4 节）：那个循环只知道 agentID，不知道 convID，有了会话
@@ -433,11 +465,11 @@ func (r *Runner) askUpToWith(ctx context.Context, convID, agentID string, upTo i
 	}
 
 	// 送出去的是带规则的整块，进指纹 role 段的是不带规则的核心 —— 两者
-	// 分开算的理由见 renderIdentityCore 的注释。identityFPFor 与 AuditDrift
+	// 分开算的理由见 renderIdentityCore 的注释。identityFPAt 与 AuditDrift
 	// 共用同一份计算，理由见它自己的注释：两处但凡有一处漏改，审计就会
 	// 报出一堆不存在的漂移，或者反过来漏报真实的漂移。
 	identity := renderIdentity(agentID, ac, rules)
-	fp, fpErr := identityFPFor(p, agentID, ac, r.workDir, convID, tier, rules)
+	fp, fpErr := identityFPAt(p, agentID, ac, dir, r.roleDirFor(agentID), tier, rules)
 	if fpErr != nil {
 		// 探针组不出命令行（权限档不放行、agy 的规则文件把探针正文顶过
 		// MaxPromptBytes……）：与其它起进程之前的拒绝走同一条路，不吞。
@@ -606,6 +638,7 @@ func (r *Runner) askUpToWith(ctx context.Context, convID, agentID string, upTo i
 		ProviderSession: st.providerSession,
 		Prompt:          prompt,
 		WorkDir:         dir,
+		RoleDir:         r.roleDirFor(agentID),
 		// MaxTurns 恒为 0：Step 6 不设 --max-turns（06 第 5 节）。写出来而不是
 		// 靠结构体零值，是为了让读代码的人知道这是故意留给下一步的，不是漏填。
 		// 真去设上限会让 Completion=Truncated 的成功轮混进「我们没截过」的假设。

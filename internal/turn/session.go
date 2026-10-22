@@ -128,11 +128,34 @@ func agentWorkDir(base, convID, agentID string, tier provider.PermissionTier) st
 	return filepath.Join(base, convID, agentID)
 }
 
-// identityFPFor 是 Ask 与 AuditDrift 唯一的指纹计算入口，用 Ask 里那一套
-// 完全相同的算法，给 (agentID, ac) 这一对在给定的 p / tier / rules 之下
-// 算一遍指纹。
+// dirFor 是 Runner 内部取成员 cwd 的唯一入口。非固定模式原样走
+// agentWorkDir；固定模式（-workspace 副本）所有成员都用同一个副本根，
+// 这是本片唯一真正的行为变化。只读成员也进副本：它们要读真代码。
+func (r *Runner) dirFor(convID, agentID string, tier provider.PermissionTier) string {
+	if r.fixedWorkDir != "" {
+		return r.fixedWorkDir
+	}
+	return agentWorkDir(r.workDir, convID, agentID, tier)
+}
+
+// roleDirFor 是 council-role.txt 的落点目录。非固定模式返回空串，
+// 适配器退回 req.WorkDir（逐字节保持既有路径）；固定模式返回
+// <data_dir>\workdir\<agentID>，把角色文件挡在副本外面。workDir 在
+// NewRunnerFixedWorkDir 里仍被设成 <data_dir>\workdir，所以这里与
+// 非固定模式共用同一个基目录。
+func (r *Runner) roleDirFor(agentID string) string {
+	if r.fixedWorkDir == "" {
+		return ""
+	}
+	return filepath.Join(r.workDir, agentID)
+}
+
+// identityFPFor 是「按基目录自己拼 dir」的那条指纹入口，保留给既有
+// 非固定模式与测试；固定副本模式的调用方已经知道副本根，直接走
+// identityFPAt。两条路径共用同一套算法，给 (agentID, ac) 这一对在给定的
+// p / tier / rules 之下算一遍指纹。
 //
-// Ask 与 AuditDrift 共用这一个函数，是因为它们回答的是同一个问题
+// Ask 与 AuditDrift 共用同一套计算，是因为它们回答的是同一个问题
 // 「这个 agent 现在应该有一份什么样的指纹」，只是一个在起进程之前问、
 // 一个在事后审计时问。两处各写一份的话，任何一处漏改（加字段、改
 // effortFlagEmitted 的取法、改探针请求怎么组……）都会让审计报出一堆
@@ -166,6 +189,25 @@ func identityFPFor(
 	tier provider.PermissionTier,
 	rules RulesBlocks,
 ) (string, error) {
+	return identityFPAt(p, agentID, ac, agentWorkDir(baseWorkDir, convID, agentID, tier), "", tier, rules)
+}
+
+// identityFPAt 是 identityFPFor 的「目录已经解析好」版本。固定工作目录
+// 模式下 dir 是副本根，而不是 agentWorkDir 拼出来的路径；Runner 内部的
+// Ask、Budget、AuditDrift 都必须与真正发出去的 TurnRequest.WorkDir 用
+// 同一条路径，否则指纹与命令行会对不上。
+//
+// roleDir 显式传入：固定副本的 claude 角色文件落在 workBase 下，路径会
+// 进命令行摘要，必须与真实请求同一个值；非固定模式传空串，适配器退回
+// WorkDir，与既有指纹逐字节相同。
+func identityFPAt(
+	p provider.Provider,
+	agentID string,
+	ac config.AgentConfig,
+	dir, roleDir string,
+	tier provider.PermissionTier,
+	rules RulesBlocks,
+) (string, error) {
 	caps := p.Capabilities()
 	emitted := effortFlagEmitted(caps.Effort, ac.Effort)
 	core := renderIdentityCore(agentID, ac)
@@ -178,7 +220,8 @@ func identityFPFor(
 		Effort:      ac.Effort,
 		Role:        identity,
 		Permission:  tier,
-		WorkDir:     agentWorkDir(baseWorkDir, convID, agentID, tier),
+		WorkDir:     dir,
+		RoleDir:     roleDir,
 	}
 	prefixDigest, err := PrefixArgsDigest(p, probeReq)
 	if err != nil {

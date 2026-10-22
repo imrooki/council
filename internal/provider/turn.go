@@ -25,6 +25,12 @@ type TurnRequest struct {
 	// 那个仓库（直接违反 06 第 4 节）。
 	WorkDir string
 
+	// RoleDir 是 council-role.txt 的落点目录。空串表示落在 WorkDir 里，
+	// 这是非副本模式的既有形状；固定工作目录（-workspace 副本）模式下
+	// 它被设成 <data_dir>\workdir\<agentID>，把角色文件挡在副本外面。
+	// 只有需要落文件的适配器（今天只有 claude）读它。
+	RoleDir string
+
 	MaxTurns int // 0 表示不设；只有 MaxTurnsFlag == SupportYes 才会被用上（06 第 5 节）
 }
 

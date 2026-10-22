@@ -165,7 +165,8 @@ func (r *Runner) probeHeadroom(p provider.Provider, agentID string, cfg *config.
 		// 略偏乐观几个字节，与本函数注释第 3 条「cmd.Path 未解析时偏乐观」
 		// 是同一类、量级同样很小的取舍，不单独再引入一个"猜一个 convID
 		// 长度"的修正量。
-		WorkDir:  agentWorkDir(r.workDir, "", agentID, tier),
+		WorkDir:  r.dirFor("", agentID, tier),
+		RoleDir:  r.roleDirFor(agentID),
 		MaxTurns: 0,
 	}
 	cmd, err := p.BuildTurn(req)

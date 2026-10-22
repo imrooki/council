@@ -20,6 +20,7 @@ import (
 
 	"council/internal/config"
 	"council/internal/conversation"
+	"council/internal/headless"
 	"council/internal/repl"
 	"council/internal/store"
 	"council/internal/tui"
@@ -56,6 +57,11 @@ type Options struct {
 	// 零值是自动回复，所以 app.Run 的默认是对话模式。由 cmd/council 的 -no-auto 设。
 	// 测试助手 runAppForTest 设为 true（它的既有用例都按只记下标定）。
 	NoAuto bool
+
+	// Headless 非 nil 时不做 TUI 也不进入行式 REPL，跑一次 ask 就返回。
+	// 装配（配置、规则、库）仍走本函数的前半段，这样 headless 与交互模式
+	// 看到的是同一份生效配置、同一个 data_dir 锁。
+	Headless *headless.Options
 }
 
 // Run 按固定顺序做五件事：求配置文件路径 -> 加载并校验 -> 求数据目录 ->
@@ -186,7 +192,16 @@ func Run(ctx context.Context, opts Options) error {
 		projectDir = repl.NormalizeProjectDir(wd)
 	}
 
-	writeBanner(out, opts.Version, path, dataDir, st.Path(), convs, projectDir, cfg)
+	// headless 的 stdout 只能有那一个 JSON 对象（或 text 模式的结果），
+	// 横幅与下面两类通知会把它变成「JSON 前面还有几行」的不可解析输出，
+	// 所以横幅整段不写，通知改走 errOut。
+	if opts.Headless == nil {
+		writeBanner(out, opts.Version, path, dataDir, st.Path(), convs, projectDir, cfg)
+	}
+	noticeOut := out
+	if opts.Headless != nil {
+		noticeOut = errOut
+	}
 
 	svc := conversation.NewService(st)
 	// 存储开关（未决 #9(a)）在装配阶段接上，只调一次：cfg.StoreThought 默认
@@ -232,7 +247,7 @@ func Run(ctx context.Context, opts Options) error {
 			for _, settleErr := range settleErrs {
 				fmt.Fprintf(errOut, "启动在飞对账补账失败: %v\n", settleErr)
 			}
-			writeLostNotice(out, lost, marked)
+			writeLostNotice(noticeOut, lost, marked)
 		}
 
 		// 启动漂移审计：把「静默作废重建」变响亮。这件事今天就在发生
@@ -240,17 +255,39 @@ func Run(ctx context.Context, opts Options) error {
 		// 只是除了这两种情况几乎没什么会触发；规则文件把触发条件变成了
 		// 「编辑一个 md 文件」，所以现在必须在进 REPL 之前主动说一遍。
 		//
+		// -workspace 时这里不审：固定副本的 Runner 要等 convID 出来才构造，
+		// 普通 Runner 算的是 agentWorkDir 的指纹。用它审会把 normal→workspace
+		// 的静默重建漏掉，又会把 workspace→workspace 的相同指纹误报成漂移。
+		// 这条审计改由 headless 用 fixed Runner 针对本次 convID 做。
+		//
 		// 审计本身读库出错，只往 errOut 记一行，不阻止进 REPL：这与上面
 		// 「读不出规则就不进 REPL」不是同一类失败——那一条会让成员带着
 		// 错误的指令环境去说话，这一条只是少一句提醒，不该因此把整个
 		// REPL 拦在门外。
-		if rows, auditErr := rn.AuditDrift(ctx); auditErr != nil {
-			fmt.Fprintf(errOut, "启动漂移审计失败: %v\n", auditErr)
-		} else if len(rows) > 0 {
-			writeDriftNotice(out, rows)
+		if opts.Headless == nil || opts.Headless.Workspace == "" {
+			if rows, auditErr := rn.AuditDrift(ctx); auditErr != nil {
+				fmt.Fprintf(errOut, "启动漂移审计失败: %v\n", auditErr)
+			} else if len(rows) > 0 {
+				writeDriftNotice(noticeOut, rows)
+			}
 		}
 	}
 	rulesCtx := repl.RulesContext{ConfigPath: path, RulesFile: cfg.RulesFile, Rules: rules}
+	// headless 分支必须在 TUI / 行式 REPL 之前：它复用上面已经打开的库与
+	// 构造好的 Runner，只把控制权交给一次 ask，不再进任何读循环。
+	// rn 在 svc 为 nil 时是 nil，headless.Run 会把它报成错误退 1。
+	if opts.Headless != nil {
+		return headless.Run(ctx, headless.Deps{
+			Cfg:        cfg,
+			Svc:        svc,
+			Rn:         rn,
+			DataDir:    dataDir,
+			ProjectDir: projectDir,
+			Out:        out,
+			Err:        errOut,
+			Verbose:    opts.Verbose,
+		}, *opts.Headless)
+	}
 	// 复用本函数开头那个 err（config.ResolveConfigPath 那次声明的），不另开一个：
 	// 到这里它已经被查过并且是 nil，而 var err error 会与它撞名编译不过。
 	if opts.TUI {

@@ -12,6 +12,7 @@ import (
 	"os/signal"
 
 	"council/internal/app"
+	"council/internal/headless"
 	"council/internal/repl"
 )
 
@@ -36,6 +37,13 @@ func main() {
 // 它硬编码了进程的标准流，还注册了一个进程级的信号 channel 且从不 Stop，
 // 同一进程里调两次会叠加注册。真正可测的是 app.Run。
 func run(args []string) int {
+	// ask 必须在全局 flag 解析之前拦下：否则 -p、-members 这些 ask 私有
+	// flag 会先撞上 council 的 FlagSet。council 不带参数、-no-tui、foo
+	// 三条老路一个字节都不经过这里。
+	if len(args) > 0 && args[0] == "ask" {
+		return runAsk(args[1:])
+	}
+
 	fs := flag.NewFlagSet("council", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	configPath := fs.String("config", "", "配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml")
@@ -63,36 +71,12 @@ func run(args []string) int {
 		return exitUsage
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
 	// 两个句柄都要判。只判 stdin 的话，council > out.txt 会让 TUI 往文件里画。
 	useTUI := !*noTUI && repl.IsTerminal(os.Stdin) && repl.IsTerminal(os.Stdout)
 
-	// 硬退 goroutine 只在行式模式下注册。
-	//
-	// TUI 模式下不注册那个 os.Exit(130) 的 goroutine。
-	// os.Exit 不跑任何 defer，也不给 bubbletea 还原终端的机会。
-	// raw 之后 os.Exit 漏掉的是用户终端回不来：
-	// 无回显、光标乱，必须 reset。
-	// TUI 下 Ctrl-C 是按键，不产生 SIGINT。这个 goroutine 只会等到 SIGTERM，
-	// 而 SIGTERM 已经由上面的 signal.NotifyContext 交给 tea.WithContext(ctx)，
-	// 走干净退出。所以 TUI 模式下不注册它；行式模式下原样保留。
-	if !useTUI {
-		// 第二次 Ctrl+C 立即硬退。os/signal 是广播语义：同一个信号会发给每一个注册过的
-		// channel，所以这里再注册一个 channel 不会把第一次信号从 NotifyContext 手上抢走 ——
-		// 第一次信号两边各收一份，NotifyContext 负责取消 ctx 走优雅退出，这个 goroutine
-		// 只把它数掉；读到第二个才 os.Exit(130)。
-		// 顺序上先 NotifyContext 再 Notify：万一信号恰好落在两次注册之间，
-		// 也是 NotifyContext 先收到，优雅退出这条路不会丢。
-		hard := make(chan os.Signal, 2)
-		signal.Notify(hard, os.Interrupt)
-		go func() {
-			<-hard
-			<-hard
-			os.Exit(exitInterrupted)
-		}()
-	}
+	// 硬退 goroutine 只在行式模式下注册。理由见 newRootContext 里的注释。
+	ctx, stop := newRootContext(!useTUI)
+	defer stop()
 
 	if err := app.Run(ctx, app.Options{
 		ConfigPath: *configPath,
@@ -110,4 +94,66 @@ func run(args []string) int {
 		return exitConfigFailed
 	}
 	return exitOK
+}
+
+// runAsk 是 `council ask` 的进程边界：解析私有 flag、建 root context、
+// 把装配交给 app.Run，最后只做退出码映射。真正的执行在 internal/headless。
+func runAsk(args []string) int {
+	// 配置还没加载，这一趟只能做与配置无关的校验；未知成员、round 缺汇总
+	// 这类要靠配置的用法错误，由 headless.Run 拿到 cfg 后补判，同样退 2。
+	opts, err := headless.Parse(args, nil)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprint(os.Stderr, headless.Usage())
+			return exitOK
+		}
+		fmt.Fprintf(os.Stderr, "council ask: %v\n", err)
+		fmt.Fprint(os.Stderr, headless.Usage())
+		return exitUsage
+	}
+
+	ctx, stop := newRootContext(true)
+	defer stop()
+
+	err = app.Run(ctx, app.Options{
+		ConfigPath: opts.ConfigPath,
+		Version:    version,
+		In:         os.Stdin,
+		Out:        os.Stdout,
+		Err:        os.Stderr,
+		Verbose:    opts.Verbose,
+		Headless:   &opts,
+	})
+	// app.Run / headless.Run 已经把给人看的错误写进 stderr；这里只按
+	// UsageError 与其余错误分 2 / 1，不再重复打印。
+	return headless.ExitCode(err)
+}
+
+// newRootContext 建 root context，并在 hardExit 时注册「第二次 Ctrl-C 硬退」。
+//
+// TUI 模式下不注册那个 os.Exit(130) 的 goroutine。
+// os.Exit 不跑任何 defer，也不给 bubbletea 还原终端的机会。
+// raw 之后 os.Exit 漏掉的是用户终端回不来：无回显、光标乱，必须 reset。
+// TUI 下 Ctrl-C 是按键，不产生 SIGINT。这个 goroutine 只会等到 SIGTERM，
+// 而 SIGTERM 已经由 signal.NotifyContext 交给 tea.WithContext(ctx)，
+// 走干净退出。所以 TUI 模式下不注册它；行式 REPL 与 ask 模式原样保留。
+//
+// 第二次 Ctrl+C 立即硬退。os/signal 是广播语义：同一个信号会发给每一个注册过的
+// channel，所以这里再注册一个 channel 不会把第一次信号从 NotifyContext 手上抢走 ——
+// 第一次信号两边各收一份，NotifyContext 负责取消 ctx 走优雅退出，这个 goroutine
+// 只把它数掉；读到第二个才 os.Exit(130)。
+// 顺序上先 NotifyContext 再 Notify：万一信号恰好落在两次注册之间，
+// 也是 NotifyContext 先收到，优雅退出这条路不会丢。
+func newRootContext(hardExit bool) (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	if hardExit {
+		hard := make(chan os.Signal, 2)
+		signal.Notify(hard, os.Interrupt)
+		go func() {
+			<-hard
+			<-hard
+			os.Exit(exitInterrupted)
+		}()
+	}
+	return ctx, stop
 }
