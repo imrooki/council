@@ -1,0 +1,23 @@
+# DC1 slice 3: two Council providers and two model-facing delegation tools.
+#
+# `council` is read-only. `council-work` passes `-workspace`, so each member
+# works in an isolated git worktree copy and the result carries the diff.
+#
+# `maxDepth: provider-managed` is required by @deepseek-ai/dsh-tool-subagent
+# for an external provider: an out-of-process backend has no `depthLimit`
+# capability, and without this option the tool refuses to mount at all (the
+# host default is the numeric maxDepth 1). No numeric depth cap is sent to
+# dsh, and the Council provider never recurses back into dsh.
+- insert:
+    - id: subagent-council
+      name: '@council/dsh-subagent-council'
+      config: { providerName: council, workspace: false }
+    - id: subagent-council-work
+      name: '@council/dsh-subagent-council'
+      config: { providerName: council-work, workspace: true }
+    - id: tool-council
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config: { provider: council, toolName: council, maxDepth: provider-managed }
+    - id: tool-council-work
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config: { provider: council-work, toolName: council_work, maxDepth: provider-managed }

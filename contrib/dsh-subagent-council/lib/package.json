@@ -1,0 +1,5 @@
+{
+  "//": "Node 24+ treats a directory argument to `node --test` as a module entry instead of expanding it to *.test.js files. Pointing this nested package at index.test.js makes the required `node --test lib/` command run the index suite, which imports command.test.js as well. The plugin entry point remains ../package.json exports -> ./lib/index.js.",
+  "type": "module",
+  "main": "index.test.js"
+}
