@@ -264,7 +264,9 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 	})
 	// drainJobs 必须在 st.Close() 之前跑完：runWritable 的 defer 在
 	// listenAndServe 返回后立刻关库放锁，而这时后台议会可能还在写。
-	return listenAndServe(ctx, opts.Addr, srv.Handler(), opts.Open, out, errOut, srv.drainJobs)
+	return listenAndServe(ctx, opts.Addr, srv.Handler(),
+		browserOptions{App: opts.App, Open: opts.Open, DataDir: dataDir},
+		out, errOut, srv.drainJobs)
 }
 
 // reconcileLostTurns 照 internal/app/app.go 的启动对账做一遍，只保留

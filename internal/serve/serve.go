@@ -36,8 +36,12 @@ const defaultAddr = "127.0.0.1:8765"
 // Options 是 `council serve` 的全部 flag。字段只由 Parse 填。
 // out / errOut 只给测试替换标准流，正常路径留 nil 表示 os.Stdout / os.Stderr。
 type Options struct {
-	Addr       string
-	Open       bool
+	Addr string
+	Open bool
+	// App 为 true 时用 Chromium 的 --app 模式打开看板（只对 Windows 有意义）。
+	// 与 Open 同时给时以 App 为准，并在启动后打一行说明；见 openDashboard。
+	// 默认 false，行为与原来逐字节一致。
+	App        bool
 	ConfigPath string
 	Verbose    bool
 	// RW 为 true 时走写模式：store.Open 拿 council.lock、跑迁移，并注册
@@ -79,6 +83,8 @@ func newFlagSet(opts *Options) *flag.FlagSet {
 		"监听地址，必须是回环地址（127.0.0.0/8、::1 或 localhost）")
 	fs.BoolVar(&opts.Open, "open", false,
 		"启动后调用系统浏览器打开看板；打不开只提示，不影响服务")
+	fs.BoolVar(&opts.App, "app", false,
+		"用 Edge/Chrome 的应用窗口打开看板，没有地址栏与标签页（仅 Windows；找不到浏览器或启动失败时退回 -open 的行为）")
 	fs.StringVar(&opts.ConfigPath, "config", "",
 		"配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml")
 	fs.BoolVar(&opts.Verbose, "verbose", false,
@@ -98,6 +104,10 @@ func Usage() string {
 	fmt.Fprintln(&b, "-rw 写模式：拿 council.lock、可迁移，网页里可以跑一次议会并花你的额度。")
 	fmt.Fprintln(&b, "拿不到锁时直接退出；写模式开着时不要再开 TUI。")
 	fmt.Fprintln(&b, "只允许绑定回环地址；Ctrl-C 优雅关闭。")
+	fmt.Fprintln(&b, "-app（仅 Windows）：用 Edge 或 Chrome 的 --app 窗口打开看板，没有地址栏、没有标签页。")
+	fmt.Fprintln(&b, "  窗口默认 1440x900，profile 在 <data_dir>\\ui-profile，不碰你日常浏览器的会话与扩展。")
+	fmt.Fprintln(&b, "  找不到 Edge/Chrome 或启动失败时打印一行说明，退回 -open 的行为；与 -open 同给时以 -app 为准。")
+	fmt.Fprintln(&b, "  窗口是独立的浏览器进程：serve 退出之后它仍然开着，要关请自己关那个窗口。")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "Flags:")
 	var opts Options
@@ -191,20 +201,25 @@ func Run(ctx context.Context, opts Options, version string) error {
 	srv := NewServer(st, version, models)
 	srv.Verbose = opts.Verbose
 
-	return listenAndServe(ctx, opts.Addr, srv.Handler(), opts.Open, out, errOut, nil)
+	return listenAndServe(ctx, opts.Addr, srv.Handler(),
+		browserOptions{App: opts.App, Open: opts.Open, DataDir: dataDir},
+		out, errOut, nil)
 }
 
 // listenAndServe 是两种模式共用的 HTTP 生命周期：监听、打印启动行、
-// 可选打开浏览器、等 Ctrl-C 后 5 秒上限优雅关闭。
+// 按 -app / -open 打开看板、等 Ctrl-C 后 5 秒上限优雅关闭。
 //
 // 把这一段抽出来不是为了少几行，而是为了让「只读模式与写模式在 HTTP 层
 // 逐字节一致」这件事有一个唯一的落点：模式差异只允许出现在 handler 与
 // 库的打开方式上，不能顺手在写模式里换一套关闭语义。
 //
+// browse 带着 -app / -open 与 -app 用的 data_dir；打开逻辑全部收在
+// openDashboard 里，两种模式的打开顺序与失败回落因此不可能各写一套。
+//
 // drain 是写模式专属的最后一步：HTTP 连接关完之后，后台议会可能还在跑，
 // 而 listenAndServe 的调用方紧接着就会关库放锁。drain 负责在关库之前
 // 等它们结束（超时则显式取消）。只读模式传 nil，关闭语义与 SRV1 一致。
-func listenAndServe(ctx context.Context, addr string, handler http.Handler, open bool, out, errOut io.Writer, drain func(context.Context) error) error {
+func listenAndServe(ctx context.Context, addr string, handler http.Handler, browse browserOptions, out, errOut io.Writer, drain func(context.Context) error) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("监听 %s 失败: %w", addr, err)
@@ -212,13 +227,8 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, open
 
 	url := listenURL(ln.Addr())
 	fmt.Fprintf(out, "council serve: %s\n", url)
-	if open {
-		if err := openBrowser(url); err != nil {
-			// 打不开浏览器是使用体验问题，不是服务问题：看板已经在监听了，
-			// 用户把这一行 URL 复制到浏览器里照样能看。
-			fmt.Fprintf(errOut, "council serve: 打不开浏览器：%v\n", err)
-		}
-	}
+	// 放在监听成功之后：端口都占不上时，没有任何理由先去碰浏览器。
+	openDashboard(url, browse, errOut)
 
 	httpSrv := &http.Server{
 		Handler:           handler,
