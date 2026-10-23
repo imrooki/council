@@ -97,6 +97,18 @@ type REPL struct {
 	// 的规则是什么"。
 	rulesCtx RulesContext
 
+	// cfgLayers 是当前 r.cfg 合并自哪几层，高优先级在前（LoadMerged 的
+	// MergedConfig.Layers）。空表示还没重读过：app 装配时只交一份合并结果，
+	// 没有层信息可传。它只用于诊断（/config 显示「合并了哪几份」），
+	// 不参与任何判定；/config reload --apply 与 /add 写入成功后更新。
+	cfgLayers []string
+	// rulesFileBase 是 rules_file 相对路径的解析基准：定义 rules_file 的
+	// 那一层所在目录（LoadMerged 的 MergedConfig.RulesFileBase）。空串时
+	// /rules reload 回落到 rulesCtx.ConfigPath 所在目录——单文件下两者
+	// 本来就是同一个目录，合并之后才可能分叉（rules_file 写在全局层、
+	// 项目层没写）。与 cfgLayers 一样，只在重读成功后更新。
+	rulesFileBase string
+
 	// roundObs 是 /round 的观察者。零值 nil：行式路径不装，runOneRound 一个事件都不发。
 	// 只许在还没有 Submit 在跑的时候经 SetRoundObserver 改（TUI 在 p.Run 之前装）。
 	roundObs RoundObserver
@@ -139,7 +151,11 @@ type REPL struct {
 // RulesContext 是 REPL 显示与重载规则文件所需的上下文，由 app 在启动时
 // 一次性构造好交给 New。
 type RulesContext struct {
-	ConfigPath string       // 生效的配置文件路径；reload 时解析 rules_file 的相对路径要用
+	// ConfigPath 是启动时生效的最高优先层路径（多层合并时是项目层）：
+	// /config reload 与 /add 要靠它认出「这次启动读的就是这一份」，
+	// /rules reload 在没有 RulesFileBase 时拿它的目录当相对 rules_file
+	// 的基准。
+	ConfigPath string
 	RulesFile  string       // 配置里写的 rules_file 原值（可能是相对路径），转交给 config.LoadRules
 	Rules      config.Rules // 启动时读到的那一份
 }

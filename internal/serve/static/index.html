@@ -392,6 +392,23 @@
     font-size: 16px;
   }
   .chip-list { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+  /* 技能 chip 贴在工具条右端：margin-left:auto 吃掉这一行剩下的空白，不挤
+     前面的成员 chip；它为 0 时整块 hidden。.chip-wrap 自己有 display:inline-flex，
+     会盖过 hidden 属性的 UA 样式，所以这条 [hidden] 必须显式写出来。 */
+  .skills-wrap { margin-left: auto; }
+  .chip-wrap[hidden] { display: none; }
+  .skills-popover { width: 340px; }
+  /* 技能 chip 贴在工具条右端，弹层若照默认 left:0 向右展开会伸出视口右侧
+     （底栏的右边界就是窗口边界）。所以让它的右边缘对齐 chip 的右边缘。 */
+  .skills-wrap .popover { left: auto; right: 0; }
+  /* 每条 skill 两行：名字在上，说明在下。说明可能很长，允许在任意位置折行，
+     不让一条 description 把弹层撑出横向滚动条。 */
+  .skill-row { padding: 7px 8px; border-radius: var(--r-sm); }
+  .skill-row + .skill-row { margin-top: 2px; }
+  .skill-name { font-size: 12.5px; line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
+  .skill-desc { margin-top: 2px; font-size: 11.5px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+  /* 不是菜单项、也不可点：用说明文字的颜色明确它只是备注。 */
+  .skills-readonly { padding: 6px 8px 4px; font-size: 11.5px; line-height: 1.5; color: var(--muted-2); }
   .composer-hint { flex-basis: 100%; font-size: 11.5px; color: var(--warn); }
   .composer-hint[hidden] { display: none; }
   .context-row {
@@ -762,6 +779,15 @@
             <div id="preset-list"></div>
           </div>
         </div>
+        <div id="skills-wrap" class="chip-wrap skills-wrap" hidden>
+          <button id="skills-chip" class="chip" type="button" aria-haspopup="dialog" aria-expanded="false"></button>
+          <div id="skills-popover" class="popover skills-popover" role="dialog" aria-label="技能" hidden>
+            <div class="popover-title">技能</div>
+            <div id="skills-list"></div>
+            <div class="popover-divider"></div>
+            <div class="skills-readonly">只读：Council 不执行 skill</div>
+          </div>
+        </div>
         <div id="composer-hint" class="composer-hint" hidden></div>
       </div>
       <div id="context-row" class="context-row" hidden>
@@ -803,6 +829,9 @@
     // 「跑一轮」，但只有前者该显示任务书规定的那句提示。
     optionsLoaded: false,
     agents: [],
+    // skills 是 /api/options 里的只读元数据（id / name / description）。
+    // 它不参与执行，也不参与任何提交：Council 不跑 skill。
+    skills: [],
     cwd: '',
     permission: 'read',
     selectedAgents: [],
@@ -838,6 +867,10 @@
   const permissionChip = document.getElementById('permission-chip');
   const permissionMenu = document.getElementById('permission-menu');
   const memberChips = document.getElementById('member-chips');
+  const skillsWrap = document.getElementById('skills-wrap');
+  const skillsChip = document.getElementById('skills-chip');
+  const skillsPopover = document.getElementById('skills-popover');
+  const skillsList = document.getElementById('skills-list');
   const addButton = document.getElementById('add-button');
   const addMenu = document.getElementById('add-menu');
   const membersPopover = document.getElementById('members-popover');
@@ -1141,6 +1174,56 @@
     }
   }
 
+  // ---- 技能（只读展示） ----
+  // Council 不执行、也不注入 skill：这个 chip 只让用户看见 .claude/skills
+  // 里有什么，不参与 /api/ask，列表项因此不是按钮、没有任何点击行为。
+  // 数量为 0 时整块不出现（连触发它的 chip 一起收掉）。
+  function renderSkillsChip() {
+    const total = state.skills.length;
+    skillsWrap.hidden = total === 0;
+    skillsChip.replaceChildren();
+    skillsList.replaceChildren();
+    if (total === 0) {
+      // chip 不出现时把面板也收掉，免得它悬在一个已经没有触发器的位置。
+      if (openPanel && openPanel.panel === skillsPopover) closePopover();
+      return;
+    }
+
+    const icon = document.createElement('span');
+    icon.className = 'chip-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = '🧩';
+    const label = document.createElement('span');
+    label.className = 'chip-text';
+    label.textContent = '技能 ' + total;
+    const caret = document.createElement('span');
+    caret.className = 'chip-caret';
+    caret.setAttribute('aria-hidden', 'true');
+    caret.textContent = '▾';
+    skillsChip.appendChild(icon);
+    skillsChip.appendChild(label);
+    skillsChip.appendChild(caret);
+    skillsChip.title = '配置里可见的 ' + total + ' 个 skill：只读展示，Council 不执行';
+
+    for (const skill of state.skills) {
+      const row = document.createElement('div');
+      row.className = 'skill-row';
+      const name = document.createElement('div');
+      name.className = 'skill-name';
+      name.textContent = skill.name || skill.id || '(未命名)';
+      row.appendChild(name);
+      // 副行是 description；没有就退到 id（name 与 description 都是可选字段）。
+      const description = skill.description || skill.id || '';
+      if (description) {
+        const desc = document.createElement('div');
+        desc.className = 'skill-desc';
+        desc.textContent = description;
+        row.appendChild(desc);
+      }
+      skillsList.appendChild(row);
+    }
+  }
+
   function renderContextTags() {
     contextTags.replaceChildren();
     contextRow.hidden = state.contexts.length === 0;
@@ -1197,6 +1280,7 @@
     renderPermissionChip();
     renderMemberChips();
     renderContextTags();
+    renderSkillsChip();
 
     let hint = '';
     if (state.optionsLoaded && state.agents.length === 0) {
@@ -1489,6 +1573,9 @@
   addButton.addEventListener('click', () => {
     togglePopover(addMenu, addButton);
   });
+  skillsChip.addEventListener('click', () => {
+    togglePopover(skillsPopover, skillsChip);
+  });
   addMenu.addEventListener('click', (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -1549,11 +1636,22 @@
       state.agents = Array.isArray(options && options.agents)
         ? options.agents.filter((agent) => agent && agent.active !== false)
         : [];
+      // skills 只做展示：只认字符串字段、丢掉形状不对的条目，坏一条不该
+      // 让整个底栏崩掉。id 与 name 都空的条目没有可展示的内容，直接丢。
+      state.skills = (Array.isArray(options && options.skills) ? options.skills : [])
+        .filter((skill) => skill && typeof skill === 'object')
+        .map((skill) => ({
+          id: typeof skill.id === 'string' ? skill.id : '',
+          name: typeof skill.name === 'string' ? skill.name : '',
+          description: typeof skill.description === 'string' ? skill.description : '',
+        }))
+        .filter((skill) => skill.id !== '' || skill.name !== '');
       state.cwd = options && typeof options.cwd === 'string' ? options.cwd : '';
       clearAskError();
     } catch (err) {
       state.optionsLoaded = false;
       state.agents = [];
+      state.skills = [];
       showAskError('读取工作台选项失败：' + err.message);
     }
     renderComposer();

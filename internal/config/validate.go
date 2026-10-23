@@ -74,8 +74,8 @@ func (c *Config) Validate() error {
 		}
 		// 超限不截断：截断会让成员行为与 .claude/agents 里的文件内容悄悄
 		// 不一致（MaxAgentPromptBytes 的注释）。错误路径带 agent id，
-		// LoadMerged 会再补上「来自哪一份配置文件」；直接调用 Validate 的
-		// 调用方没有合并信息，所以 Msg 里不编一个文件路径出来。
+		// LoadMerged 合并多层时会再补上「来自哪一份配置文件」；直接调用
+		// Validate 的调用方没有合并信息，所以 Msg 里不编一个文件路径出来。
 		if len(agent.Prompt) > MaxAgentPromptBytes {
 			add("agents."+id+".prompt", fmt.Sprintf(
 				"prompt is %d bytes, exceeds the %d-byte limit; external system prompts are never truncated, shorten the agent definition",

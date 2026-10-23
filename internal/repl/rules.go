@@ -136,7 +136,16 @@ func storeThoughtVisibilityHint(cfg *config.Config) string {
 // 公开的孪生方法，而是完全用它已经承诺的公开接口（SetRules + AuditDrift）
 // 拼出预览这件事。
 func cmdRulesReload(ctx context.Context, r *REPL, rebuild bool) error {
-	newRules, err := config.LoadRules(r.rulesCtx.ConfigPath, r.rulesCtx.RulesFile)
+	// rules_file 是相对路径时相对「定义它的那一层」解析，不是相对最高优先层：
+	// 全局层写 rules_file、项目层没写时，两者的目录不同。LoadMerged 把这件事
+	// 算成 RulesFileBase，/config reload --apply 与 /add 成功后由它们同步进
+	// r.rulesFileBase；还没重读过（零值）时回落到启动时的 ConfigPath 所在目录，
+	// 单文件下两者本来就是同一个。
+	rulesBase := r.rulesFileBase
+	if rulesBase == "" {
+		rulesBase = r.rulesCtx.ConfigPath
+	}
+	newRules, err := config.LoadRules(rulesBase, r.rulesCtx.RulesFile)
 	if err != nil {
 		return r.reportErr("重读规则文件失败", err)
 	}

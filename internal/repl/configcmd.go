@@ -48,16 +48,42 @@ func cmdConfig(ctx context.Context, r *REPL, args cmdArgs) error {
 // cmdConfigShow 打印生效的配置文件路径与三类计数。
 // 路径用 r.rulesCtx.ConfigPath：那是启动时解析出来的生效路径，
 // 也是 reload 要重读的那同一个文件，不能另解析一遍免得和正在生效的对不上。
+//
+// 多层合并时把其余层补在同一行（与 app 启动横幅同一个写法）：否则用户只会
+// 看到项目文件，以为家目录那份配置没参与，进而以为项目里凭空多出了 provider。
+// 层列表优先用 r.cfgLayers（重读成功时记下的那一份，与内存里的 r.cfg 对应）；
+// 还没重读过就按默认位置现求一次，只读不写任何状态。
 func cmdConfigShow(r *REPL) error {
-	if err := r.printf("配置文件: %s\n", r.rulesCtx.ConfigPath); err != nil {
+	line := "配置文件: " + r.rulesCtx.ConfigPath
+	if layers := r.knownConfigLayers(); len(layers) > 1 {
+		line += "（合并 " + strings.Join(layers[1:], "、") + "）"
+	}
+	if err := r.printf("%s\n", line); err != nil {
 		return err
 	}
 	return r.printf("agent %d，provider %d，team %d\n",
 		len(r.cfg.Agents), len(r.cfg.Providers), len(r.cfg.Teams))
 }
 
-// cmdConfigReload 重读同一个配置文件。apply 为 false 时只报告、不改任何
-// 状态；为 true 时换掉 REPL 与 Runner 两处持有的 *config.Config。
+// knownConfigLayers 是 /config 展示用的层列表，高优先级在前。
+// 空值（还没重读过、而且不是多层）时返回 nil。
+func (r *REPL) knownConfigLayers() []string {
+	if len(r.cfgLayers) > 0 {
+		return r.cfgLayers
+	}
+	layers := reloadLayers(r.rulesCtx.ConfigPath)
+	if len(layers) < 2 {
+		return nil
+	}
+	return configLayerPaths(layers)
+}
+
+// cmdConfigReload 重读配置。apply 为 false 时只报告、不改任何状态；
+// 为 true 时换掉 REPL 与 Runner 两处持有的 *config.Config。
+//
+// 「重读」的范围与启动时一致：默认位置下是项目层 + 全局层（合并后再校验），
+// 用户显式 -config / COUNCIL_CONFIG 时仍是那一份文件。求层的规则见
+// configlayers.go；写回（/add）永远只落最高优先层，本命令不写任何文件。
 //
 // 预览（apply=false）怎么在「不改 Runner 状态」的前提下算出「换成新配置
 // 会漂移哪些会话」：AuditDrift(ctx) 没有参数，只认 Runner 当前的 r.cfg。
@@ -87,21 +113,26 @@ func cmdConfigReload(ctx context.Context, r *REPL, apply bool) error {
 		return r.printf("%s\n", msgNoRunner)
 	}
 
-	newCfg, err := config.Load(r.rulesCtx.ConfigPath)
+	// 配置是多层合并的：这次读哪几层见 configlayers.go。用户显式用
+	// -config / COUNCIL_CONFIG 点名一份文件时，这里退回单层，行为与改动前
+	// 逐字节一致；默认位置下才是「项目层 + 全局层」。
+	layers := reloadLayers(r.rulesCtx.ConfigPath)
+	merged, err := config.LoadMerged(layers)
 	if err != nil {
-		// 读失败旧配置原样生效：连一份新对象都没有，无从换。
-		return r.reportErr("重读配置文件失败", err)
-	}
-
-	if err := newCfg.Validate(); err != nil {
-		// reload 是唯一一条让一份非法配置进到运行中进程的路。启动时的
-		// 处置是「写 Err、不进 REPL」，运行中不能照搬（不能把用户踢出
-		// REPL），所以必须拒绝并留旧配置，而且不部分应用——部分应用会
-		// 让内存里的 Config 变成一份 Validate 没签过字的东西，后续
-		// /join /ask 的前置假设全碎。
+		// 校验失败与读/解析失败分开处置：reload 是唯一一条让一份非法配置
+		// 进到运行中进程的路。启动时的处置是「写 Err、不进 REPL」，运行中
+		// 不能照搬（不能把用户踢出 REPL），所以必须拒绝并留旧配置，而且不
+		// 部分应用——部分应用会让内存里的 Config 变成一份 Validate 没签过
+		// 字的东西，后续 /join /ask 的前置假设全碎。
+		//
+		// LoadMerged 已经把「合并 + 填缺省 + Validate」做完，校验错误的
+		// Msg 末尾还带着「来自 <哪一份文件>」：合并之后光看错误路径已经
+		// 推不出该改哪个文件了。这里只负责把同一份 ValidationErrors 逐条
+		// 打出来，口径与启动时（app.reportConfigError）一致。
 		ves, ok := err.(config.ValidationErrors)
 		if !ok {
-			return r.reportErr("校验配置失败", err)
+			// 读失败旧配置原样生效：连一份新对象都没有，无从换。
+			return r.reportErr(configReadErrPrefix("重读配置文件失败", layers), err)
 		}
 		if err := r.printf("配置非法，旧配置原样生效:\n"); err != nil {
 			return err
@@ -117,6 +148,18 @@ func cmdConfigReload(ctx context.Context, r *REPL, apply bool) error {
 			}
 		}
 		return nil
+	}
+	newCfg := merged.Config
+
+	// 多层时把「读的是哪几份」说出来。放这里而不是最后：下面每一步都可能
+	// 提前 return，层信息是理解后面所有报告的前提。只在详细档（-verbose）
+	// 打印，默认档的错误文案与 /config 里仍有层信息，不会丢。
+	if !r.concise {
+		if notice := configLayersNotice(merged.Layers); notice != "" {
+			if err := r.printf("%s", notice); err != nil {
+				return err
+			}
+		}
 	}
 
 	// 根级键的比较必须在校验通过之后、换任何状态之前。data_dir 在启动时
@@ -153,6 +196,11 @@ func cmdConfigReload(ctx context.Context, r *REPL, apply bool) error {
 	r.rn.SetConfig(newCfg)
 	if apply {
 		r.cfg = newCfg
+		// 层与 rules_file 基准跟配置一起换：它们描述的就是「内存里这份
+		// 配置从哪来」，只换 Config 会把 /config 与 /rules reload 留在
+		// 启动时那套坐标上，两处说法不一致。
+		r.cfgLayers = merged.Layers
+		r.rulesFileBase = merged.RulesFileBase
 		// 与 app.go 装配点同一个调用：存储策略活在 Service 里，不换这一处
 		// 的话 --apply 之后新写的消息仍按启动时的开关落 thought。
 		r.svc.SetThoughtPolicy(newCfg.StoreThought)

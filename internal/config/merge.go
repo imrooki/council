@@ -94,11 +94,15 @@ func ResolveConfigLayers(flagValue string) ([]Layer, error) {
 //   - [summary] 与 rules_file / store_thought：高优先级层写了才覆盖，没写就继承；
 //   - data_dir：只认非项目层（-config / COUNCIL_CONFIG / 全局层），项目层里
 //     写了也忽略，并留一条 Notice；
-//   - 合并完成后必须通过 Validate。校验错误逐条标上「来自哪一份文件」——
-//     合并之后光看错误路径已经推不出该改哪个文件了。
+//   - 合并完成后必须通过 Validate。合并了多层时，校验错误逐条标上
+//     「来自哪一份文件」——合并之后光看错误路径已经推不出该改哪个文件了；
+//     只有一层时不标，错误文案与单文件 Load/Validate 逐字相同（repl 的
+//     /add 写后校验与 /config reload 都依赖那份措辞）。
 //
-// Load 保持原有的单文件语义，不经过这里；既有调用方（repl 的 /add 守卫、
-// /config reload）一个字节都不用改。
+// Load 保持原有的单文件语义，不经过这里。repl 的 /add 守卫与 /config reload
+// 走的是本函数：它们先用 ResolveConfigLayers 求出「这次该读哪几层」，单文件
+// （用户显式 -config / COUNCIL_CONFIG）时就是一层的 LoadMerged，与 Load 的
+// 加载结果相同，只是多跑一次 Validate。
 func LoadMerged(layers []Layer) (MergedConfig, error) {
 	if len(layers) == 0 {
 		return MergedConfig{}, errors.New("没有可合并的配置文件")
@@ -184,7 +188,15 @@ func LoadMerged(layers []Layer) (MergedConfig, error) {
 	ensureMaps(&merged)
 	// 校验必须跑在合并之后而不是每层各跑一次：项目层本来就可以只写
 	// [agents.x] 而引用全局层的 provider，逐层校验会把这种合法写法判死。
+	//
+	// 只有真的合并了多层才补「来自 <文件>」。单层时那份文件就是唯一的一份，
+	// 补一句话不会增加任何信息，却会让 LoadMerged 的错误文案与单文件
+	// Load/Validate 分叉——repl 的 /add 写后校验与 reload 的校验错误都逐字
+	// 依赖那份措辞（既有测试钉住），分叉就得放宽那些断言。
 	if err := merged.Validate(); err != nil {
+		if len(decoded) == 1 {
+			return MergedConfig{}, err
+		}
 		return MergedConfig{}, decorateValidationErrors(err, owner)
 	}
 
@@ -256,6 +268,9 @@ func (p provenance) sourceFor(path string) string {
 }
 
 // decorateValidationErrors 给每条校验错误补上「来自 <文件>」。
+//
+// 只在合并了多层时调用（见 LoadMerged 里那一段）：单层没有歧义，补出处会
+// 让错误文案与单文件 Load/Validate 的既有措辞分叉。
 //
 // 不新增错误类型、不改 Validate：ValidationErrors.Error() 的排序与格式
 // 原样保留，只在 Msg 末尾追加一句。调用方（app / serve）照旧把它当普通

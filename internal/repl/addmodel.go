@@ -430,7 +430,13 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 	if path == "" {
 		return r.printf("不知道配置文件在哪，没法写入\n")
 	}
-	// 守卫写之前用 config.Load 重读同一个文件，与 r.cfg 比，分两支，顺序冻结。
+	// 写回永远只落最高优先层那一份文件（默认就是项目配置），绝不把合并
+	// 结果整体落盘——那会把全局层的 providers 抄进项目文件。reloadLayers
+	// 保证第一项就是那份文件，且与启动时生效的规则同一套（见
+	// configlayers.go）。不在这里另拼路径：路径只有一个出处。
+	layers := reloadLayers(path)
+	writePath := layers[0].Path
+	// 守卫写之前重读同一组层（合并版），与 r.cfg 比，分两支，顺序冻结。
 	//
 	// 先比 DataDir 与 RulesFile。不同就打「只能重启生效」那一行，不带编号：
 	// 这两个键 /config reload 会拒绝（configcmd.go 的 cmdConfigReload 里 data_dir /
@@ -444,22 +450,32 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 	// 悄悄换进内存。Providers 尤其要紧：/config reload 换 command 时会响亮告警
 	// （providerCommandChanges），这里一个字都不会打。
 	//
+	// 比较基准是合并后的配置（LoadMerged），不是单文件 Load：项目层只写
+	// [agents.x] 时单文件读出来缺 provider、与内存里的合并结果永远不等，
+	// 守卫就会把一次本来合法的追加拒掉。
+	//
 	// R7 的六个子测试各只动 Config 的一个字段：agent、store_thought、teams、
 	// providers 钉整份比，data_dir、rules_file 钉前一支。Summary 字段由
 	// fux_review_test.go 的 TestFuxAddGuardCoversSummary 钉着；以后再给 Config
 	// 加字段，仍要各配一条用例。
 	//
-	// 守卫只做 config.Load，不做 Validate。文件被改得通不过校验时，这里照样打
-	// 「先 /config reload --apply 让它生效」，而 reload 会拒绝并列出校验错误，
-	// 这半句在这种情况下不成立（open item (r)）。
-	onDisk, err := config.Load(path)
+	// 守卫不在 LoadMerged 之外另跑一遍 Validate：校验只发生在 LoadMerged
+	// 内部（与 app/serve 同一个口径）。文件被改得通不过校验时，这里打的是
+	// 加载失败那一行，而不是「先 reload」——reload 同样会拒绝并列出校验
+	// 错误（open item (r)）。
+	onDisk, err := config.LoadMerged(layers)
 	if err != nil {
-		return r.reportErr("读配置文件失败", err)
+		return r.reportErr(configReadErrPrefix("读配置文件失败", layers), err)
 	}
-	if onDisk.DataDir != r.cfg.DataDir || onDisk.RulesFile != r.cfg.RulesFile {
+	if onDisk.Config.DataDir != r.cfg.DataDir || onDisk.Config.RulesFile != r.cfg.RulesFile {
 		return r.printf("配置文件里改了 data_dir 或 rules_file，这两个键只能重启生效：重启 council 之后先敲 /add 看编号，再用 /add +编号 加入\n")
 	}
-	if !reflect.DeepEqual(onDisk, r.cfg) {
+	if !reflect.DeepEqual(onDisk.Config, r.cfg) {
+		if len(layers) > 1 {
+			// 多层时补一句比较范围：否则用户不知道该去改哪一份文件。
+			return r.printf("配置文件在上次加载之后被改过（比较的是合并后的 %d 层：%s），先 /config reload --apply 让它生效，再 /add %s\n",
+				len(layers), strings.Join(onDisk.Layers, "、"), tok)
+		}
 		return r.printf("配置文件在上次加载之后被改过，先 /config reload --apply 让它生效，再 /add %s\n", tok)
 	}
 
@@ -473,7 +489,7 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 		Mode:        config.ModeDiscussion,
 	}
 	comment := fmt.Sprintf("council /add 追加：%s 识别出的 %s（%s）", m.Provider, m.Model, m.Source.Label())
-	backup, orig, err := config.AppendBlock(path, config.AgentBlockTOML(newID, ac, comment))
+	backup, orig, err := config.AppendBlock(writePath, config.AgentBlockTOML(newID, ac, comment))
 	if err != nil {
 		if backup != "" {
 			return r.printf("写配置文件失败（原文件备份在 %s）: %v\n", backup, err)
@@ -481,19 +497,27 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 		return r.reportErr("写配置文件失败", err)
 	}
 
-	newCfg, err := config.LoadAndValidate(path)
+	// 写后再合并一次（不是 LoadAndValidate 单文件）：追加块引用的 provider
+	// 可能只在全局层，单文件校验会把这次合法的写入判成非法并回滚。合并版
+	// 与 app/serve 校验的是同一份东西。
+	merged, err := config.LoadMerged(layers)
 	if err != nil {
-		if rerr := config.RestoreFile(path, orig); rerr != nil {
+		if rerr := config.RestoreFile(writePath, orig); rerr != nil {
 			return r.printf("写入后的配置没通过加载或校验，恢复原文件也失败了（备份在 %s）: %v；%v\n", backup, err, rerr)
 		}
 		return r.printf("写入后的配置没通过加载或校验，已恢复原文件（备份在 %s）: %v\n", backup, err)
 	}
+	newCfg := merged.Config
 
 	// 写后换指针与 /config reload --apply 同一套三句（configcmd.go 的 cmdConfigReload
 	// 里 --apply 的换指针三句）：
 	// SetConfig、换 r.cfg、SetThoughtPolicy。两处持有者一起换，绝不原地改
 	// r.cfg.Agents。不跑 AuditDrift：追加的只是一张新表，守卫又保证写前文件与
 	// 内存一致，已有成员的配置不变。
+	//
+	// 层与 rules_file 基准也一起换：重读的是合并结果，r.cfg 里现在带着全局层
+	// 的 provider，若不同步这两个字段，/config 与 /rules reload 会继续按启动
+	// 时那套坐标说话，与内存里的配置对不上。
 	//
 	// 新 id 若与库里遗留的旧 agent 同名（以前用过、后来从配置删掉，库里还留着
 	// 参与者行与 provider 会话），Join 是 upsert，会把那一行重新激活。旧 provider
@@ -504,9 +528,11 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 	// 按漂移拒绝（outcome refused），要重建才能接着用。
 	r.rn.SetConfig(newCfg)
 	r.cfg = newCfg
+	r.cfgLayers = merged.Layers
+	r.rulesFileBase = merged.RulesFileBase
 	r.svc.SetThoughtPolicy(newCfg.StoreThought)
 
-	if err := r.printf("已把 agent %s 追加进 %s（原文件备份在 %s）\n", newID, path, backup); err != nil {
+	if err := r.printf("已把 agent %s 追加进 %s（原文件备份在 %s）\n", newID, writePath, backup); err != nil {
 		return err
 	}
 	joined := newCfg.Agents[newID]
