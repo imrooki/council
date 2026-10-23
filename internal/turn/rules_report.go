@@ -157,6 +157,9 @@ func (r *Runner) probeHeadroom(p provider.Provider, agentID string, cfg *config.
 		Permission:      tier,
 		ProviderSession: "", // 首轮：argv 最长的那一轮，见函数注释第 1 条
 		Prompt:          "", // 空正文探针
+		// 外部系统提示会改变 claude 的文件名（带哈希），容量探针必须
+		// 与真实请求同形，否则报出来的余量偏乐观。
+		SystemPrompt: ac.Prompt,
 		// convID 传空串：这是一个跨会话的容量探针，不属于任何一条真实
 		// 会话。agentWorkDir 对 READ 档本来就忽略 convID，空串不改变那一支
 		// 的结果；对 WORKSPACE 档，filepath.Join 会跳过空段，退化成

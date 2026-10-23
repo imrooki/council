@@ -651,8 +651,11 @@ func (r *Runner) askUpToWith(ctx context.Context, convID, agentID string, upTo i
 		Permission:      tier,
 		ProviderSession: st.providerSession,
 		Prompt:          prompt,
-		WorkDir:         dir,
-		RoleDir:         r.roleDirFor(agentID),
+		// 外部系统提示属于成员身份，每轮原样带上；claude 会把它拼进
+		// --append-system-prompt-file 指向的那个文件（见 claude.go）。
+		SystemPrompt: ac.Prompt,
+		WorkDir:      dir,
+		RoleDir:      r.roleDirFor(agentID),
 		// MaxTurns 恒为 0：Step 6 不设 --max-turns（06 第 5 节）。写出来而不是
 		// 靠结构体零值，是为了让读代码的人知道这是故意留给下一步的，不是漏填。
 		// 真去设上限会让 Completion=Truncated 的成功轮混进「我们没截过」的假设。

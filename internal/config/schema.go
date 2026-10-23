@@ -91,6 +91,20 @@ type ProviderConfig struct {
 	Command string `toml:"command"`
 }
 
+// MaxAgentPromptBytes 是 AgentConfig.Prompt 的硬上限（8 KiB）。
+//
+// 为什么要有上限：这段正文来自 Claude Code agent 文件的 frontmatter 之后，
+// 每轮都会原样进系统提示。无界的整段文件粘贴（或误把整个 md 塞进来）会让
+// 每一轮的入场费悄悄翻几倍，而屏幕上只看得到成员名。
+//
+// 为什么不截断：截断会让成员实际看到的提示与 .claude/agents 里的文件内容
+// 不一致，而且这种不一致没有任何一层会报出来——用户改的是文件，跑的是
+// 另一段话。超限就报校验错误，让人去删内容。
+//
+// 8 KiB 是任务书定的值，不是实测出来的临界点；放这里而不是散在 Validate
+// 里，是因为它同时是给用户看的契约（错误文案与文档都引用同一个数）。
+const MaxAgentPromptBytes = 8 << 10
+
 // AgentConfig 描述一个 agent。
 type AgentConfig struct {
 	DisplayName string     `toml:"display_name"`
@@ -100,10 +114,15 @@ type AgentConfig struct {
 	Role        string     `toml:"role"`
 	Permissions Permission `toml:"permissions"`
 	Mode        Mode       `toml:"mode"`
-	// Prompt 是整段系统提示，目前只有「从 Claude Code 只读导入」这一条路
-	// 会填它（frontmatter 之后的正文）。本片只解析、只透传：provider 层
-	// 不读这个字段，成员的提示注入是下一片的事。写进配置里也合法，只是
-	// 现在还不会生效——Validate 不校验它，与 Role 同待遇。
+	// Prompt 是整段外部系统提示，主要来源是「从 Claude Code 只读导入」：
+	// frontmatter 之后的正文就是 Claude 那边的系统提示。
+	//
+	// provider 层只有 claude 消费它（拼进 --append-system-prompt-file 指向的
+	// 文件，每轮都带）；codex / grok / agy 不消费，它们的 argv 不因为这个
+	// 字段而改变。它计入身份指纹：改了 .claude/agents/x.md 的正文等于换了
+	// 一副脑子，旧 provider 会话必须作废。
+	//
+	// 上限见 MaxAgentPromptBytes；Validate 拒绝超限值，绝不静默截断。
 	Prompt string `toml:"prompt"`
 }
 

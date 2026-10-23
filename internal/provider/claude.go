@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -11,7 +13,7 @@ import (
 // 命令行形态（09 B 节，2026-09-21 本机实测）：
 //
 //	-p --output-format json --model <m> [--effort <e>]
-//	--append-system-prompt-file <workdir>/council-role.txt
+//	--append-system-prompt-file <roleDir>/council-role[-<prompt-hash>].txt
 //	--permission-mode default [--resume <id>]
 //	正文走 stdin，不放进 argv。
 //
@@ -89,11 +91,7 @@ func (p claudeProvider) BuildTurn(req TurnRequest) (Command, error) {
 		return Command{}, err
 	}
 
-	roleDir := req.RoleDir
-	if roleDir == "" {
-		roleDir = req.WorkDir
-	}
-	rolePath := filepath.Join(roleDir, "council-role.txt")
+	rolePath, roleBody := claudeRoleFile(req)
 
 	args := make([]string, 0, 16)
 	args = append(args, "-p", "--output-format", "json")
@@ -103,7 +101,8 @@ func (p claudeProvider) BuildTurn(req TurnRequest) (Command, error) {
 	}
 	// 每轮都发，包括 Role 为空串：flag 在不在是缓存前缀的一部分。
 	// 载体是 --append-system-prompt-file 而不是 --append-system-prompt：
-	// 身份块天然多行，不能放进 .cmd 垫片的 argv。
+	// 身份块与外部系统提示都天然多行，不能放进 .cmd 垫片的 argv。
+	// 两者拼在同一个文件里，理由见 claudeRoleFile 的注释。
 	args = append(args, "--append-system-prompt-file", rolePath)
 	args = append(args, perm...)
 	if req.ProviderSession != "" {
@@ -115,10 +114,50 @@ func (p claudeProvider) BuildTurn(req TurnRequest) (Command, error) {
 		Dir:       req.WorkDir,
 		Env:       nil,
 		Stdin:     []byte(req.Prompt),
-		Files:     map[string][]byte{rolePath: []byte(req.Role)},
+		Files:     map[string][]byte{rolePath: roleBody},
 		Transport: PromptTransportStdin,
 		Dropped:   dropMaxTurns(caps, req),
 	}, nil
+}
+
+// claudeRoleFile 返回这一轮要落盘的「追加系统提示」文件路径与内容。
+//
+// Prompt 为空时路径与内容都与改动前逐字节相同（council-role.txt / req.Role）：
+// 这是「不用外部提示的成员，argv 与指纹都不许变」那条约束的落点——路径进
+// argv，内容进模型。
+//
+// Prompt 非空时把身份块与外部系统提示拼进同一个文件，而不是再发一个
+// --append-system-prompt-file：那个 flag 是单值选项，重复出现时后一个覆盖
+// 前一个（本机 2.1.309 的打包代码里只有 o.appendSystemPromptFile 单个字段，
+// 读文件后 Io=br(file, appendSystemPrompt) 一次赋值），两个 flag 会让身份块
+// 静默消失。也不能改用 --append-system-prompt：外部提示来自 .md 正文，天然
+// 多行，而 claude 在本机是 npm 的 .cmd 垫片，cmd.exe 会把 argv 里的换行当成
+// 命令分隔符（未决 #16 的实测；spawn.go 有 fail-closed 的换行闸，真送进去会
+// 在起进程前被拒，后果是每个带提示的成员每一轮都失败）。
+//
+// 文件名里带 prompt 的 sha256 前 6 字节：内容进了文件之后，argv 里只剩路径，
+// 而 PrefixArgsDigest 只摘要 argv。路径固定的话，改了 .claude/agents/x.md
+// 指纹也不动，旧会话会带着 --system-prompt-snapshot 记下的旧系统提示继续跑
+// （claude 2.1.309 默认把首轮系统提示记进会话）。把内容哈希放进路径，
+// 「换了一副脑子」就等价于「命令行变了」，指纹自动跟着变；而且不必给
+// IdentityFingerprint 加第八段——七段的编码被既有用例钉死。
+func claudeRoleFile(req TurnRequest) (path string, body []byte) {
+	roleDir := req.RoleDir
+	if roleDir == "" {
+		roleDir = req.WorkDir
+	}
+
+	name := "council-role.txt"
+	content := req.Role
+	if req.SystemPrompt != "" {
+		sum := sha256.Sum256([]byte(req.SystemPrompt))
+		name = "council-role-" + hex.EncodeToString(sum[:6]) + ".txt"
+		if content != "" {
+			content += "\n\n"
+		}
+		content += req.SystemPrompt
+	}
+	return filepath.Join(roleDir, name), []byte(content)
 }
 
 func claudePermissionArgs(t PermissionTier) ([]string, error) {

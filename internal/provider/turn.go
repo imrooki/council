@@ -19,6 +19,17 @@ type TurnRequest struct {
 	// Prompt 是已渲染好的 delta，适配器不得改写它的任何一个字节。
 	Prompt string
 
+	// SystemPrompt 是 AgentConfig.Prompt，也就是 Claude Code agent 文件
+	// frontmatter 之后的那段正文（外部系统提示）。它与 Prompt 是两回事：
+	// Prompt 是这一轮的对话增量，每轮不同；SystemPrompt 属于成员身份，
+	// 每轮相同，改了它就该作废旧 provider 会话。
+	//
+	// 今天只有 claude 消费它；其它适配器必须原样忽略（它们的 argv 不许
+	// 因为多出这个字段而变化）。claude 的载体见 claude.go：不走 argv，
+	// 因为这段正文天然多行，而 claude 在本机是 npm 的 .cmd 垫片，cmd.exe
+	// 会把 argv 里的换行当成命令分隔符（未决 #16）。
+	SystemPrompt string
+
 	// WorkDir 是子进程的 cwd，必须非空。空值时 BuildTurn 返回 ErrNoWorkDir：
 	// 继承 council 的启动目录会让三家 CLI 读到 cwd 下的项目级指令文件，
 	// 入场费与行为随启动目录漂移、不可复现，而且拿到写盘权限的成员会把文件写进

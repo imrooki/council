@@ -349,9 +349,12 @@ func argvHeadroom(
 		Permission:      tier,
 		ProviderSession: providerSession,
 		Prompt:          prompt,
-		WorkDir:         dir,
-		RoleDir:         roleDir,
-		MaxTurns:        0,
+		// 与 Ask 的真实请求保持一致：claude 的文件名会带外部提示的哈希，
+		// 漏传会让这里的命令行长度比真实请求短十几字节。
+		SystemPrompt: ac.Prompt,
+		WorkDir:      dir,
+		RoleDir:      roleDir,
+		MaxTurns:     0,
 	}
 	caps := p.Capabilities()
 	cmd, err := p.BuildTurn(req)

@@ -222,6 +222,11 @@ func identityFPAt(
 		Permission:  tier,
 		WorkDir:     dir,
 		RoleDir:     roleDir,
+		// 外部系统提示必须原样带给探针：claude 把它的摘要拼进身份文件名，
+		// 路径进 argv、进而进 PrefixArgsDigest（见 claude.go 的 claudeRoleFile）。
+		// 这里漏传的话，真实请求的路径带哈希、探针的路径是 council-role.txt，
+		// 每条带 prompt 的会话第一轮就会被判成身份漂移。
+		SystemPrompt: ac.Prompt,
 	}
 	prefixDigest, err := PrefixArgsDigest(p, probeReq)
 	if err != nil {

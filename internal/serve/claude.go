@@ -12,6 +12,7 @@ package serve
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -100,6 +101,49 @@ func importClaudeAgents(cfg *config.Config, cwd string) claudeImport {
 			len(mergedIDs), strings.Join(mergedIDs, ", ")))
 	}
 	return imported
+}
+
+// claudePromptNotice 是 `serve -rw` 启动时那行外部系统提示的可见性提示
+// （任务书 §4）。0 个成员时返回空串，调用方据此不打印——这是安全可见性，
+// 不是日志，所以不受 -verbose 控制。
+//
+// 数的是运行时 cfg.Agents 里 provider == "claude" 的成员：导入的 Claude
+// 成员在 importClaudeAgents 里已经并进去了，而没合并的成员（同名冲突、缺
+// provider）不会被执行，也就没有提示被注入。手写配置的 claude 成员同样会被
+// 注入，所以也数进来；非 claude 成员带 prompt 不会被任何适配器消费，
+// 把它们列进「外部系统提示」只会制造一条吓人的假警报。
+// 成员 id 排序后输出，同一份配置每次启动打印同一行。
+//
+// 「来自 .claude/agents」是任务书要求的那一句措辞，也是 Prompt 的主要来源
+// （Claude 导入；手写配置的 prompt 走的是同一个注入路径，出处在这里分不出来）。
+// 若将来要按来源拆成两句话，这句要跟着改；现在改它只会让任务书要求的那一行消失。
+func claudePromptNotice(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	ids := make([]string, 0, len(cfg.Agents))
+	for id, ac := range cfg.Agents {
+		if ac.Provider == "claude" && ac.Prompt != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return ""
+	}
+	sort.Strings(ids)
+	return fmt.Sprintf("%d 个成员带外部系统提示（%s），来自 .claude/agents",
+		len(ids), strings.Join(ids, ", "))
+}
+
+// printClaudePromptNotice 把 claudePromptNotice 打到启动日志上；没有成员
+// 带提示时一个字节都不写。单独拆出来是为了让「0 不打印」这条可以在
+// 不启动 HTTP 服务器的前提下被用例钉住。
+func printClaudePromptNotice(w io.Writer, cfg *config.Config) {
+	note := claudePromptNotice(cfg)
+	if note == "" {
+		return
+	}
+	fmt.Fprintf(w, "council serve: %s\n", note)
 }
 
 // claudeProviderHint 给 headless.Validate 的「未知成员」错误补一句根因。

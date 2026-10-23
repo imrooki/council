@@ -212,6 +212,9 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 			fmt.Fprintf(errOut, "council serve: %s\n", note)
 		}
 	}
+	// 外部系统提示是安全相关的可见性：哪些成员带着一段不是 Council 写的
+	// 系统提示在跑，必须在启动时看得见，不藏在 -verbose 后面（任务书 §4）。
+	printClaudePromptNotice(errOut, cfg)
 
 	// 以下装配与 internal/app/app.go 的 write 路径同源。thought 策略必须
 	// 接上，否则 store_thought=false 的配置在网页里跑议会时会静默把
