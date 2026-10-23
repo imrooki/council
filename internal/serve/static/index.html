@@ -313,12 +313,24 @@
   }
   .ask-progress[hidden] { display: none; }
   .ask-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* 本轮的预算/已花是进度区里的一行仪表：数字等宽，跑动时不跳列。
+     行数多到要滚动时仍钉在进度区顶部；接近或达到预算上限时整行转成
+     危险色，done 之后也保留这一行。 */
+  .ask-line.ask-meter {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 1px 0 4px;
+    background: var(--surface-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .ask-line.is-near-budget { color: var(--danger); font-weight: 600; }
   .ask-row { display: flex; align-items: flex-end; gap: 10px; }
 
   /* ---- 工作台底栏（SRV6） ----
      底栏从「一个输入框 + 一个按钮」变成两层：上面一层用 chip 说明这一轮
-     「在哪跑 / 能不能写 / 问谁」，下面一层才是输入。工具条本身不抢输入
-     框的宽度，chip 会自己换行。 */
+     「在哪跑 / 能不能写 / 问谁 / 跑几轮、花多少」，下面一层才是输入。工具条
+     本身不抢输入框的宽度，chip 会自己换行。 */
   .composer { display: flex; flex-direction: column; gap: 8px; }
   .composer-bar {
     display: flex;
@@ -512,6 +524,26 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
+  /* 参数弹层里的两个下拉与预算输入共用同一套表单样式。 */
+  .popover-field select {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12.5px;
+  }
+  .popover-field select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .param-popover { width: 340px; }
+  /* 被前端拦住的组合在弹层里就地说明原因，不把错误甩到整页的状态条。 */
+  .param-error { padding: 4px 2px 0; font-size: 11.5px; line-height: 1.5; color: var(--danger); }
+  .param-error[hidden] { display: none; }
   .popover-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px; }
   .btn-small {
     padding: 5px 12px;
@@ -773,6 +805,38 @@
             <button class="menu-item" type="button" role="menuitemradio" data-permission="workspace">可改文件（副本）</button>
           </div>
         </div>
+        <div class="chip-wrap">
+          <button id="param-chip" class="chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="本轮参数：轮数、汇总成员与预算">
+            <span class="chip-icon" aria-hidden="true">⚙</span>
+            <span class="chip-text">1 轮 · 默认汇总 · $5</span>
+            <span class="chip-caret" aria-hidden="true">▾</span>
+          </button>
+          <div id="param-popover" class="popover param-popover" role="dialog" aria-label="参数" hidden>
+            <div class="popover-title">本轮参数</div>
+            <div class="popover-field">
+              <label for="param-rounds">轮数（1–5；大于 1 时按 round 模式跑）</label>
+              <select id="param-rounds">
+                <option value="1">1 轮</option>
+                <option value="2">2 轮</option>
+                <option value="3">3 轮</option>
+                <option value="4">4 轮</option>
+                <option value="5">5 轮</option>
+              </select>
+            </div>
+            <div class="popover-field">
+              <label for="param-summary">汇总成员</label>
+              <select id="param-summary"></select>
+            </div>
+            <div class="popover-field">
+              <label for="param-budget">预算上限（USD，最低 0.5）</label>
+              <input id="param-budget" type="number" min="0.5" step="0.01" value="5" autocomplete="off" spellcheck="false">
+            </div>
+            <div id="param-error" class="param-error" hidden></div>
+            <div class="popover-actions">
+              <button id="param-apply" class="btn-small primary" type="button">应用</button>
+            </div>
+          </div>
+        </div>
         <div id="member-chips" class="chip-list" aria-label="已选成员"></div>
         <div class="chip-wrap">
           <button id="add-button" class="chip add" type="button" aria-haspopup="menu" aria-expanded="false" title="添加" aria-label="添加">+</button>
@@ -872,6 +936,23 @@
     permission: 'read',
     selectedAgents: [],
     contexts: [],
+    // 本轮的三个参数（SRV13）。它们和成员、目录一起进提交体；summary 用
+    // 空串表示"配置默认"、用 "none" 表示显式关闭（ask 模式才允许关）。
+    // summaryAgent 是 /api/options 给的配置默认汇总成员，只用于下拉文案与
+    // round 模式的前端校验，不会直接提交。
+    rounds: 1,
+    summary: '',
+    summaryAgent: '',
+    budgetUSD: 5,
+    // 运行中的预算仪表：runBudget 在提交那一刻冻结（之后再改参数不影响
+    // 正在跑的这场），runSpent 由 SSE 的 turn/done 累加/校正。
+    runBudget: null,
+    runSpent: 0,
+    runMeter: null,
+    // 这一场实际使用的汇总成员 id（空串＝不汇总）。SSE 的 turn_started /
+    // turn 只为发言轮发；汇总轮没有 turn 事件，done 时要用它把汇总成员
+    // 那条「正在思考」收掉，别误报成「未返回结果」。
+    runSummaryID: '',
     presets: [],
     jobID: null,
     stopping: false,
@@ -902,6 +983,13 @@
   const cwdApply = document.getElementById('cwd-apply');
   const permissionChip = document.getElementById('permission-chip');
   const permissionMenu = document.getElementById('permission-menu');
+  const paramChip = document.getElementById('param-chip');
+  const paramPopover = document.getElementById('param-popover');
+  const paramRounds = document.getElementById('param-rounds');
+  const paramSummary = document.getElementById('param-summary');
+  const paramBudget = document.getElementById('param-budget');
+  const paramError = document.getElementById('param-error');
+  const paramApply = document.getElementById('param-apply');
   const memberChips = document.getElementById('member-chips');
   const skillsWrap = document.getElementById('skills-wrap');
   const skillsChip = document.getElementById('skills-chip');
@@ -1066,6 +1154,47 @@
     askProgress.appendChild(line);
     askProgress.hidden = false;
     askProgress.scrollTop = askProgress.scrollHeight;
+    return line;
+  }
+
+  // ---- 本轮预算仪表 ----
+  // 进度区最上面一行：预算在提交那一刻冻结，已花由 turn 事件累加；
+  // done 到达时用后端给的 cost_usd 校正（它把汇总成员也算在总账里）。
+  // 花到上限的 90% 起标红并写明「接近上限/已达上限」。
+  function startRunMeter() {
+    state.runBudget = state.budgetUSD;
+    state.runSpent = 0;
+    const line = document.createElement('div');
+    line.className = 'ask-line ask-meter';
+    state.runMeter = line;
+    askProgress.appendChild(line);
+    askProgress.hidden = false;
+    updateRunMeter(0);
+  }
+
+  function nearBudget(spent, budget) {
+    return typeof budget === 'number' && isFinite(budget) && budget > 0 &&
+      typeof spent === 'number' && isFinite(spent) && spent >= budget * 0.9;
+  }
+
+  function updateRunMeter(spent) {
+    if (!state.runMeter) return false;
+    const budget = state.runBudget;
+    const near = nearBudget(spent, budget);
+    let text = '本轮预算 ' + formatUSDCompact(budget) + ' · 已花 ' + formatUSDCompact(spent);
+    if (near) text += spent >= budget ? ' · 已达上限' : ' · 接近上限';
+    state.runMeter.textContent = text;
+    state.runMeter.classList.toggle('is-near-budget', near);
+    return near;
+  }
+
+  function clearRunMeter() {
+    if (state.runMeter) {
+      state.runMeter.remove();
+      state.runMeter = null;
+    }
+    state.runBudget = null;
+    state.runSpent = 0;
   }
 
   // 权限只有整轮两档（SRV5 §2）：只读，或把 cwd 当 git 仓库根、在副本里
@@ -1074,6 +1203,13 @@
   const PERMISSION_LABELS = { read: '只读', workspace: '可改文件（副本）' };
   const CONTEXT_LIMIT = 20;
   const PRESET_KEY = 'council.presets';
+  // 与后端规则对齐：rounds 是 1–5 的整数，budget_usd 不得小于 0.5。
+  // 后端只约束 budget >= 0.5 与 rounds >= 1；上限 5 是工作台这一片的
+  // 产品约束，防止一次误输入把额度放大到不可控。
+  const ROUNDS_MIN = 1;
+  const ROUNDS_MAX = 5;
+  const BUDGET_MIN = 0.5;
+  const DEFAULT_BUDGET = 5;
 
   function basenameOf(path) {
     const raw = String(path || '');
@@ -1098,7 +1234,7 @@
   }
 
   // ---- 弹层 ----
-  // 同一时间只开一个：工具条一共五个入口，两个叠着会让人不知道点击落进哪层。
+  // 同一时间只开一个：工具条上的弹层入口多，两个叠着会让人不知道点击落进哪层。
   let openPanel = null;
 
   function closePopover() {
@@ -1185,6 +1321,149 @@
       item.classList.toggle('is-current', current);
       item.setAttribute('aria-checked', current ? 'true' : 'false');
     }
+  }
+
+  // ---- 本轮参数（轮数 / 汇总成员 / 预算） ----
+  // 三样都跟着 /api/ask 一起提交：rounds>1 由后端翻成 round 模式；
+  // summary 空串＝配置里的 [summary].agent，"none"＝显式不汇总；
+  // budget_usd 是这一场的硬上限。
+  function paramSummaryShort() {
+    if (state.summary === 'none') return '不汇总';
+    if (state.summary === '') return '默认汇总';
+    return '汇总 ' + agentDisplayName(state.summary);
+  }
+
+  function paramChipText() {
+    return state.rounds + ' 轮 · ' + paramSummaryShort() + ' · ' + formatUSDCompact(state.budgetUSD);
+  }
+
+  function renderParamChip() {
+    paramChip.replaceChildren();
+    const icon = document.createElement('span');
+    icon.className = 'chip-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = '⚙';
+    const label = document.createElement('span');
+    label.className = 'chip-text';
+    label.textContent = paramChipText();
+    const caret = document.createElement('span');
+    caret.className = 'chip-caret';
+    caret.setAttribute('aria-hidden', 'true');
+    caret.textContent = '▾';
+    paramChip.appendChild(icon);
+    paramChip.appendChild(label);
+    paramChip.appendChild(caret);
+    paramChip.title = '参数：' + label.textContent;
+    paramChip.setAttribute('aria-label', '参数：' + label.textContent);
+  }
+
+  // 汇总下拉的第一项永远是「配置默认（<summary_agent>）」，值为空串；
+  // 第二项是显式关闭，值为 "none"；其余每个 agent 一项，显示 display_name。
+  function renderParamSummaryOptions() {
+    paramSummary.replaceChildren();
+    const fallback = document.createElement('option');
+    fallback.value = '';
+    fallback.textContent = '配置默认（' + (state.summaryAgent || '未配置') + '）';
+    paramSummary.appendChild(fallback);
+
+    const none = document.createElement('option');
+    none.value = 'none';
+    none.textContent = '不汇总';
+    paramSummary.appendChild(none);
+
+    for (const agent of state.agents) {
+      const option = document.createElement('option');
+      option.value = agent.id;
+      option.textContent = agent.display_name || agent.id;
+      paramSummary.appendChild(option);
+    }
+
+    const known = state.summary === '' || state.summary === 'none' || agentEntry(state.summary) !== null;
+    paramSummary.value = known ? state.summary : '';
+  }
+
+  function fillParamControls() {
+    paramRounds.value = String(state.rounds);
+    renderParamSummaryOptions();
+    paramBudget.value = String(state.budgetUSD);
+    setParamError('');
+  }
+
+  function openParamPopover() {
+    fillParamControls();
+    openPopover(paramPopover, paramChip);
+    paramRounds.focus();
+  }
+
+  function setParamError(message) {
+    paramError.textContent = message;
+    paramError.hidden = message === '';
+  }
+
+  function clearParamError() {
+    setParamError('');
+  }
+
+  // 轮数与汇总一改就检查最常踩的那条组合，用户不必先点「应用」才知道
+  // round 模式不能关汇总；预算输入仍在失焦/应用时统一校验。
+  function refreshParamHint() {
+    const values = readParamValues();
+    if (values.rounds > 1 && values.summary === 'none') {
+      setParamError('多轮必须有汇总成员：不能选「不汇总」');
+      return;
+    }
+    clearParamError();
+  }
+
+  function readParamValues() {
+    const text = paramBudget.value.trim();
+    return {
+      rounds: Number(paramRounds.value),
+      summary: paramSummary.value,
+      budget: text === '' ? NaN : Number(text),
+    };
+  }
+
+  // 与 headless.Validate / resolveSummary 的前端同口径：
+  //   - rounds 是 1–5 的整数（上限是本片的产品约束）；
+  //   - budget 是有限数且 >= 0.5；
+  //   - summary 只能是空串、"none" 或配置里的一个 agent；
+  //   - round 模式（rounds>1）必须有汇总：不能 none，配置默认也不能为空。
+  function validateParamValues(rounds, summary, budget) {
+    if (!Number.isInteger(rounds) || rounds < ROUNDS_MIN || rounds > ROUNDS_MAX) {
+      return '轮数必须是 ' + ROUNDS_MIN + '–' + ROUNDS_MAX + ' 的整数';
+    }
+    if (typeof budget !== 'number' || !isFinite(budget) || budget < BUDGET_MIN) {
+      return '预算必须是大于等于 ' + BUDGET_MIN + ' 的数字';
+    }
+    if (summary !== '' && summary !== 'none' && agentEntry(summary) === null) {
+      return '汇总成员不在当前配置里，请重新选择';
+    }
+    if (rounds > 1) {
+      if (summary === 'none') {
+        return '多轮必须有汇总成员：不能选「不汇总」';
+      }
+      const effective = summary === '' ? state.summaryAgent : summary;
+      if (!effective) {
+        return '多轮必须有汇总成员：先选一个汇总成员，或在配置里写 [summary].agent';
+      }
+    }
+    return '';
+  }
+
+  function applyParams() {
+    const values = readParamValues();
+    const message = validateParamValues(values.rounds, values.summary, values.budget);
+    if (message) {
+      setParamError(message);
+      return;
+    }
+    state.rounds = values.rounds;
+    state.summary = values.summary;
+    state.budgetUSD = values.budget;
+    clearAskError();
+    closePopover();
+    renderComposer();
   }
 
   function renderMemberChips() {
@@ -1316,6 +1595,7 @@
     if (!state.writable) return;
     renderCwdChip();
     renderPermissionChip();
+    renderParamChip();
     renderMemberChips();
     renderContextTags();
     renderSkillsChip();
@@ -1369,6 +1649,22 @@
   }
 
   // ---- 预设（只存 localStorage，不落服务端） ----
+  // 预设里的参数都是用户可改的 localStorage 数据：越界或类型不对时退回
+  // 默认值，不能让一条脏预设把提交体带成后端必然 400 的形状。
+  function normalizeRounds(value) {
+    return Number.isInteger(value) && value >= ROUNDS_MIN && value <= ROUNDS_MAX ? value : 1;
+  }
+
+  function normalizeBudget(value) {
+    return typeof value === 'number' && isFinite(value) && value >= BUDGET_MIN ? value : DEFAULT_BUDGET;
+  }
+
+  function normalizeSummary(value) {
+    if (value === 'none') return 'none';
+    if (typeof value === 'string' && agentEntry(value) !== null) return value;
+    return '';
+  }
+
   function readPresets() {
     try {
       const raw = window.localStorage.getItem(PRESET_KEY);
@@ -1381,6 +1677,9 @@
         members: Array.isArray(item.members) ? item.members.filter((id) => typeof id === 'string') : [],
         cwd: typeof item.cwd === 'string' ? item.cwd : '',
         permission: item.permission === 'workspace' ? 'workspace' : 'read',
+        rounds: normalizeRounds(item.rounds),
+        summary: typeof item.summary === 'string' ? item.summary : '',
+        budget_usd: normalizeBudget(item.budget_usd),
       }));
     } catch (err) {
       return [];
@@ -1440,6 +1739,9 @@
       members: state.selectedAgents.slice(),
       cwd: state.cwd,
       permission: state.permission,
+      rounds: state.rounds,
+      summary: state.summary,
+      budget_usd: state.budgetUSD,
     };
     const existing = state.presets.findIndex((item) => item.name === name);
     if (existing >= 0) state.presets[existing] = preset;
@@ -1454,12 +1756,31 @@
     state.selectedAgents = preset.members.filter((id) => known.has(id));
     state.cwd = preset.cwd;
     state.permission = preset.permission === 'workspace' ? 'workspace' : 'read';
+    const rounds = normalizeRounds(preset.rounds);
+    let summary = normalizeSummary(preset.summary);
+    const budget = normalizeBudget(preset.budget_usd);
+    const notes = [];
+    const missing = preset.members.length - state.selectedAgents.length;
+    if (missing > 0) notes.push(missing + ' 位成员已不在配置里');
+    if (preset.summary === 'none' && rounds > 1) {
+      // round 模式不允许关汇总：旧预设或手改的 localStorage 不能把界面
+      // 带进一个按「跑一轮」必然 400 的状态。
+      summary = '';
+      notes.push('多轮不能关闭汇总，已改回配置默认');
+    } else if (preset.summary && preset.summary !== 'none' && summary === '') {
+      notes.push('汇总成员已不在配置里，已改回配置默认');
+    }
+    if (rounds > 1 && summary === '' && !state.summaryAgent) {
+      notes.push('多轮需要汇总成员，请先选一个');
+    }
+    state.rounds = rounds;
+    state.summary = summary;
+    state.budgetUSD = budget;
     renderComposer();
     closePopover();
     // 套用不自动提交：用户还要看一眼成员与目录，再自己按「跑一轮」。
-    const missing = preset.members.length - state.selectedAgents.length;
     showToast('已套用「' + preset.name + '」' +
-      (missing > 0 ? '，' + missing + ' 位成员已不在配置里' : ''));
+      (notes.length > 0 ? '，' + notes.join('，') : ''));
   }
 
   function deletePreset(name) {
@@ -1611,6 +1932,23 @@
     renderComposer();
   });
 
+  paramChip.addEventListener('click', () => {
+    const wasOpen = !paramPopover.hidden;
+    if (!wasOpen) fillParamControls();
+    togglePopover(paramPopover, paramChip);
+    if (!wasOpen) paramRounds.focus();
+  });
+  paramApply.addEventListener('click', applyParams);
+  paramBudget.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      applyParams();
+    }
+  });
+  paramRounds.addEventListener('change', refreshParamHint);
+  paramSummary.addEventListener('change', refreshParamHint);
+  paramBudget.addEventListener('input', clearParamError);
+
   addButton.addEventListener('click', () => {
     togglePopover(addMenu, addButton);
   });
@@ -1677,6 +2015,14 @@
       state.agents = Array.isArray(options && options.agents)
         ? options.agents.filter((agent) => agent && agent.active !== false)
         : [];
+      state.summaryAgent = options && typeof options.summary_agent === 'string'
+        ? options.summary_agent
+        : '';
+      // 预设在 options 之前就读进来了，若指定的汇总成员已从配置里删掉，
+      // 这里退回「配置默认」，避免下拉里挂着一个不存在的值。
+      if (state.summary !== '' && state.summary !== 'none' && agentEntry(state.summary) === null) {
+        state.summary = '';
+      }
       // skills 只做展示：只认字符串字段、丢掉形状不对的条目，坏一条不该
       // 让整个底栏崩掉。id 与 name 都空的条目没有可展示的内容，直接丢。
       state.skills = (Array.isArray(options && options.skills) ? options.skills : [])
@@ -1693,6 +2039,7 @@
       state.optionsLoaded = false;
       state.agents = [];
       state.skills = [];
+      state.summaryAgent = '';
       showAskError('读取工作台选项失败：' + err.message);
     }
     renderComposer();
@@ -1776,6 +2123,10 @@
         // 先找同一成员的「正在思考」行并原位替换，进度区里一个成员始终
         // 只占一行；没有那一行（事件丢失）时补一条结果，不吞消息。
         finishThinking(data.agent_id, data.outcome, data.cost_usd);
+        if (typeof data.cost_usd === 'number' && isFinite(data.cost_usd)) {
+          state.runSpent += data.cost_usd;
+          updateRunMeter(state.runSpent);
+        }
       } catch (err) {
         // 单帧坏掉不该停掉整条流，也不值得把连接错误的状态条打红。
       }
@@ -1789,12 +2140,33 @@
         showAskError('done 事件不是合法 JSON');
       }
       closeJobStream();
+      // 汇总轮没有 turn 事件：done 里有 summary 正文就说明它真的回复了，
+      // 把它那条「正在思考」先摘掉，再走统一的 settleThinkingLines，否则
+      // 一次成功的汇总会在进度区留下「未返回结果」。
+      if (data && data.summary && state.runSummaryID) {
+        const pending = state.thinking.get(state.runSummaryID);
+        if (pending) {
+          pending.line.remove();
+          state.thinking.delete(state.runSummaryID);
+        }
+      }
       // 先解锁并收掉还在转的「思考中」，再追加收尾行：否则取消场景里
       // 「未返回结果」会排在「完成」后面，看起来像结束后又发生了一件事。
       setAskRunning(false);
       if (data) {
-        appendAskProgress('完成 · ' + statusText(data.status) + ' · ' +
+        // done 的 cost_usd 是这一场的总账（含汇总成员），比逐条 turn 累加
+        // 更可信：用它校正仪表，再按 90% 阈值决定是否标红。
+        const spent = typeof data.cost_usd === 'number' && isFinite(data.cost_usd)
+          ? data.cost_usd
+          : state.runSpent;
+        state.runSpent = spent;
+        const near = updateRunMeter(spent) || data.status === 'budget_exceeded';
+        if (data.status === 'budget_exceeded' && state.runMeter) {
+          state.runMeter.classList.add('is-near-budget');
+        }
+        const doneLine = appendAskProgress('完成 · ' + statusText(data.status) + ' · ' +
           formatUSD(data.cost_usd) + ' · 失败 ' + data.failed + '/' + data.total);
+        if (near) doneLine.classList.add('is-near-budget');
         if (data.summary) appendAskProgress('汇总：' + data.summary);
       }
       // 跑完先刷新左侧列表（条数、最后活动时间），紧接着做一次增量
@@ -1862,24 +2234,41 @@
       openPopover(membersPopover, addButton);
       return;
     }
+    // 参数闸放在提交之前：非法组合在这里就停住，一个字节都不会发给
+    // 后端。正常情况下 applyParams 已经拦过一遍，这里守的是预设 / 配置
+    // 变化之后遗留的旧状态。
+    const paramMessage = validateParamValues(state.rounds, state.summary, state.budgetUSD);
+    if (paramMessage) {
+      showAskError('参数不合法：' + paramMessage);
+      openParamPopover();
+      return;
+    }
     clearAskError();
+    clearRunMeter();
     askProgress.replaceChildren();
     askProgress.hidden = true;
     state.stopping = false;
     state.jobID = null;
+    // 汇总成员的最终 id 在提交这一刻冻结：空串回落到 /api/options 的
+    // summary_agent，"none" 就是这一场不汇总。done 收「正在思考」时用。
+    state.runSummaryID = state.summary === 'none'
+      ? ''
+      : (state.summary || state.summaryAgent);
     // 提交这一刻的目标就是这一轮的目标；之后再点左侧列表只影响下一轮。
     // 没选中（新建模式）时不带这个键，后端据此走「新建会话」。
     const targetId = state.currentId;
     const payload = {
       prompt: prompt,
       members: state.selectedAgents.slice(),
-      rounds: 1,
+      rounds: state.rounds,
+      // 空串＝配置里的 [summary].agent；"none"＝显式不汇总。
+      summary: state.summary,
       // cwd / workspace / context 是 SRV5 的三个新字段；cwd 传空串时
       // 后端回落到 serve 的启动目录，与 options.cwd 是同一个值。
       cwd: state.cwd,
       workspace: state.permission === 'workspace',
       context: state.contexts.slice(),
-      budget_usd: 5,
+      budget_usd: state.budgetUSD,
     };
     if (targetId) payload.conversation = targetId;
     setAskRunning(true);
@@ -1887,10 +2276,12 @@
       const reply = await postJSON('/api/ask', payload);
       if (!reply || !reply.job_id) throw new Error('接口没有返回 job_id');
       state.jobID = reply.job_id;
+      startRunMeter();
       appendAskProgress('已提交，等待会话开始…');
       subscribeJob(reply.job_id);
       if (state.stopping) cancelJob(reply.job_id);
     } catch (err) {
+      clearRunMeter();
       setAskRunning(false);
       showAskError(err.message);
     }
@@ -1900,6 +2291,13 @@
   function formatUSD(value) {
     if (typeof value !== 'number' || !isFinite(value)) return '—';
     return '$' + value.toFixed(4);
+  }
+  // chip 与进度仪表用紧凑写法：默认预算显示 "$5" 而不是 "$5.0000"，
+  // 小数最多留 4 位、末尾的 0 去掉（1.5 -> "$1.5"）。
+  function formatUSDCompact(value) {
+    if (typeof value !== 'number' || !isFinite(value)) return '—';
+    const fixed = value.toFixed(4).replace(/\.?0+$/, '');
+    return '$' + (fixed === '' ? '0' : fixed);
   }
   function formatUSDFull(value) {
     if (typeof value !== 'number' || !isFinite(value)) return '—';
