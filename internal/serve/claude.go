@@ -39,6 +39,11 @@ type claudeImport struct {
 	// 已整体跳过」这一种：它指向一个可执行的配置动作，藏在 -verbose 后面
 	// 用户只会看到工作台里莫名其妙少了一批成员。
 	warning string
+	// warnings 是同样不依赖 Verbose 的逐条提示，供「按单个成员跳过」的情况
+	// 使用。目前只有超长 prompt 会被跳过：静默丢掉一个成员，用户在工作台里
+	// 找不到它，又没有任何地方说为什么——这和一个能直接去改的配置问题一样，
+	// 必须默认可见，不能藏到 -verbose 后面。
+	warnings []string
 }
 
 // importClaudeAgents 扫描 cwd 下的 Claude agents，并在 provider 存在时把
@@ -52,6 +57,10 @@ type claudeImport struct {
 // 合并后不再跑 config.Validate：Claude 的 model 允许为空（任务书 §1 的映射
 // 表），而 config.Validate 要求配置 agent 的 model 非空。这张表只进运行时、
 // 不落盘，不能拿配置文件的校验规则去拒掉一个合法的 Claude 定义。
+//
+// 但「只进运行时」不等于「什么校验都不做」：config.Validate 里的
+// MaxAgentPromptBytes 保护的是每一轮的上下文成本，凡是会被注入的 Prompt
+// 都必须过这一关。凡绕过 Validate 的路径都要自己补，这条就是本函数补的那一处。
 func importClaudeAgents(cfg *config.Config, cwd string) claudeImport {
 	if cfg == nil {
 		// 写模式一定会加载配置；这里只是不让一个装配疏漏变成 nil 解引用。
@@ -88,6 +97,18 @@ func importClaudeAgents(cfg *config.Config, cwd string) claudeImport {
 			// ScanClaudeAgents 已经用 reserved 挡过同名，这里再挡一次：
 			// 合并的是同一张内存表，任何一条覆盖都会让「配置优先」变成
 			// 取决于遍历顺序的偶然结果。
+			continue
+		}
+		// 导入路径不经过 config.Validate，所以配置成员的 8 KiB 上限在这里
+		// 就没有人执行。Prompt 每轮都会原样进系统提示，超限的那一条必须
+		// 与配置成员同待遇：跳过，而不是截断或让整个工作台起不来。
+		//
+		// 只挡 Prompt：role / description / model 都不进系统提示正文，
+		// 给它们套同一个上限没有意义（任务书 §1）。
+		if promptBytes := len(scanned.Agents[id].Prompt); promptBytes > config.MaxAgentPromptBytes {
+			imported.warnings = append(imported.warnings, fmt.Sprintf(
+				"跳过 claude agent %q：系统提示 %d 字节，超过 %d 上限",
+				id, promptBytes, config.MaxAgentPromptBytes))
 			continue
 		}
 		cfg.Agents[id] = scanned.Agents[id]

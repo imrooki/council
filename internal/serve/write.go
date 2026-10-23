@@ -102,6 +102,11 @@ type WriteDeps struct {
 	// /api/options；留着是为了 /api/ask 点到它们时能把「缺 provider」这个
 	// 真正的根因说清楚，而不是只回一句「未知成员」。
 	ClaudeAgentsWithoutProvider map[string]config.AgentConfig
+	// Skills 是从 Claude Code 的 .claude/skills 只读扫到的 skill 元数据。
+	// 与 ClaudeAgents 不同，它不合并进 Cfg.Agents、不执行、不注入提示，
+	// 只原样交给 /api/options 的 skills 字段展示。扫描不依赖
+	// [providers.claude]：没有 provider 也能看到仓库里有哪些 skill。
+	Skills []config.Skill
 }
 
 // EnableWrite 把 Server 切到写模式。调用方必须先打开可写库、装配好
@@ -207,11 +212,20 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 		// 缺 provider 是一个可处理的配置问题，不藏在 -verbose 后面。
 		fmt.Fprintf(errOut, "council serve: %s\n", claude.warning)
 	}
+	for _, warning := range claude.warnings {
+		// 按单个成员跳过（目前只有超长 prompt）同样不藏：用户在 /api/options
+		// 里找不到这个成员，必须能在启动日志里看到跳过原因。
+		fmt.Fprintf(errOut, "council serve: %s\n", warning)
+	}
 	if opts.Verbose {
 		for _, note := range claude.notices {
 			fmt.Fprintf(errOut, "council serve: %s\n", note)
 		}
 	}
+	// skills 只做展示：启动时扫一次，不合并进 cfg.Agents、不执行、不注入任何
+	// 提示，也不写文件。扫描与 agents 相互独立——没有 [providers.claude] 时
+	// skills 仍然值得列出来，因为它根本不参与执行。
+	skills := config.ScanClaudeSkills(cwd)
 	// 外部系统提示是安全相关的可见性：哪些成员带着一段不是 Council 写的
 	// 系统提示在跑，必须在启动时看得见，不藏在 -verbose 后面（任务书 §4）。
 	printClaudePromptNotice(errOut, cfg)
@@ -246,6 +260,7 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 		ClaudeAgents:                claude.agents,
 		ClaudeAgentsMerged:          claude.merged,
 		ClaudeAgentsWithoutProvider: claude.withoutProvider,
+		Skills:                      skills,
 	})
 	// drainJobs 必须在 st.Close() 之前跑完：runWritable 的 defer 在
 	// listenAndServe 返回后立刻关库放锁，而这时后台议会可能还在写。
@@ -394,6 +409,25 @@ type teamOption struct {
 	Members []string `json:"members"`
 }
 
+// skillOption 是只读导入的一条 Claude Code skill。它只出现在 /api/options，
+// 不能被 /api/ask 选中、不参与任何轮次：Council 这一片不执行 skills，也不
+// 把正文注入提示。
+//
+// 字段与 agentOption 刻意分开：skill 没有 provider / model / 权限这些执行
+// 期概念，硬塞进 agentOption 会让前端以为它也是一个可选成员。
+type skillOption struct {
+	// ID 是 .claude/skills 下的目录名（官方定义的身份），Name 是 frontmatter
+	// 的 name（缺省等于目录名）。两者可以不同：name 覆盖的是命令名。
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Source      string `json:"source"`
+}
+
+// skillSourceClaude 与 agentSourceClaude 是同一个来源词表（"claude"），
+// 前端按同一套 source 值区分「外部只读导入」与「配置」。
+const skillSourceClaude = agentSourceClaude
+
 // optionsResponse 是 GET /api/options 的完整响应。所有切片都先做成非 nil：
 // 空配置时前端应该拿到 []，不是 null。
 type optionsResponse struct {
@@ -402,6 +436,9 @@ type optionsResponse struct {
 	SummaryAgent string        `json:"summary_agent"`
 	Agents       []agentOption `json:"agents"`
 	Teams        []teamOption  `json:"teams"`
+	// Skills 是本片新增的只读展示字段。放在最后，避免改变既有 JSON 的
+	// 字段顺序（前端与快照用例都可能按位置读）。
+	Skills []skillOption `json:"skills"`
 }
 
 // handleOptions 一次交出工作台画界面需要的全部静态信息。
@@ -426,6 +463,7 @@ func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
 		ConfigPath: s.write.ConfigPath,
 		Agents:     []agentOption{},
 		Teams:      []teamOption{},
+		Skills:     []skillOption{},
 	}
 	cfg := s.write.Cfg
 	if cfg != nil {
@@ -473,6 +511,21 @@ func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
 			}
 			resp.Teams = append(resp.Teams, teamOption{ID: id, Members: members})
 		}
+	}
+
+	// skills 只读展示：按 ID 排序复制一份再输出，扫描顺序（优先级顺序）不
+	// 泄露到响应里。前端两次请求拿到同一份列表，与本片「界面下一片再做」的
+	// 预期一致。空表保持 []，不是 null。
+	skills := make([]config.Skill, len(s.write.Skills))
+	copy(skills, s.write.Skills)
+	sort.Slice(skills, func(i, j int) bool { return skills[i].ID < skills[j].ID })
+	for _, skill := range skills {
+		resp.Skills = append(resp.Skills, skillOption{
+			ID:          skill.ID,
+			Name:        skill.Name,
+			Description: skill.Description,
+			Source:      skillSourceClaude,
+		})
 	}
 
 	writeJSON(w, http.StatusOK, resp)
