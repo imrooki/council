@@ -149,8 +149,10 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 
-	// 合并版加载：项目层覆盖全局层，最后跑同一套 Validate。Load 的单文件
-	// 语义保持不动（repl 的 /add 守卫与 /config reload 还在用它）。
+	// 合并版加载：项目层覆盖全局层，最后跑同一套 Validate。repl 这一侧也走
+	// 合并（internal/repl/configlayers.go）：/add 与 /config reload 按默认位置
+	// 重新求层，与这里同一个口径；用户显式给了 -config 或 COUNCIL_CONFIG 时
+	// 退回单层，只读他点名的那一份。config.Load 的单文件语义本身没有变。
 	primaryPath := layers[0].Path
 	merged, err := config.LoadMerged(layers)
 	if err != nil {

@@ -54,6 +54,10 @@ func newCommandRegistry() *registry {
 	reg.Register(command.Spec{Name: "providers", Summary: "列出已配置的 provider"}, cmdEntry{run: cmdProviders})
 	reg.Register(command.Spec{Name: "agents", Summary: "列出已配置的 agent"}, cmdEntry{run: cmdAgents})
 	reg.Register(command.Spec{Name: "teams", Summary: "列出已配置的 team"}, cmdEntry{run: cmdTeams})
+	// /skills 只读扫描本地 .claude/skills 的元数据，不碰持久化与 provider，
+	// 所以放在这一组里：svc 为 nil 时照常可用。它不执行 skill、不注入正文，
+	// 类型与扫描口径直接复用 internal/serve 那一套（config.Skill）。
+	reg.Register(command.Spec{Name: "skills", Summary: "列出 .claude/skills 扫到的 skill（只读，不执行、不注入）"}, cmdEntry{run: cmdSkills})
 	reg.Register(command.Spec{Name: "team", Args: "use <team-id>", Summary: "绑定当前会话到一个 team，并把尚未加入的成员（总结成员除外）一次性加进来: /team use <team-id>"}, cmdEntry{needsSvc: true, needsConv: true, run: cmdTeam})
 
 	reg.Register(command.Spec{Name: "new", Args: "<标题>", Summary: "建一个会话并切过去: /new <标题>"}, cmdEntry{needsSvc: true, run: cmdNew})
