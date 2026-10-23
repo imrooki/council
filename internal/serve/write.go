@@ -716,6 +716,11 @@ type askRequest struct {
 	// 不读文件内容、不扩权限。最多 20 条、每条不超过 512 字节，
 	// 每一条必须是绝对路径。
 	Context []string `json:"context"`
+	// Conversation 非空表示续接这个已有会话，而不是新建一个。空串保持
+	// 既有行为：headless 按 Prompt 建会话并取标题。标题逻辑只在 headless
+	// 里，本层不复制一份，否则网页与 `council ask -conversation` 会漂成
+	// 两套命名规则。会话是否存在由 handleAsk 在建设任务之前校验。
+	Conversation string `json:"conversation"`
 }
 
 type askResponse struct {
@@ -867,6 +872,13 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, s.claudeProviderHint(err, opts.Members).Error())
 		return
 	}
+	// 续接目标必须在创建任务之前确认：未知 id 若放进去，headless 会在
+	// 后台任务里失败，前端先收到 202，只能在 SSE 上看到一个 error。这里
+	// 提前回 400，文案点名是哪个 id、以及「留空＝新建」这条出路。
+	if status, err := s.checkAskConversation(r.Context(), opts.Conversation); err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
 	// cwd / workspace / context 三道扩展在基础校验之后做：
 	//   - 先 Validate 保证"空问题 + context"不会因为拼了前置说明就混过去；
 	//   - workspace=true 要跑一次 git（子进程 + 文件系统），这是请求里
@@ -948,8 +960,31 @@ func optionsFromAsk(req askRequest) (headless.Options, error) {
 		Summary:   strings.TrimSpace(req.Summary),
 		BudgetUSD: budget,
 		Timeout:   timeout,
-		JSON:      true,
+		// 空串＝新建；非空＝续接。两种语义全部由 headless 实现，
+		// 这里只做搬运，包括标题：只有新建那一路才把 Prompt 当标题。
+		Conversation: strings.TrimSpace(req.Conversation),
+		JSON:         true,
 	}, nil
+}
+
+// checkAskConversation 在 /api/ask 创建任务之前确认续接目标存在。
+//
+// 不存在回 400 而不是 404：这个端点的资源是「一次新的议会」，
+// 请求体里的 conversation 是参数，参数指错目标是请求错误，不是
+// 「URL 指向的资源没有」。读库失败则是 500——那不是调用方能修的。
+// id 为空时直接放行：空串就是新建，保持既有行为。
+func (s *Server) checkAskConversation(ctx context.Context, id string) (int, error) {
+	if id == "" {
+		return 0, nil
+	}
+	if _, err := s.store.Conversation(ctx, id); err != nil {
+		if errors.Is(err, conversation.ErrConversationNotFound) {
+			return http.StatusBadRequest, fmt.Errorf(
+				"要续接的会话不存在：%s（请从左侧列表重新选择；留空 conversation 表示新建会话）", id)
+		}
+		return http.StatusInternalServerError, fmt.Errorf("读取要续接的会话 %s 失败：%w", id, err)
+	}
+	return 0, nil
 }
 
 // applyAskScopes 把 §2 的三个新字段翻译进 headless.Options：

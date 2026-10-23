@@ -411,6 +411,34 @@
   .skills-readonly { padding: 6px 8px 4px; font-size: 11.5px; line-height: 1.5; color: var(--muted-2); }
   .composer-hint { flex-basis: 100%; font-size: 11.5px; color: var(--warn); }
   .composer-hint[hidden] { display: none; }
+  /* 这一行说明「跑一轮」会落在哪个会话：选中已有会话＝续接，没选＝新建。
+     它是输入行上方的一行小字，不抢输入框的注意力。 */
+  .ask-target {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 18px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  .ask-target-text { min-width: 0; overflow-wrap: anywhere; }
+  .ask-target-new {
+    padding: 2px 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .ask-target-new:hover { background: var(--surface-2); color: var(--ink); }
+  .ask-target-new:disabled { color: var(--muted-2); cursor: default; }
+  .ask-target-new[hidden] { display: none; }
   .context-row {
     display: flex;
     align-items: center;
@@ -794,6 +822,10 @@
         <span>引用</span>
         <div id="context-tags" class="chip-list"></div>
       </div>
+      <div id="ask-target" class="ask-target">
+        <span id="ask-target-text" class="ask-target-text">新建会话</span>
+        <button id="ask-target-new" class="ask-target-new" type="button" hidden>改为新建</button>
+      </div>
       <div class="ask-row">
         <textarea id="ask-prompt" rows="2" placeholder="问这一次议会一个问题…"></textarea>
         <button id="ask-run" type="button" disabled>跑一轮</button>
@@ -816,6 +848,10 @@
   const state = {
     conversations: [],
     currentId: null,
+    // 用户主动点了「改为新建」之后为 true：此时 currentId 为 null，但
+    // 列表刷新不能再自动选中第一条，否则刚切到的「新建」会被下一次
+    // refreshConversations 悄悄改回「续接」。显式选会话或开跑即清掉。
+    newTarget: false,
     lastSeq: 0,
     detail: null,
     timer: null,
@@ -885,6 +921,8 @@
   const presetSave = document.getElementById('preset-save');
   const presetList = document.getElementById('preset-list');
   const composerHint = document.getElementById('composer-hint');
+  const askTargetText = document.getElementById('ask-target-text');
+  const askTargetNew = document.getElementById('ask-target-new');
   const messagesMeta = document.getElementById('messages-meta');
   const appRoot = document.getElementById('app');
   const toggleInspector = document.getElementById('toggle-inspector');
@@ -1520,6 +1558,9 @@
       settleThinkingLines();
     }
     updateRunButton();
+    // 跑的时候不允许切目标：提交那一刻的目标已经固定，界面再改只会
+    // 让人以为这一轮换了会话。
+    renderAskTarget();
   }
 
   function closeJobStream() {
@@ -1696,16 +1737,24 @@
       }
       if (!data.conversation_id) return;
       appendAskProgress('开始 · 会话 ' + data.conversation_id);
-      // started 一到就切到新会话：议会跑的过程中，消息面板会按原来的
-      // 轮询节奏把新落库的消息补进来。
+      // 续接时目标会话已经在当前面板里：不能再 selectConversation，
+      // 那会把 lastSeq 归零、清空消息再整页重拉。这里只刷新列表并
+      // 立刻做一次增量拉取，新问题和回复按 seq 接在原来的消息后面。
+      const alreadyShowing = state.currentId === data.conversation_id;
       state.currentId = data.conversation_id;
+      state.newTarget = false;
       renderConversationList();
       api('/api/conversations').then((list) => {
         state.conversations = list;
         renderConversationList();
-        if (state.currentId === data.conversation_id) {
-          selectConversation(data.conversation_id);
+        if (state.currentId !== data.conversation_id) return;
+        if (alreadyShowing) {
+          stopPolling();
+          pollOnce();
+          return;
         }
+        // 新会话才需要切过去：清空旧面板、拉第一页并开始轮询。
+        selectConversation(data.conversation_id);
       }).catch(showError);
     });
 
@@ -1748,7 +1797,14 @@
           formatUSD(data.cost_usd) + ' · 失败 ' + data.failed + '/' + data.total);
         if (data.summary) appendAskProgress('汇总：' + data.summary);
       }
-      refreshConversations();
+      // 跑完先刷新左侧列表（条数、最后活动时间），紧接着做一次增量
+      // 消息拉取：续接时问题与回复都落在当前会话里，不必再等 3 秒的
+      // 下一次轮询，也不会把整个消息面板重拉一遍。
+      refreshConversations().then(() => {
+        if (!state.currentId) return;
+        stopPolling();
+        pollOnce();
+      });
     });
 
     source.addEventListener('error', (event) => {
@@ -1811,19 +1867,24 @@
     askProgress.hidden = true;
     state.stopping = false;
     state.jobID = null;
+    // 提交这一刻的目标就是这一轮的目标；之后再点左侧列表只影响下一轮。
+    // 没选中（新建模式）时不带这个键，后端据此走「新建会话」。
+    const targetId = state.currentId;
+    const payload = {
+      prompt: prompt,
+      members: state.selectedAgents.slice(),
+      rounds: 1,
+      // cwd / workspace / context 是 SRV5 的三个新字段；cwd 传空串时
+      // 后端回落到 serve 的启动目录，与 options.cwd 是同一个值。
+      cwd: state.cwd,
+      workspace: state.permission === 'workspace',
+      context: state.contexts.slice(),
+      budget_usd: 5,
+    };
+    if (targetId) payload.conversation = targetId;
     setAskRunning(true);
     try {
-      const reply = await postJSON('/api/ask', {
-        prompt: prompt,
-        members: state.selectedAgents.slice(),
-        rounds: 1,
-        // cwd / workspace / context 是 SRV5 的三个新字段；cwd 传空串时
-        // 后端回落到 serve 的启动目录，与 options.cwd 是同一个值。
-        cwd: state.cwd,
-        workspace: state.permission === 'workspace',
-        context: state.contexts.slice(),
-        budget_usd: 5,
-      });
+      const reply = await postJSON('/api/ask', payload);
       if (!reply || !reply.job_id) throw new Error('接口没有返回 job_id');
       state.jobID = reply.job_id;
       appendAskProgress('已提交，等待会话开始…');
@@ -1975,7 +2036,15 @@
     if (!initial) {
       const conversation = state.conversations.find((item) => item.id === state.currentId);
       if (conversation) {
-        conversation.message_count += appended;
+        // 不能一律 += appended：done 之后先 refreshConversations 把服务端
+        // 的准确条数写回来，紧接着的增量拉取会把「服务端已经算过、但本地
+        // lastSeq 还没走过」的消息再加一遍。seq 稠密时 last_seq 就是条数，
+        // 用它对账；有空洞（将来的软删除）才退回累加。
+        if (conversation.last_seq === conversation.message_count) {
+          conversation.message_count = state.lastSeq;
+        } else {
+          conversation.message_count += appended;
+        }
         conversation.last_seq = state.lastSeq;
         conversation.last_activity = messages[messages.length - 1].created_at;
         renderConversationList();
@@ -1984,6 +2053,29 @@
     if (initial || wasAtBottom) {
       messageList.scrollTop = messageList.scrollHeight;
     }
+  }
+
+  // 这一轮会落在哪个会话：选中了就是续接它，没选中就是新建。
+  // 标题优先取左侧列表里的那一份（刷新后最快拿到），列表里还没有
+  // 这个 id 时退到已加载的 detail，都没有才显示「(无标题)」，与列表
+  // 里空标题的画法一致。
+  function conversationTitle(id) {
+    const conversation = state.conversations.find((item) => item.id === id);
+    if (conversation && conversation.title) return conversation.title;
+    if (state.detail && state.detail.id === id && state.detail.title) return state.detail.title;
+    return '(无标题)';
+  }
+
+  function renderAskTarget() {
+    if (state.currentId) {
+      askTargetText.textContent = '继续「' + conversationTitle(state.currentId) + '」';
+      askTargetNew.hidden = false;
+      askTargetNew.disabled = state.askRunning;
+      return;
+    }
+    askTargetText.textContent = '新建会话';
+    askTargetNew.hidden = true;
+    askTargetNew.disabled = false;
   }
 
   function renderConversationList() {
@@ -2016,6 +2108,7 @@
       conversationList.appendChild(item);
     }
     conversationsEmpty.hidden = state.conversations.length > 0;
+    renderAskTarget();
   }
 
   function renderCost(usage) {
@@ -2116,11 +2209,34 @@
     renderCost(null);
   }
 
+  // 点「改为新建」：不删任何会话，只是把这一轮的目标从「续接当前会话」
+  // 切回「新建」。消息面板没有对应会话可显示，清空并说明下一步做什么；
+  // 左侧列表与 state.conversations 保持不动，随时可以点回去。
+  function clearConversationSelection() {
+    stopPolling();
+    state.currentId = null;
+    state.newTarget = true;
+    state.lastSeq = 0;
+    state.detail = null;
+    messageList.replaceChildren();
+    messagesTitle.textContent = '消息';
+    messagesMeta.textContent = '';
+    messagesEmpty.textContent = '下一轮会在新会话里开始';
+    messagesEmpty.hidden = false;
+    membersBody.replaceChildren();
+    membersEmpty.hidden = true;
+    renderCost(null);
+    renderConversationList();
+  }
+
   async function selectConversation(id) {
     // 切会话先停掉已排队的轮询：旧 timer 若在这一页请求完成前触发，会用
     // 新的 currentId 配 lastSeq=0 再拉一遍第一页，和这里撞车。
     stopPolling();
     state.currentId = id;
+    // 显式选了一个会话，就不再是「新建」模式；下一次刷新列表也不能
+    // 把它改回第一条。
+    state.newTarget = false;
     state.lastSeq = 0;
     state.detail = null;
     renderConversationList();
@@ -2178,6 +2294,8 @@
       showError(pageRes.reason);
     }
     if (!failed) clearError();
+    // detail 里可能才有标题（列表标题为空时），到这里再画一次目标行。
+    renderAskTarget();
     schedulePoll();
   }
 
@@ -2190,7 +2308,10 @@
         resetToEmptyLibrary();
         return;
       }
-      if (!state.currentId || !list.some((conversation) => conversation.id === state.currentId)) {
+      if (!state.currentId) {
+        // 用户刚点了「改为新建」时保持没选中；否则首次加载自动选最近一条。
+        if (!state.newTarget) await selectConversation(list[0].id);
+      } else if (!list.some((conversation) => conversation.id === state.currentId)) {
         await selectConversation(list[0].id);
       }
       clearError();
@@ -2252,6 +2373,12 @@
 
   document.getElementById('refresh-conversations').addEventListener('click', () => {
     refreshConversations();
+  });
+
+  askTargetNew.addEventListener('click', () => {
+    if (state.askRunning) return;
+    clearConversationSelection();
+    askPrompt.focus();
   });
 
   askRun.addEventListener('click', () => {
