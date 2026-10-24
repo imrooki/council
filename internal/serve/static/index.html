@@ -158,11 +158,46 @@
     transition: background .12s ease, color .12s ease;
   }
   #refresh-conversations:hover { background: var(--surface-2); color: var(--ink); }
+  /* 搜索框常驻在列表上方：它是过滤，不是一次性的查找，滚动列表时也不该跟着走。 */
+  .side-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .side-search input {
+    flex: 1;
+    min-width: 0;
+    padding: 5px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12.5px;
+  }
+  .side-search input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .side-search input::placeholder { color: var(--muted-2); }
+  .side-count {
+    flex: none;
+    font-size: 11.5px;
+    color: var(--muted-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .side-count[hidden] { display: none; }
   .side-scroll, .conv-scroll { flex: 1; min-height: 0; overflow: auto; }
   .side-scroll { padding: 8px; }
   .conv-scroll { padding: 16px 10px 32px; }
 
   #conversation-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  #conversation-list > li { position: relative; }
   .conversation {
     position: relative;
     display: flex;
@@ -179,6 +214,8 @@
     cursor: pointer;
     transition: background .12s ease;
   }
+  /* 标题右侧让出 ⋯ 的位置，长标题不会从按钮下面露出来。 */
+  #conversation-list > li > .conversation { padding-right: 34px; }
   .conversation:hover { background: var(--surface-2); }
   .conversation.active { background: var(--surface-2); }
   .conversation.active::before {
@@ -198,6 +235,73 @@
     text-overflow: ellipsis;
   }
   .conversation .meta { font-size: 11.5px; color: var(--muted-2); }
+
+  /* 每项右侧的「⋯」：会话级动作（本片只有重命名）都收在这里，
+     列表本身保持「点一下切会话」这一个主操作。 */
+  .conv-more {
+    position: absolute;
+    top: 5px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted-2);
+    font: inherit;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: .55;
+    transition: background .12s ease, color .12s ease, opacity .12s ease;
+  }
+  .conv-more:hover,
+  .conv-more[aria-expanded="true"] { opacity: 1; background: var(--surface-2); color: var(--ink); }
+  .conv-menu {
+    position: absolute;
+    top: 30px;
+    right: 4px;
+    z-index: 15;
+    min-width: 116px;
+    padding: 4px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  /* 靠近列表底边时向上翻：.side-scroll 会裁掉溢出内容，菜单不能跟着被切。 */
+  .conv-menu.up { top: auto; bottom: 30px; }
+  .conv-menu[hidden] { display: none; }
+  .conv-menu .menu-item { font-size: 12.5px; padding: 6px 8px; }
+
+  /* 原地改名的输入框。它替换整行（不是叠在按钮里）：input 放进 button
+     既不合语义，点击也会被「切换会话」抢走。 */
+  .rename-box {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 8px;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+  }
+  .rename-box input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--accent);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+  }
+  .rename-box input:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .rename-hint { font-size: 11px; color: var(--muted-2); }
+  .rename-error { font-size: 11px; line-height: 1.5; color: var(--danger); }
+  .rename-error[hidden] { display: none; }
 
   #message-list {
     list-style: none;
@@ -746,6 +850,11 @@
           </svg>
         </button>
       </div>
+      <div class="side-search">
+        <input id="conversation-search" type="search" autocomplete="off" spellcheck="false"
+               placeholder="搜索标题" aria-label="按标题搜索会话">
+        <span id="conversation-count" class="side-count" aria-live="polite" hidden></span>
+      </div>
       <div class="side-scroll">
         <ul id="conversation-list"></ul>
         <p id="conversations-empty" class="empty" hidden>还没有会话，先在终端里跑一次 council</p>
@@ -912,6 +1021,12 @@
   const state = {
     conversations: [],
     currentId: null,
+    // 左侧搜索框的词（原样保存，过滤时再 trim + toLowerCase）。纯前端：
+    // 列表本来就已经整份在内存里，一次按键不该打一次接口。
+    search: '',
+    // 非 null 表示正在原地改名：{ id, draft, error }。draft 由输入框的
+    // input 事件同步，这样列表被轮询重画时草稿不会跟着丢。
+    rename: null,
     // 用户主动点了「改为新建」之后为 true：此时 currentId 为 null，但
     // 列表刷新不能再自动选中第一条，否则刚切到的「新建」会被下一次
     // refreshConversations 悄悄改回「续接」。显式选会话或开跑即清掉。
@@ -963,6 +1078,8 @@
 
   const conversationList = document.getElementById('conversation-list');
   const conversationsEmpty = document.getElementById('conversations-empty');
+  const conversationSearch = document.getElementById('conversation-search');
+  const conversationCount = document.getElementById('conversation-count');
   const messageList = document.getElementById('message-list');
   const messagesEmpty = document.getElementById('messages-empty');
   const messagesTitle = document.getElementById('messages-title');
@@ -1236,6 +1353,9 @@
   // ---- 弹层 ----
   // 同一时间只开一个：工具条上的弹层入口多，两个叠着会让人不知道点击落进哪层。
   let openPanel = null;
+  // 左侧列表的「⋯」菜单。与工具条弹层分开一个变量，但同样一次只开一个：
+  // 打开一侧时关掉另一侧，比同屏两个浮层各自响应 Escape 更好预料。
+  let openConversationMenu = null;
 
   function closePopover() {
     if (!openPanel) return;
@@ -1245,6 +1365,7 @@
   }
 
   function openPopover(panel, trigger) {
+    closeConversationMenu();
     if (openPanel && openPanel.panel !== panel) closePopover();
     panel.hidden = false;
     if (trigger) trigger.setAttribute('aria-expanded', 'true');
@@ -1276,6 +1397,19 @@
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && openPanel) closePopover();
+  });
+
+  // 会话「⋯」菜单的外点关闭。用节点同一性而不是 class：列表会重画，
+  // 但菜单与触发按钮在同一个事件派发路径里仍是这两个对象。
+  document.addEventListener('click', (event) => {
+    if (!openConversationMenu) return;
+    const path = event.composedPath();
+    if (path.includes(openConversationMenu.menu) || path.includes(openConversationMenu.trigger)) return;
+    closeConversationMenu();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && openConversationMenu) closeConversationMenu();
   });
 
   // ---- 工具条渲染 ----
@@ -2476,37 +2610,280 @@
     askTargetNew.disabled = false;
   }
 
-  function renderConversationList() {
-    conversationList.replaceChildren();
-    for (const conversation of state.conversations) {
-      const item = document.createElement('li');
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'conversation' + (conversation.id === state.currentId ? ' active' : '');
-      button.dataset.conversationId = conversation.id;
+  // ---- 左侧列表：搜索过滤、每项的「⋯」菜单与原地改名 ----
 
-      const title = document.createElement('span');
-      title.className = 'title';
-      title.textContent = conversation.title || '(无标题)';
-      button.appendChild(title);
+  // 按标题过滤。纯前端、大小写不敏感：中文本没有大小写，同一个
+  // toLowerCase 对中英文都成立；列表本来就在 state.conversations 里，
+  // 不为一次按键再打一次 /api/conversations。
+  function visibleConversations() {
+    const query = state.search.trim().toLowerCase();
+    if (query === '') return state.conversations;
+    return state.conversations.filter((conversation) =>
+      String(conversation.title || '').toLowerCase().includes(query));
+  }
 
-      const meta = document.createElement('span');
-      meta.className = 'meta';
-      const bits = [];
-      bits.push(conversation.members + ' 人');
-      bits.push(conversation.message_count + ' 条');
-      if (conversation.last_activity) bits.push(formatTime(conversation.last_activity));
-      meta.textContent = bits.join(' · ');
-      button.appendChild(meta);
+  function closeConversationMenu() {
+    if (!openConversationMenu) return;
+    openConversationMenu.menu.hidden = true;
+    openConversationMenu.trigger.setAttribute('aria-expanded', 'false');
+    openConversationMenu = null;
+  }
 
-      button.addEventListener('click', () => {
-        if (conversation.id !== state.currentId) selectConversation(conversation.id);
-      });
-      item.appendChild(button);
-      conversationList.appendChild(item);
+  // renderRenameBox 把一行换成输入框。回车确认、Esc 取消；
+  // 输入过程中的草稿同步进 state.rename.draft，列表被轮询重画也不会丢。
+  function renderRenameBox() {
+    const box = document.createElement('div');
+    box.className = 'rename-box';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'rename-input';
+    // 不设 maxLength：HTML 的 maxlength 按 UTF-16 码元数截断，一个 emoji
+    // 算 2，会在粘贴时悄悄吃掉一半字符；真正的上限按码点在校验里挡，
+    // 超了给一句能看懂的报错，而不是默默截短。
+    input.value = state.rename.draft;
+    input.setAttribute('aria-label', '新的会话标题');
+    input.addEventListener('input', () => {
+      if (!state.rename) return;
+      state.rename.draft = input.value;
+      hideRenameError();
+    });
+    input.addEventListener('keydown', (event) => {
+      // 中文输入法用 Enter 选词时也会发 keydown，此时不能当成提交。
+      if (event.isComposing) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        commitRename();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelRename();
+      }
+    });
+    box.appendChild(input);
+
+    const hint = document.createElement('span');
+    hint.className = 'rename-hint';
+    hint.textContent = '回车保存 · Esc 取消';
+    box.appendChild(hint);
+
+    const error = document.createElement('span');
+    error.className = 'rename-error';
+    if (state.rename.error) {
+      error.textContent = state.rename.error;
+    } else {
+      error.hidden = true;
     }
-    conversationsEmpty.hidden = state.conversations.length > 0;
+    box.appendChild(error);
+    return box;
+  }
+
+  function renderConversationButton(conversation) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'conversation' + (conversation.id === state.currentId ? ' active' : '');
+    button.dataset.conversationId = conversation.id;
+
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = conversation.title || '(无标题)';
+    button.appendChild(title);
+
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    const bits = [];
+    bits.push(conversation.members + ' 人');
+    bits.push(conversation.message_count + ' 条');
+    if (conversation.last_activity) bits.push(formatTime(conversation.last_activity));
+    meta.textContent = bits.join(' · ');
+    button.appendChild(meta);
+
+    button.addEventListener('click', () => {
+      if (conversation.id !== state.currentId) selectConversation(conversation.id);
+    });
+    return button;
+  }
+
+  // appendConversationMenu 给一行加「⋯」和它的菜单。菜单直接挂在 li 上
+  // （li 是 position: relative），不套第二个按钮，免得点菜单时先切了会话。
+  function appendConversationMenu(item, conversation) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'conv-more';
+    more.textContent = '⋯';
+    more.title = '会话操作';
+    more.setAttribute('aria-label', '会话操作');
+    more.setAttribute('aria-haspopup', 'menu');
+    more.setAttribute('aria-expanded', 'false');
+
+    const menu = document.createElement('div');
+    menu.className = 'conv-menu';
+    menu.setAttribute('role', 'menu');
+    menu.hidden = true;
+
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'menu-item';
+    rename.setAttribute('role', 'menuitem');
+    rename.textContent = '重命名';
+    rename.addEventListener('click', (event) => {
+      event.stopPropagation();
+      closeConversationMenu();
+      beginRename(conversation);
+    });
+    menu.appendChild(rename);
+
+    more.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const opening = menu.hidden;
+      closeConversationMenu();
+      if (!opening) return;
+      closePopover();
+      menu.hidden = false;
+      more.setAttribute('aria-expanded', 'true');
+      openConversationMenu = { menu, trigger: more };
+      // 菜单向下展开；这一行快贴到底边时向上翻，别被 .side-scroll 裁掉。
+      menu.classList.remove('up');
+      const scrollBox = conversationList.closest('.side-scroll');
+      if (scrollBox && menu.getBoundingClientRect().bottom > scrollBox.getBoundingClientRect().bottom) {
+        menu.classList.add('up');
+      }
+    });
+
+    item.appendChild(more);
+    item.appendChild(menu);
+  }
+
+  function renderConversationRow(conversation) {
+    const item = document.createElement('li');
+    if (state.rename && state.rename.id === conversation.id) {
+      item.appendChild(renderRenameBox());
+      return item;
+    }
+    item.appendChild(renderConversationButton(conversation));
+    // 只读模式下没有可做的会话动作：不画一个点了必然 405 的菜单。
+    if (state.writable) appendConversationMenu(item, conversation);
+    return item;
+  }
+
+  function renderConversationList() {
+    // 轮询把新消息追加进来时会重画整张列表；正在改名的输入框不能跟着
+    // 一起消失。先记下焦点，重画后把它放回同一个输入框（草稿在 state 里）。
+    const renameFocused = document.activeElement !== null
+      && document.activeElement.classList.contains('rename-input');
+
+    // 会话不存在了（理论上不会——本片不做删除）就退出改名，不留下一个
+    // 永远提交不了的草稿。
+    if (state.rename && !state.conversations.some((conversation) => conversation.id === state.rename.id)) {
+      state.rename = null;
+    }
+
+    const visible = visibleConversations();
+    conversationList.replaceChildren();
+    for (const conversation of visible) {
+      conversationList.appendChild(renderConversationRow(conversation));
+    }
+
+    const total = state.conversations.length;
+    conversationCount.hidden = total === 0;
+    conversationCount.textContent = total === 0 ? '' : (visible.length + ' / ' + total);
+    conversationCount.title = total === 0 ? '' : '匹配 ' + visible.length + ' 场 / 共 ' + total + ' 场';
+
+    if (visible.length === 0) {
+      if (total === 0) {
+        conversationsEmpty.textContent = state.writable
+          ? '还没有会话，问一句就会新建'
+          : '还没有会话，先在终端里跑一次 council';
+      } else {
+        conversationsEmpty.textContent = '没有匹配的会话';
+      }
+      conversationsEmpty.hidden = false;
+    } else {
+      conversationsEmpty.hidden = true;
+    }
+
+    if (state.rename && renameFocused) focusRenameInput(false);
     renderAskTarget();
+  }
+
+  function focusRenameInput(selectAll) {
+    const input = conversationList.querySelector('.rename-input');
+    if (!input) return;
+    input.focus();
+    if (selectAll) {
+      input.select();
+    } else {
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  }
+
+  function hideRenameError() {
+    if (!state.rename) return;
+    state.rename.error = '';
+    const error = conversationList.querySelector('.rename-error');
+    if (error) error.hidden = true;
+  }
+
+  function showRenameError(message) {
+    if (!state.rename) return;
+    state.rename.error = message;
+    const error = conversationList.querySelector('.rename-error');
+    if (error) {
+      error.textContent = message;
+      error.hidden = false;
+    }
+    focusRenameInput(false);
+  }
+
+  function beginRename(conversation) {
+    if (!state.writable) {
+      showToast('只读模式不能重命名：用 council serve -rw 启动');
+      return;
+    }
+    closeConversationMenu();
+    state.rename = { id: conversation.id, draft: conversation.title || '', error: '' };
+    renderConversationList();
+    focusRenameInput(true);
+  }
+
+  function cancelRename() {
+    state.rename = null;
+    renderConversationList();
+  }
+
+  async function commitRename() {
+    if (!state.rename) return;
+    const id = state.rename.id;
+    const title = state.rename.draft.trim();
+    if (title === '') {
+      showRenameError('标题不能为空：请给出 1–120 个字符的标题');
+      return;
+    }
+    // Array.from 按字符（码点）数，与后端 utf8.RuneCountInString 同口径；
+    // string.length 会把一个 emoji 数成 2，让前后端的 120 边界对不上。
+    if (Array.from(title).length > 120) {
+      showRenameError('标题最长 120 个字符');
+      return;
+    }
+    try {
+      const result = await postJSON(
+        '/api/conversations/' + encodeURIComponent(id) + '/rename',
+        { title });
+      // 请求在飞的时候用户可能已经按 Esc 或换了另一行；只清掉还属于
+      // 这一次的编辑状态，别把别人的草稿一并抹掉。
+      if (state.rename && state.rename.id === id) state.rename = null;
+      const conversation = state.conversations.find((item) => item.id === id);
+      if (conversation) conversation.title = result.title;
+      if (state.detail && state.detail.id === id) state.detail.title = result.title;
+      // 标题栏（会话头）与列表是两份 DOM，都得同步；只改列表会让当前
+      // 会话的头部继续显示旧标题，直到下一次 selectConversation。
+      if (state.currentId === id) messagesTitle.textContent = result.title || '(无标题)';
+      renderConversationList();
+      showToast('已重命名为「' + result.title + '」');
+    } catch (err) {
+      // 失败原因留在输入框下面（例如只读模式的 405）：列表保持原样，
+      // 用户可以继续改，或按 Esc 退出。
+      showRenameError(err.message);
+    }
   }
 
   function renderCost(usage) {
@@ -2591,6 +2968,7 @@
     state.currentId = null;
     state.lastSeq = 0;
     state.detail = null;
+    state.rename = null;
     state.conversations = [];
     renderConversationList();
     messageList.replaceChildren();
@@ -2614,6 +2992,7 @@
     stopPolling();
     state.currentId = null;
     state.newTarget = true;
+    state.rename = null;
     state.lastSeq = 0;
     state.detail = null;
     messageList.replaceChildren();
@@ -2631,6 +3010,9 @@
     // 切会话先停掉已排队的轮询：旧 timer 若在这一页请求完成前触发，会用
     // 新的 currentId 配 lastSeq=0 再拉一遍第一页，和这里撞车。
     stopPolling();
+    // 改名草稿属于原来那一行；切到别的会话时退出编辑，不把输入框带到
+    // 另一个会话下面。
+    if (state.rename && state.rename.id !== id) state.rename = null;
     state.currentId = id;
     // 显式选了一个会话，就不再是「新建」模式；下一次刷新列表也不能
     // 把它改回第一条。
@@ -2771,6 +3153,26 @@
 
   document.getElementById('refresh-conversations').addEventListener('click', () => {
     refreshConversations();
+  });
+
+  // 搜索是纯前端过滤：输入即生效，清空即恢复全部。
+  conversationSearch.addEventListener('input', () => {
+    // 过滤会重画列表；正在编辑的那一行若被筛掉，输入框就再也回不来，
+    // 所以输入搜索词先退出重命名（未提交的草稿不保留），不留死状态。
+    state.rename = null;
+    state.search = conversationSearch.value;
+    closeConversationMenu();
+    renderConversationList();
+  });
+
+  // Esc 清空搜索并恢复全部，与输入框自身的清除按钮同一个结果。
+  conversationSearch.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || conversationSearch.value === '') return;
+    event.preventDefault();
+    conversationSearch.value = '';
+    state.rename = null;
+    state.search = '';
+    renderConversationList();
   });
 
   askTargetNew.addEventListener('click', () => {

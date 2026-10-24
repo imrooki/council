@@ -295,6 +295,10 @@ func (s *Server) handleConversationPath(w http.ResponseWriter, r *http.Request) 
 			s.handleMessages(w, r, segments[0])
 		case "usage":
 			s.handleUsage(w, r, segments[0])
+		case "rename":
+			// 写接口：只读模式下也要先走到自己的 405 + 说明，
+			// 不能在这里被 404 掉（与 /api/ask、/api/options 同一个门）。
+			s.handleConversationRename(w, r, segments[0])
 		default:
 			writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 		}

@@ -29,6 +29,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"council/internal/config"
 	"council/internal/conversation"
@@ -549,6 +550,111 @@ func sortedAgentIDs(agents map[string]config.AgentConfig) []string {
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+// ---- POST /api/conversations/{id}/rename ----
+
+const (
+	// maxConversationTitle 是会话标题的字符上限，按 rune 数而不是字节数：
+	// 一个汉字是 3 个字节，按字节算会让「30 个汉字的标题」被误拒。
+	// 120 个字符已经远超左侧列表一行能显示的长度，再长的内容用户也没法
+	// 在浏览器里核对改对了没有。
+	maxConversationTitle = 120
+
+	// maxRenameBody 是改名请求体的上限。120 个字符的标题即使每个字符
+	// 都是 4 字节的 rune 也不到 500 字节，4 KiB 足够容纳 JSON 转义；
+	// 超过它的请求体不是一个标题，没必要读完再拒。
+	maxRenameBody = 4 << 10
+)
+
+// renameRequest 是 POST /api/conversations/{id}/rename 的请求体。
+// 只有 title 一个字段：多传的字段按 Go 的 JSON 解码规则忽略，与 /api/ask 一致。
+type renameRequest struct {
+	Title string `json:"title"`
+}
+
+// renameResponse 是改名成功的响应。返回去空白之后的标题，前端据此
+// 与列表、标题栏对齐，不必自己再 trim 一遍（两处 trim 迟早会漂）。
+type renameResponse struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// handleConversationRename 改一场已有会话的标题。
+//
+// 门控顺序与其它写接口逐条对齐：
+//  1. s.write == nil → 405（只读模式没有任何写能力，先于方法判断）；
+//  2. 非 POST → 405 + Allow；
+//  3. checkWriteRequest：Content-Type 必须是 application/json（415），
+//     Origin / Sec-Fetch-Site 必须同源（403）；
+//  4. 请求体必须是单个合法 JSON 对象（400）；
+//  5. 标题去空白后 1–120 个字符（400）；
+//  6. 会话不存在（404）由 store 的写事务报出来，不在事务外先查一次。
+//
+// 返回值只有 id 与 title：前端需要的就是「哪一场、现在叫什么」，
+// 让它拿整个会话摘要去换标题没有意义。
+func (s *Server) handleConversationRename(w http.ResponseWriter, r *http.Request, id string) {
+	if s.write == nil {
+		w.Header().Set("Allow", http.MethodPost)
+		writeError(w, http.StatusMethodNotAllowed,
+			"只读模式没有重命名接口：用 council serve -rw 启动才能改会话标题")
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeError(w, http.StatusMethodNotAllowed, "只支持 POST")
+		return
+	}
+	if err := checkWriteRequest(r); err != nil {
+		status := http.StatusForbidden
+		var guardErr *writeGuardError
+		if errors.As(err, &guardErr) {
+			status = guardErr.status
+		}
+		writeError(w, status, err.Error())
+		return
+	}
+
+	var req renameRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRenameBody))
+	if err := dec.Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("请求体超过 %d 字节上限", maxRenameBody))
+			return
+		}
+		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+		return
+	}
+	// 只认一个对象，理由同 handleAsk：Decode 会停在第一个值上，
+	// 静默忽略后半段会让调用方以为自己的第二段参数生效了。
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "请求体只能有一个 JSON 对象")
+		return
+	}
+
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		writeError(w, http.StatusBadRequest, "标题不能为空：请给出 1–120 个字符的会话标题")
+		return
+	}
+	if n := utf8.RuneCountInString(title); n > maxConversationTitle {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("标题最长 %d 个字符，实际 %d 个字符", maxConversationTitle, n))
+		return
+	}
+
+	if err := s.store.RenameConversation(r.Context(), id, title); err != nil {
+		if errors.Is(err, conversation.ErrConversationNotFound) {
+			writeError(w, http.StatusNotFound, "会话不存在: "+id)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "改写会话标题失败: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, renameResponse{ID: id, Title: title})
 }
 
 // ---- 任务表 ----

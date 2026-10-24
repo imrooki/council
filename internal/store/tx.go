@@ -110,6 +110,51 @@ func (t *Tx) SetConversationCwd(ctx context.Context, convID, cwd string) error {
 	return nil
 }
 
+// renameTx 是 RenameConversation 在 WriteTx 里需要的最小事务能力。
+//
+// 这条方法刻意不放进 conversation.Tx：改标题目前只有 serve 的
+// POST /api/conversations/{id}/rename 一个调用方，而扩接口会强迫
+// internal/turn 与 internal/repl 里的每个假 Store+Tx 实现都补一个它们
+// 永远不会调用的方法。用包内断言把「只有本包认识它」这件事写在类型上，
+// 比让领域接口背一个持久化细节更便宜。
+type renameTx interface {
+	renameConversation(ctx context.Context, convID, title string) error
+}
+
+// RenameConversation 改一场会话的标题，走写事务。只改 title 一列：
+// created_at、team_id、cwd 与消息都不动，标题不是一次会话的重新定义。
+//
+// 会话不存在时返回包了 conversation.ErrConversationNotFound 的错误，
+// 让 HTTP 层能把 404 与「库坏了」分开。存在性检查与 UPDATE 在同一个
+// 事务里（同一个写句柄上的 BEGIN IMMEDIATE），中间没有可乘之窗。
+func (s *Store) RenameConversation(ctx context.Context, convID, title string) error {
+	err := s.WriteTx(ctx, func(ctx context.Context, tx conversation.Tx) error {
+		impl, ok := tx.(renameTx)
+		if !ok {
+			return fmt.Errorf("事务实现 %T 不支持重命名", tx)
+		}
+		return impl.renameConversation(ctx, convID, title)
+	})
+	if err != nil {
+		return fmt.Errorf("rename conversation %s: %w", convID, err)
+	}
+	return nil
+}
+
+// renameConversation 是 RenameConversation 的事务内动作，见 renameTx 的注释。
+func (t *Tx) renameConversation(ctx context.Context, convID, title string) error {
+	if err := t.requireConversation(ctx, convID); err != nil {
+		return err
+	}
+	if _, err := t.tx.ExecContext(ctx,
+		`UPDATE conversations SET title = ? WHERE id = ?`,
+		title, convID,
+	); err != nil {
+		return fmt.Errorf("update conversation title %s: %w", convID, err)
+	}
+	return nil
+}
+
 // AppendMessage 追加一条消息。ID、Seq、CreatedAt 由 store 填写，调用方传入的这三个字段一律忽略。
 func (t *Tx) AppendMessage(ctx context.Context, m conversation.Message) (conversation.Message, error) {
 	if !m.Kind.Valid() {
