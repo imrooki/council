@@ -197,7 +197,12 @@ type memberJSON struct {
 	AgentID     string `json:"agent_id"`
 	DisplayName string `json:"display_name"`
 	Provider    string `json:"provider"`
-	Active      bool   `json:"active"`
+	// Model 来自启动时加载的配置（s.models，装配后含 Claude 导入的成员）。
+	// participants 表没有 model 列：会话里记的是当时那次 join 的
+	// display_name / provider 快照，模型名只能回配置里取。空串表示
+	// 这个 id 已经不在配置里，而不是编一个默认模型。
+	Model  string `json:"model"`
+	Active bool   `json:"active"`
 }
 
 type conversationDetail struct {
@@ -302,9 +307,21 @@ func (s *Server) handleConversationPath(w http.ResponseWriter, r *http.Request) 
 		case "delete":
 			// 同上：删除是写操作，只读模式必须先回 405 而不是「没有这个接口」。
 			s.handleConversationDelete(w, r, segments[0])
+		case "members":
+			// GUI4：加人。只读模式的 405 在 handler 内部，路由不做模式分叉。
+			s.handleConversationMemberAdd(w, r, segments[0])
 		default:
 			writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 		}
+	case 4:
+		// GUI4：踢人，/api/conversations/{id}/members/{agentID}/remove。
+		// 只认恰好四段，多一段少一段都是 404；删掉不存在的东西不在
+		// 这里猜，交给 handler 统一回 JSON 错误。
+		if segments[1] == "members" && segments[3] == "remove" {
+			s.handleConversationMemberRemove(w, r, segments[0], segments[2])
+			return
+		}
+		writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 	default:
 		writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 	}
@@ -344,12 +361,7 @@ func (s *Server) handleConversationDetail(w http.ResponseWriter, r *http.Request
 
 	members := make([]memberJSON, 0, len(parts))
 	for _, p := range parts {
-		members = append(members, memberJSON{
-			AgentID:     p.AgentID,
-			DisplayName: p.DisplayName,
-			Provider:    p.Provider,
-			Active:      p.Active,
-		})
+		members = append(members, s.memberFor(p))
 	}
 	writeJSON(w, http.StatusOK, conversationDetail{
 		ID:           conv.ID,

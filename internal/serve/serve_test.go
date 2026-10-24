@@ -284,7 +284,11 @@ func TestServerConversationDetail(t *testing.T) {
 	}
 	first, _ := members[0].(map[string]any)
 	second, _ := members[1].(map[string]any)
-	requireKeys(t, "member", first, "active", "agent_id", "display_name", "provider")
+	// model 是 GUI4 新增的字段：participants 表里没有它，详情按启动时
+	// 的配置补。这里 newServeTestEnv 传的 models 是 nil，所以值是空串，
+	// 但字段必须存在，前端才能稳定地按同一形状渲染。
+	requireKeys(t, "member", first, "active", "agent_id", "display_name", "model", "provider")
+	requireKeys(t, "member", second, "active", "agent_id", "display_name", "model", "provider")
 	if first["agent_id"] != "alpha" || first["active"] != true {
 		t.Errorf("members[0] = %v，期望 alpha/true", first)
 	}

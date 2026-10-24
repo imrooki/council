@@ -436,6 +436,59 @@
   .member-sub { margin-top: 2px; font-size: 11px; color: var(--muted-2); }
   tr.inactive .member-name { color: var(--muted); }
 
+  /* 右栏顶部的「+ 添加成员」：只在写模式、且选中了一场会话时出现。
+     它和成员行里的操作按钮都不在只读模式里画出来。 */
+  .member-add {
+    margin-left: auto;
+    padding: 4px 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 11.5px;
+    line-height: 1.5;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .member-add:hover { background: var(--surface-2); color: var(--ink); }
+  .member-add[hidden] { display: none; }
+  .member-add-wrap { margin-left: auto; }
+  /* 右栏在窗口顶部：统一向上翻的 .popover 会跑到视口外，这里改成向下。
+     选择器要盖过后面才定义的 .popover，所以带上 .member-add-wrap。 */
+  .member-add-wrap .popover {
+    top: calc(100% + 6px);
+    right: 0;
+    bottom: auto;
+    left: auto;
+    width: 260px;
+  }
+  /* 操作列：默认只占位，悬停或键盘聚焦到行内才把「移除」露出来；
+     「重新加入」是已退出行唯一还能做的动作，所以始终可见。 */
+  .member-actions { text-align: right; white-space: nowrap; }
+  .member-remove, .member-rejoin {
+    padding: 3px 7px;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    background: transparent;
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .member-remove {
+    color: var(--muted);
+    opacity: 0;
+    transition: opacity .12s ease, color .12s ease, background .12s ease;
+  }
+  #members-table tbody tr:hover .member-remove,
+  #members-table tbody tr:focus-within .member-remove,
+  .member-remove:focus-visible { opacity: 1; }
+  .member-remove:hover { color: var(--danger); background: var(--surface-2); }
+  .member-rejoin { color: var(--accent); }
+  .member-rejoin:hover { background: var(--surface-2); }
+
   .empty { margin: 34px 12px; font-size: 12.5px; line-height: 1.7; color: var(--muted-2); text-align: center; }
 
   .ask {
@@ -912,7 +965,14 @@
     </section>
 
     <aside class="inspector">
-      <div class="side-head"><h2>成员与费用</h2></div>
+      <div class="side-head">
+        <h2>成员与费用</h2>
+        <div class="chip-wrap member-add-wrap">
+          <button id="member-add" class="member-add" type="button" aria-haspopup="menu"
+                  aria-expanded="false" title="给当前会话添加成员" hidden>+ 添加成员</button>
+          <div id="member-add-menu" class="popover member-add-menu" role="menu" aria-label="添加成员" hidden></div>
+        </div>
+      </div>
       <div class="side-scroll">
         <table id="members-table">
           <thead>
@@ -922,6 +982,7 @@
               <th>IN</th>
               <th>OUT</th>
               <th>金额</th>
+              <th id="members-actions-head" class="member-actions" aria-label="操作" hidden></th>
             </tr>
           </thead>
           <tbody id="members-body"></tbody>
@@ -1062,6 +1123,20 @@
       </div>
     </div>
   </div>
+  <!-- 移除成员的二次确认。与删除会话同一种交互：按钮顺序是「取消 / 移除」，
+       默认焦点由脚本放到取消上（见 openMemberRemoveConfirm）。 -->
+  <div id="member-remove-confirm" class="confirm-overlay" role="dialog" aria-modal="true"
+       aria-labelledby="member-remove-title" aria-describedby="member-remove-text" hidden>
+    <div class="confirm-card">
+      <h2 id="member-remove-title">移除成员</h2>
+      <p id="member-remove-text" class="confirm-text"></p>
+      <p id="member-remove-error" class="confirm-error" hidden></p>
+      <div class="confirm-actions">
+        <button id="member-remove-cancel" class="btn-small" type="button">取消</button>
+        <button id="member-remove-confirm-button" class="btn-small danger" type="button">移除</button>
+      </div>
+    </div>
+  </div>
 </div>
 <script>
 (() => {
@@ -1087,6 +1162,13 @@
     // title 只用于文案，提交时以 id 为准；returnFocus 是关闭后要还回焦点的
     // 「⋯」按钮（那一行可能已经因为删除而不在了，关闭时会再判一次）。
     deleteConfirm: null,
+    // 非 null 表示移除成员的确认框开着：{ conversationId, agentID, name,
+    // busy, returnFocus }。与 deleteConfirm 分开：两个确认框不会同时开，
+    // 但共用一套 Esc / 遮罩关闭习惯，状态各自独立。
+    memberConfirm: null,
+    // 最近一次读到的用量。加人 / 踢人只改变成员表，不该为了重绘右栏再拉
+    // 一次用量；重绘时用它把每行的轮数与金额原样接上。
+    usage: null,
     // 用户主动点了「改为新建」之后为 true：此时 currentId 为 null，但
     // 列表刷新不能再自动选中第一条，否则刚切到的「新建」会被下一次
     // refreshConversations 悄悄改回「续接」。显式选会话或开跑即清掉。
@@ -1145,6 +1227,14 @@
   const messagesTitle = document.getElementById('messages-title');
   const membersBody = document.getElementById('members-body');
   const membersEmpty = document.getElementById('members-empty');
+  const membersActionsHead = document.getElementById('members-actions-head');
+  const memberAdd = document.getElementById('member-add');
+  const memberAddMenu = document.getElementById('member-add-menu');
+  const memberRemoveOverlay = document.getElementById('member-remove-confirm');
+  const memberRemoveText = document.getElementById('member-remove-text');
+  const memberRemoveError = document.getElementById('member-remove-error');
+  const memberRemoveCancel = document.getElementById('member-remove-cancel');
+  const memberRemoveConfirmButton = document.getElementById('member-remove-confirm-button');
   const costValue = document.getElementById('cost-value');
   const costNote = document.getElementById('cost-note');
   const statusLine = document.getElementById('status');
@@ -1489,6 +1579,24 @@
     if (event.key !== 'Escape' || !state.deleteConfirm) return;
     event.preventDefault();
     closeDeleteConfirm();
+  });
+
+  // 成员管理的入口与移除确认框。添加菜单在每次打开前重画：它会排除
+  // 当前会话已经有行的人，名单会随加人 / 踢人变化，缓存一份就旧了。
+  memberAdd.addEventListener('click', () => {
+    if (memberAdd.hidden) return;
+    renderMemberAddMenu();
+    togglePopover(memberAddMenu, memberAdd);
+  });
+  memberRemoveCancel.addEventListener('click', closeMemberRemoveConfirm);
+  memberRemoveConfirmButton.addEventListener('click', commitMemberRemove);
+  memberRemoveOverlay.addEventListener('click', (event) => {
+    if (event.target === memberRemoveOverlay) closeMemberRemoveConfirm();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !state.memberConfirm) return;
+    event.preventDefault();
+    closeMemberRemoveConfirm();
   });
 
   // ---- 工具条渲染 ----
@@ -2266,6 +2374,7 @@
       state.writable = false;
     }
     askPanel.hidden = !state.writable;
+    updateMemberAddButton();
     if (state.writable) {
       // 只读模式的标题与空库文案一个字都不动；写模式把「只读」改成
       // 事实，免得用户看着「只读看板」不敢在下面输入。
@@ -3049,6 +3158,7 @@
       membersBody.replaceChildren();
       membersEmpty.hidden = true;
       renderCost(null);
+      updateMemberAddButton();
     }
     renderConversationList();
   }
@@ -3095,6 +3205,7 @@
   }
 
   function renderCost(usage) {
+    state.usage = usage || null;
     if (!usage) {
       costValue.textContent = '—';
       costNote.textContent = '';
@@ -3117,6 +3228,188 @@
     if (className) cell.className = className;
     cell.textContent = text;
     row.appendChild(cell);
+  }
+
+  // ---- 会话成员管理：加人 / 踢人 ----
+  //
+  // 这里的成员是 participants 表里的持久成员，与工具条上「这一轮谁发言」
+  // 的 chip 是两件事。两个写接口都只在写模式、且选中了一场会话时露出；
+  // 只读模式连按钮都不画（member-add 的 hidden 与成员行的操作列都靠
+  // state.writable 控制）。
+
+  // updateMemberAddButton 统一决定「+ 添加成员」和操作列是否可见。
+  // 没有选中会话时也不画：加人必须先知道加到哪一场。
+  function updateMemberAddButton() {
+    const canManage = state.writable && state.currentId !== null &&
+      state.detail !== null && state.detail.id === state.currentId;
+    memberAdd.hidden = !canManage;
+    membersActionsHead.hidden = !canManage;
+    if (memberAdd.hidden && openPanel && openPanel.panel === memberAddMenu) closePopover();
+  }
+
+  // renderMemberAddMenu 只列「这个会话里从来没有过」的 agent：已经活跃的
+  // 不用再加；已经退出的走行内「重新加入」，那是同一条 AddParticipant
+  // 语义的另一个入口，不应该在添加菜单里重复出现两次。
+  function renderMemberAddMenu() {
+    memberAddMenu.replaceChildren();
+    const title = document.createElement('div');
+    title.className = 'popover-title';
+    title.textContent = '添加成员';
+    memberAddMenu.appendChild(title);
+
+    const current = new Set();
+    for (const member of (state.detail && state.detail.members) || []) {
+      if (member && typeof member.agent_id === 'string') current.add(member.agent_id);
+    }
+    const available = state.agents.filter((agent) => agent && !current.has(agent.id));
+    if (available.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'menu-empty';
+      empty.textContent = state.optionsLoaded
+        ? '配置里的成员都已经在这个会话里'
+        : '还没有读到配置里的成员';
+      memberAddMenu.appendChild(empty);
+      return;
+    }
+    for (const agent of available) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'menu-item';
+      item.setAttribute('role', 'menuitem');
+      item.textContent = memberLabel(agent);
+      item.addEventListener('click', () => addMember(agent.id));
+      memberAddMenu.appendChild(item);
+    }
+  }
+
+  // applyMembers 用服务端回的完整成员表重绘右栏。响应里的
+  // conversation_id 必须仍是当前会话：请求在飞时用户可能已经切走，
+  // 把 A 的表画到 B 上比不刷新更糟。
+  function applyMembers(result) {
+    if (!result || result.conversation_id !== state.currentId) return;
+    if (!state.detail || state.detail.id !== result.conversation_id) return;
+    state.detail.members = Array.isArray(result.members) ? result.members : [];
+    renderMembers(state.detail, state.usage);
+    updateMembersMeta();
+    updateMemberAddButton();
+  }
+
+  // updateMembersMeta 只改会话头里的「N 条 · M 位成员」的成员数。条数用
+  // 已渲染的消息节点数，与初始加载时 page.messages.length 的口径一致
+  // （都只数这一次渲染出来的那些），不为了一个数字再拉全量消息。
+  function updateMembersMeta() {
+    if (!state.detail || state.detail.id !== state.currentId) return;
+    const active = (state.detail.members || []).filter((member) => member && member.active).length;
+    messagesMeta.textContent = messageList.children.length + ' 条 · ' + active + ' 位成员';
+  }
+
+  // addMember 同时服务「添加成员」与「重新加入」：后端是同一个端点，
+  // 已经退出过的同一个 agent 会被原地激活，前端不必自己区分两条路径。
+  async function addMember(agentID) {
+    if (!state.writable || state.currentId === null) return;
+    const id = state.currentId;
+    const existing = ((state.detail && state.detail.members) || [])
+      .find((member) => member && member.agent_id === agentID);
+    const wasInactive = Boolean(existing && !existing.active);
+    closePopover();
+    try {
+      const result = await postJSON(
+        '/api/conversations/' + encodeURIComponent(id) + '/members',
+        { agent_id: agentID });
+      if (state.currentId !== id) return;
+      applyMembers(result);
+      showToast((wasInactive ? '已重新加入成员 ' : '已加入成员 ') + agentDisplayName(agentID));
+    } catch (err) {
+      showError(err);
+    }
+  }
+
+  // closeMemberRemoveConfirm 只关界面，不发请求。请求在飞时拒绝关闭：
+  // 用户已经确认过，半途关掉会让界面停在「还在」而库里已经退出。
+  function closeMemberRemoveConfirm() {
+    if (!state.memberConfirm || state.memberConfirm.busy) return;
+    const returnFocus = state.memberConfirm.returnFocus;
+    state.memberConfirm = null;
+    memberRemoveOverlay.hidden = true;
+    memberRemoveError.hidden = true;
+    memberRemoveError.textContent = '';
+    memberRemoveCancel.disabled = false;
+    memberRemoveConfirmButton.disabled = false;
+    if (returnFocus && returnFocus.isConnected) {
+      returnFocus.focus();
+    } else if (!memberAdd.hidden) {
+      memberAdd.focus();
+    }
+  }
+
+  // openMemberRemoveConfirm 打开二次确认。默认焦点在「取消」上：移除会
+  // 改变此后的议会成员，误按回车应当什么也不做。
+  function openMemberRemoveConfirm(member, trigger) {
+    if (!state.writable) {
+      showToast('只读模式不能移除成员：用 council serve -rw 启动');
+      return;
+    }
+    if (!member || state.currentId === null) return;
+    closePopover();
+    const name = member.display_name || member.agent_id;
+    state.memberConfirm = {
+      conversationId: state.currentId,
+      agentID: member.agent_id,
+      name,
+      busy: false,
+      returnFocus: trigger || null,
+    };
+    memberRemoveText.textContent = '确定要把「' + name + '」移出这个会话吗？'
+      + '它会标记为已退出，之前说过的话仍保留。';
+    memberRemoveError.hidden = true;
+    memberRemoveError.textContent = '';
+    memberRemoveCancel.disabled = false;
+    memberRemoveConfirmButton.disabled = false;
+    memberRemoveOverlay.hidden = false;
+    memberRemoveCancel.focus();
+  }
+
+  // commitMemberRemove 发真正的移除请求。成功之后用响应重绘成员表：
+  // 被移除的那一行不会消失，而是变成「已退出」并给出「重新加入」。
+  async function commitMemberRemove() {
+    if (!state.memberConfirm || state.memberConfirm.busy) return;
+    const conversationId = state.memberConfirm.conversationId;
+    const agentID = state.memberConfirm.agentID;
+    const name = state.memberConfirm.name;
+    const returnFocus = state.memberConfirm.returnFocus;
+    state.memberConfirm.busy = true;
+    memberRemoveCancel.disabled = true;
+    memberRemoveConfirmButton.disabled = true;
+    memberRemoveError.hidden = true;
+    memberRemoveError.textContent = '';
+    try {
+      const result = await postJSON(
+        '/api/conversations/' + encodeURIComponent(conversationId) +
+        '/members/' + encodeURIComponent(agentID) + '/remove',
+        {});
+      if (!state.memberConfirm || state.memberConfirm.conversationId !== conversationId ||
+          state.memberConfirm.agentID !== agentID) return;
+      state.memberConfirm = null;
+      memberRemoveOverlay.hidden = true;
+      memberRemoveCancel.disabled = false;
+      memberRemoveConfirmButton.disabled = false;
+      applyMembers(result);
+      // 重绘之后原来那颗按钮已经从 DOM 上摘掉，焦点回到「+ 添加成员」；
+      // 若当前会话已经不可管理，就退回页面正文，不留一个脱离文档的焦点。
+      if (returnFocus && returnFocus.isConnected) returnFocus.focus();
+      else if (!memberAdd.hidden) memberAdd.focus();
+      else document.body.focus();
+      showToast('已移除「' + name + '」');
+    } catch (err) {
+      if (!state.memberConfirm || state.memberConfirm.conversationId !== conversationId ||
+          state.memberConfirm.agentID !== agentID) return;
+      state.memberConfirm.busy = false;
+      memberRemoveCancel.disabled = false;
+      memberRemoveConfirmButton.disabled = false;
+      memberRemoveError.textContent = err.message;
+      memberRemoveError.hidden = false;
+      memberRemoveConfirmButton.focus();
+    }
   }
 
   function renderMembers(detail, usage) {
@@ -3148,12 +3441,15 @@
       const memberCell = document.createElement('td');
       const name = document.createElement('div');
       name.className = 'member-name';
-      name.textContent = (member && member.display_name) || id;
+      const memberName = (member && member.display_name) || id;
+      name.textContent = memberName;
       memberCell.appendChild(name);
       const sub = document.createElement('div');
       sub.className = 'member-sub';
       const provider = (member && member.provider) || (usageById.get(id) || {}).provider || '';
-      const model = (usageById.get(id) || {}).model || '';
+      // 新加入的成员还没跑过任何一轮，usage 里没有它的 model；这时用
+      // 会话详情按配置补上的 member.model，行里不会只剩 id 与 provider。
+      const model = (member && member.model) || (usageById.get(id) || {}).model || '';
       const stat = usageById.get(id) || {};
       const suffix = member && !member.active ? ' · 已退出' : '';
       const cacheBits = [];
@@ -3168,6 +3464,28 @@
       addCell(row, formatNumber(stat.in), 'num');
       addCell(row, formatNumber(stat.out), 'num');
       addCell(row, stat.cost_reported === false ? '不报' : formatUSD(stat.cost_usd || 0), 'num');
+
+      // 只读模式不画操作列；写模式里每行都补一格，空成员（只在用量
+      // 表里出现的旧 id）给空格子，保证六列对齐。
+      if (state.writable) {
+        const actionCell = document.createElement('td');
+        actionCell.className = 'member-actions';
+        if (member) {
+          const action = document.createElement('button');
+          action.type = 'button';
+          action.className = member.active ? 'member-remove' : 'member-rejoin';
+          action.textContent = member.active ? '移除' : '重新加入';
+          action.title = member.active ? '把这个成员移出会话' : '让这个已退出的成员重新加入';
+          action.setAttribute('aria-label',
+            (member.active ? '移除成员 ' : '重新加入成员 ') + memberName);
+          action.addEventListener('click', () => {
+            if (member.active) openMemberRemoveConfirm(member, action);
+            else addMember(member.agent_id);
+          });
+          actionCell.appendChild(action);
+        }
+        row.appendChild(actionCell);
+      }
       membersBody.appendChild(row);
     }
   }
@@ -3191,6 +3509,7 @@
     membersBody.replaceChildren();
     membersEmpty.hidden = true;
     renderCost(null);
+    updateMemberAddButton();
   }
 
   // 点「改为新建」：不删任何会话，只是把这一轮的目标从「续接当前会话」
@@ -3198,6 +3517,7 @@
   // 左侧列表与 state.conversations 保持不动，随时可以点回去。
   function clearConversationSelection() {
     stopPolling();
+    if (openPanel && openPanel.panel === memberAddMenu) closePopover();
     state.currentId = null;
     state.newTarget = true;
     state.rename = null;
@@ -3211,6 +3531,7 @@
     membersBody.replaceChildren();
     membersEmpty.hidden = true;
     renderCost(null);
+    updateMemberAddButton();
     renderConversationList();
   }
 
@@ -3218,6 +3539,9 @@
     // 切会话先停掉已排队的轮询：旧 timer 若在这一页请求完成前触发，会用
     // 新的 currentId 配 lastSeq=0 再拉一遍第一页，和这里撞车。
     stopPolling();
+    // 添加成员的菜单按当前会话算「谁还没加入」。切走之后旧的名单就不对
+    // 了，先关掉；下一次点按钮会用新会话的成员重画。
+    if (openPanel && openPanel.panel === memberAddMenu) closePopover();
     // 改名草稿属于原来那一行；切到别的会话时退出编辑，不把输入框带到
     // 另一个会话下面。
     if (state.rename && state.rename.id !== id) state.rename = null;
@@ -3227,6 +3551,9 @@
     state.newTarget = false;
     state.lastSeq = 0;
     state.detail = null;
+    // 详情还没回来之前先按「不能管理」画：否则按钮会短暂保留上一场
+    // 会话的可见状态，点开时名单却是空的。
+    updateMemberAddButton();
     renderConversationList();
     messageList.replaceChildren();
     messagesEmpty.hidden = true;
@@ -3284,6 +3611,7 @@
     if (!failed) clearError();
     // detail 里可能才有标题（列表标题为空时），到这里再画一次目标行。
     renderAskTarget();
+    updateMemberAddButton();
     schedulePoll();
   }
 
