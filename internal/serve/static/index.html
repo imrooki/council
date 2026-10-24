@@ -864,6 +864,39 @@
   #app.no-inspector #toggle-inspector { color: var(--ink); background: var(--surface-2); }
   .conv-meta { font-size: 12px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
 
+  /* 会话头右侧的「导出 ▾」。导出是读操作，所以只读模式也画这个按钮；
+     它只在选中了一场会话时出现（没有会话就没有可导出的东西）。
+     菜单挂在页面顶部：统一向上翻的 .popover 会跑到视口外，这里改成向下。 */
+  .export-wrap { margin-left: auto; }
+  .export-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 11.5px;
+    line-height: 1.5;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .export-button:hover { background: var(--surface-2); color: var(--ink); }
+  .export-button[aria-expanded="true"] { background: var(--surface-2); color: var(--ink); }
+  .export-button[hidden] { display: none; }
+  .export-button .chip-caret { color: var(--muted-2); }
+  .export-wrap .popover {
+    top: calc(100% + 6px);
+    right: 0;
+    bottom: auto;
+    left: auto;
+    width: 180px;
+  }
+  .export-menu .menu-item { font-size: 12.5px; }
+  .export-menu .menu-hint { margin-left: auto; font-size: 10.5px; color: var(--muted-2); }
+
   /* 每条消息悬停时才出现的复制按钮：平时不占视线 */
   .msg-copy {
     margin-left: auto;
@@ -957,7 +990,20 @@
     </aside>
 
     <section class="conversation">
-      <div class="conv-head"><h2 id="messages-title">消息</h2><span id="messages-meta" class="conv-meta"></span></div>
+      <div class="conv-head">
+        <h2 id="messages-title">消息</h2><span id="messages-meta" class="conv-meta"></span>
+        <div class="chip-wrap export-wrap">
+          <button id="export-button" class="export-button" type="button" aria-haspopup="menu"
+                  aria-expanded="false" title="把当前会话导出成本地文件（读操作，只读模式也能用）" hidden>导出
+            <span class="chip-caret" aria-hidden="true">▾</span></button>
+          <div id="export-menu" class="popover export-menu" role="menu" aria-label="导出" hidden>
+            <button class="menu-item" type="button" role="menuitem" data-export="md">Markdown
+              <span class="menu-hint">.md</span></button>
+            <button class="menu-item" type="button" role="menuitem" data-export="json">JSON
+              <span class="menu-hint">.json</span></button>
+          </div>
+        </div>
+      </div>
       <div class="conv-scroll">
         <ol id="message-list"></ol>
         <p id="messages-empty" class="empty" hidden></p>
@@ -1216,6 +1262,9 @@
     // agent_id -> { line, name }。同一成员多轮会重复 turn_started，
     // 只保留最新那一行，避免进度区堆一串过期的「正在思考」。
     thinking: new Map(),
+    // 一次导出在飞时为 true：三个只读接口没回来之前再点菜单不会叠出
+    // 第二个下载。导出失败或被切走后由 finally 复位。
+    exporting: false,
   };
 
   const conversationList = document.getElementById('conversation-list');
@@ -1279,6 +1328,8 @@
   const askTargetText = document.getElementById('ask-target-text');
   const askTargetNew = document.getElementById('ask-target-new');
   const messagesMeta = document.getElementById('messages-meta');
+  const exportButton = document.getElementById('export-button');
+  const exportMenu = document.getElementById('export-menu');
   const appRoot = document.getElementById('app');
   const toggleInspector = document.getElementById('toggle-inspector');
   const toast = document.getElementById('toast');
@@ -2632,15 +2683,17 @@
 
   // 记录里时间戳是次要信息：今天的消息只显示时分，跨天的才带日期。
   // 每条都写全年月日会把眼睛从正文上拽走。
-  function formatTime(value) {
+  // now 可选：导出时传导出那一刻，整份文档的「今天」就以它为基准，不会
+  // 因为渲染跨过午夜而前后不一致。
+  function formatTime(value, now) {
     if (!value) return '';
     const date = new Date(value);
     if (isNaN(date.getTime())) return value;
     const clock = date.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
-    const now = new Date();
-    const sameDay = date.getFullYear() === now.getFullYear()
-      && date.getMonth() === now.getMonth()
-      && date.getDate() === now.getDate();
+    const today = now || new Date();
+    const sameDay = date.getFullYear() === today.getFullYear()
+      && date.getMonth() === today.getMonth()
+      && date.getDate() === today.getDate();
     if (sameDay) return clock;
     return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) + ' ' + clock;
   }
@@ -3159,6 +3212,7 @@
       membersEmpty.hidden = true;
       renderCost(null);
       updateMemberAddButton();
+      updateExportButton();
     }
     renderConversationList();
   }
@@ -3228,6 +3282,263 @@
     if (className) cell.className = className;
     cell.textContent = text;
     row.appendChild(cell);
+  }
+
+  // ---- 导出会话：Markdown / JSON ----
+  //
+  // 导出是读操作：只读模式（council serve，不带 -rw）同样可用，所以这一块
+  // 只看 state.currentId，不看写模式开关。三个只读接口在这里现拉一次，
+  // 不复用轮询里那份增量——轮询只取 after=lastSeq 之后的消息，拿它拼导出
+  // 会把更早的消息整段漏掉。
+  //
+  // 后端不为导出新增任何接口：Markdown 与 JSON 都由前端用现有三个响应当场
+  // 拼出来，导出内容因此不会和看板上的消息、账漂成两套。
+
+  // EXPORT_LIMIT 是 messages 接口的上限（handler.go 的 maxMessagesLimit）。
+  // 一次拉满、不做多页拼接：会话超过 1000 条时，导出与接口的同一页口径
+  // 一致，不会悄悄变成另一份「全量」。
+  const EXPORT_LIMIT = 1000;
+
+  // ---- 文件名 ----
+  // 时间戳与文档里的时间都用本地时区：看板是给人看的，不是给机器对时的。
+  function pad2(value) {
+    return String(value).padStart(2, '0');
+  }
+
+  function exportStamp(date) {
+    return String(date.getFullYear()) + pad2(date.getMonth() + 1) + pad2(date.getDate()) +
+      '-' + pad2(date.getHours()) + pad2(date.getMinutes());
+  }
+
+  function exportDateTime(date) {
+    return String(date.getFullYear()) + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate()) +
+      ' ' + pad2(date.getHours()) + ':' + pad2(date.getMinutes());
+  }
+
+  // sanitizeFilenamePart 把标题变成三平台都收的文件名片段：控制字符与
+  // <>:"/\|?* 换成 -，连续空白与连续 - 折成一个，去掉头尾的 - . 空格
+  // （Windows 不允许文件名以它们结尾）。最后按码位截到 60 个字符——按
+  // 码位而不是 UTF-16 单元，中文标题不会被截在半个代理对中间。
+  function sanitizeFilenamePart(raw) {
+    const collapsed = String(raw || '')
+      .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, '-')
+      .replace(/\s+/g, ' ')
+      .replace(/-{2,}/g, '-')
+      .replace(/^[-. ]+|[-. ]+$/g, ' ');
+    const chars = Array.from(collapsed.trim()).slice(0, 60);
+    return chars.join('').replace(/[-. ]+$/, '');
+  }
+
+  // exportFilename 的规则：<标题>-<YYYYMMDD-HHmm>.<md|json>。标题清洗后
+  // 为空（没标题、或者整条都是非法字符）时用 council-<会话 id 前 8 位>。
+  function exportFilename(title, conversationID, extension, date) {
+    const base = sanitizeFilenamePart(title) ||
+      ('council-' + String(conversationID || '').slice(0, 8));
+    return base + '-' + exportStamp(date) + '.' + extension;
+  }
+
+  // ---- 导出用的成员表 ----
+  // 成员名与 provider/model 先取会话详情里的快照（participants 表的
+  // display_name / provider，model 由 serve 从配置补上）；详情里缺的字段
+  // 退回用量行里的同名字段，两者都没有就留空，不编默认值。
+  function exportMemberEntries(detail, usage) {
+    const rows = ((usage && usage.per_agent) || []).filter((row) => row && row.agent_id);
+    const byAgent = new Map();
+    for (const row of rows) byAgent.set(row.agent_id, row);
+    const entries = [];
+    const seen = new Set();
+    for (const member of ((detail && detail.members) || [])) {
+      if (!member || !member.agent_id || seen.has(member.agent_id)) continue;
+      seen.add(member.agent_id);
+      const stat = byAgent.get(member.agent_id) || null;
+      entries.push({
+        id: member.agent_id,
+        name: member.display_name || member.agent_id,
+        provider: member.provider || (stat && stat.provider) || '',
+        model: member.model || (stat && stat.model) || '',
+        active: member.active !== false,
+        stat: stat,
+      });
+    }
+    // 只在用量表里出现过的旧 id 也补进账里：它跑过、花过钱，导出不该把
+    // 这一行账丢掉。没有 participants 记录，所以不算「在册成员」。
+    for (const row of rows) {
+      if (seen.has(row.agent_id)) continue;
+      seen.add(row.agent_id);
+      entries.push({
+        id: row.agent_id,
+        name: row.agent_id,
+        provider: row.provider || '',
+        model: row.model || '',
+        active: false,
+        stat: row,
+      });
+    }
+    return entries;
+  }
+
+  // 账表的行序与会话详情无关，固定按 agent_id 排：同一份库导两次必须
+  // 得到同一份文档，不能依赖 map / JSON 的遍历顺序。
+  function exportAccountRows(entries) {
+    return entries.slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  // 成员行：「A (claude/opus)、B (grok/grok-4)」。provider 与 model 任一
+  // 为空就只写有的那一个；已经退出的成员后面注明，避免导出看起来像它
+  // 还在发言。一个成员都没有时写「无」。
+  function exportMemberLine(entries) {
+    if (entries.length === 0) return '无';
+    const parts = [];
+    for (const entry of entries) {
+      const pair = [entry.provider, entry.model].filter(Boolean).join('/');
+      const suffix = entry.active ? '' : '（已退出）';
+      parts.push(entry.name + (pair ? ' (' + pair + ')' : '') + suffix);
+    }
+    return parts.join('、');
+  }
+
+  // 发言者：user / system 是保留 id，固定写中文；成员写显示名，配置里
+  // 已经没有的 id 原样写 id（看板的消息头也是这么画的）。
+  function exportSenderName(entries, senderID) {
+    if (senderID === 'user') return '你';
+    if (senderID === 'system') return '系统';
+    const entry = entries.find((item) => item.id === senderID);
+    return (entry && entry.name) || senderID || '(未知)';
+  }
+
+  // buildMarkdown 是纯字符串拼装：正文原样放进去（保留换行），不加引用
+  // 块、不加代码围栏——加了之后复制走的内容就不是成员原本说的话了。
+  function buildMarkdown(detail, page, usage, now) {
+    const entries = exportMemberEntries(detail, usage);
+    const rows = exportAccountRows(entries);
+    const messages = (page && page.messages) || [];
+    const lines = [];
+    lines.push('# ' + ((detail && detail.title) || '(无标题)'));
+    lines.push('');
+    lines.push('- 会话：' + ((detail && detail.id) || ''));
+    lines.push('- 目录：' + ((detail && detail.cwd) || '未绑定'));
+    lines.push('- 成员：' + exportMemberLine(entries));
+    lines.push('- 导出时间：' + exportDateTime(now));
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    for (const message of messages) {
+      lines.push('**' + exportSenderName(entries, message.sender_id) + '** · ' +
+        formatTime(message.created_at, now));
+      lines.push(message.text || '');
+      lines.push('');
+    }
+    if (messages.length === 0) {
+      lines.push('（这个会话还没有消息）');
+      lines.push('');
+    }
+    lines.push('---');
+    lines.push('');
+    lines.push('## 账');
+    lines.push('');
+    lines.push('| 成员 | 轮 | IN | OUT | 费用 |');
+    lines.push('|---|---:|---:|---:|---:|');
+    for (const entry of rows) {
+      const stat = entry.stat || {};
+      const cost = stat.cost_reported === false ? '不报' : formatUSD(stat.cost_usd || 0);
+      lines.push('| ' + entry.name + ' | ' + String(stat.turns || 0) + ' | ' +
+        formatNumber(stat.in) + ' | ' + formatNumber(stat.out) + ' | ' + cost + ' |');
+    }
+    if (rows.length === 0) {
+      lines.push('| （没有成员） | 0 | 0 | 0 | $0.0000 |');
+    }
+    lines.push('');
+    // 合计永远取接口给的 cost_usd：它是「报了金额的那些轮之和」。
+    // complete=false 时必须写明不完整，否则那笔钱会被当成全额。
+    const cost = (usage && usage.cost_usd) || 0;
+    const suffix = usage && usage.complete === true
+      ? '金额完整'
+      : '不完整：有成员不报金额';
+    lines.push('合计 ' + formatUSD(cost) + '（' + suffix + '）');
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  // buildJSON 把接口返回的原对象整份放进去，不裁剪字段：导出是给机器读的
+  // 档案，字段集合应当与 /api 契约同步，而不是前端再挑一遍。
+  function buildExportJSON(detail, page, usage, now) {
+    return JSON.stringify({
+      format: 'council.export/1',
+      exported_at: now.toISOString(),
+      conversation: detail,
+      members: (detail && detail.members) || [],
+      messages: (page && page.messages) || [],
+      usage: usage,
+    }, null, 2) + '\n';
+  }
+
+  // downloadText 用 Blob + 一个临时的 <a download> 落盘，不经过后端、
+  // 不打开新窗口。URL 必须在取完内容之后撤销：立刻 revoke 会让部分浏览器
+  // 在真正开始下载前就找不到这个 URL，所以推到下一个宏任务之后。
+  function downloadText(text, filename, mime) {
+    const blob = new Blob([text], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.rel = 'noopener';
+    link.hidden = true;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // updateExportButton 只按「有没有选中会话」决定可见性。只读模式照常
+  // 露出：导出不发写请求，不需要 -rw。
+  function updateExportButton() {
+    exportButton.hidden = state.currentId === null;
+    if (exportButton.hidden && openPanel !== null && openPanel.panel === exportMenu) {
+      closePopover();
+    }
+  }
+
+  // runExport 现拉三份数据再拼文档。切会话之后到达的响应直接丢掉：
+  // 把 A 的内容存成 B 的文件名比不导出更糟。
+  async function runExport(format) {
+    const id = state.currentId;
+    if (!id || state.exporting) return;
+    state.exporting = true;
+    closePopover();
+    const encoded = encodeURIComponent(id);
+    try {
+      const [detail, page, usage] = await Promise.all([
+        api('/api/conversations/' + encoded),
+        api('/api/conversations/' + encoded + '/messages?after=0&limit=' + EXPORT_LIMIT),
+        api('/api/conversations/' + encoded + '/usage'),
+      ]);
+      if (state.currentId !== id) return;
+      const now = new Date();
+      const title = (detail && detail.title) || '';
+      if (format === 'json') {
+        downloadText(buildExportJSON(detail, page, usage, now),
+          exportFilename(title, id, 'json', now), 'application/json;charset=utf-8');
+      } else {
+        downloadText(buildMarkdown(detail, page, usage, now),
+          exportFilename(title, id, 'md', now), 'text/markdown;charset=utf-8');
+      }
+      clearError();
+      showToast('已导出 ' + (format === 'json' ? 'JSON' : 'Markdown'));
+    } catch (err) {
+      showError(err);
+    } finally {
+      state.exporting = false;
+    }
+  }
+
+  // 菜单挂在会话头上，与工具条弹层共用 openPanel：同一时间只开一个，
+  // 点外面 / Esc 都会关掉。
+  exportButton.addEventListener('click', () => {
+    if (exportButton.hidden) return;
+    togglePopover(exportMenu, exportButton);
+  });
+  for (const item of exportMenu.querySelectorAll('[data-export]')) {
+    item.addEventListener('click', () => runExport(item.dataset.export));
   }
 
   // ---- 会话成员管理：加人 / 踢人 ----
@@ -3510,6 +3821,7 @@
     membersEmpty.hidden = true;
     renderCost(null);
     updateMemberAddButton();
+    updateExportButton();
   }
 
   // 点「改为新建」：不删任何会话，只是把这一轮的目标从「续接当前会话」
@@ -3517,7 +3829,9 @@
   // 左侧列表与 state.conversations 保持不动，随时可以点回去。
   function clearConversationSelection() {
     stopPolling();
-    if (openPanel && openPanel.panel === memberAddMenu) closePopover();
+    if (openPanel && (openPanel.panel === memberAddMenu || openPanel.panel === exportMenu)) {
+      closePopover();
+    }
     state.currentId = null;
     state.newTarget = true;
     state.rename = null;
@@ -3532,6 +3846,7 @@
     membersEmpty.hidden = true;
     renderCost(null);
     updateMemberAddButton();
+    updateExportButton();
     renderConversationList();
   }
 
@@ -3540,8 +3855,11 @@
     // 新的 currentId 配 lastSeq=0 再拉一遍第一页，和这里撞车。
     stopPolling();
     // 添加成员的菜单按当前会话算「谁还没加入」。切走之后旧的名单就不对
-    // 了，先关掉；下一次点按钮会用新会话的成员重画。
-    if (openPanel && openPanel.panel === memberAddMenu) closePopover();
+    // 了，先关掉；下一次点按钮会用新会话的成员重画。导出菜单同理：
+    // 它指向的是上一场会话。
+    if (openPanel && (openPanel.panel === memberAddMenu || openPanel.panel === exportMenu)) {
+      closePopover();
+    }
     // 改名草稿属于原来那一行；切到别的会话时退出编辑，不把输入框带到
     // 另一个会话下面。
     if (state.rename && state.rename.id !== id) state.rename = null;
@@ -3554,6 +3872,8 @@
     // 详情还没回来之前先按「不能管理」画：否则按钮会短暂保留上一场
     // 会话的可见状态，点开时名单却是空的。
     updateMemberAddButton();
+    // 导出按钮只看「有没有选中会话」：这里 currentId 已经换好了。
+    updateExportButton();
     renderConversationList();
     messageList.replaceChildren();
     messagesEmpty.hidden = true;
