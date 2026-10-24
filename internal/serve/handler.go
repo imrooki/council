@@ -299,6 +299,9 @@ func (s *Server) handleConversationPath(w http.ResponseWriter, r *http.Request) 
 			// 写接口：只读模式下也要先走到自己的 405 + 说明，
 			// 不能在这里被 404 掉（与 /api/ask、/api/options 同一个门）。
 			s.handleConversationRename(w, r, segments[0])
+		case "delete":
+			// 同上：删除是写操作，只读模式必须先回 405 而不是「没有这个接口」。
+			s.handleConversationDelete(w, r, segments[0])
 		default:
 			writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 		}

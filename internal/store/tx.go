@@ -155,6 +155,74 @@ func (t *Tx) renameConversation(ctx context.Context, convID, title string) error
 	return nil
 }
 
+// ---- 软删除会话 ----
+
+// softDeleteTx 是 SoftDeleteConversation 在 WriteTx 里需要的最小事务能力。
+// 与 renameTx 同一个理由：这个方法目前只有 serve 的一个端点调用，
+// 放进 conversation.Tx 会逼 turn / repl 里每个假 Store+Tx 都补一个它们
+// 永远不会调用的方法。用包内断言把「只有本包认识它」写在类型上。
+type softDeleteTx interface {
+	softDeleteConversation(ctx context.Context, convID string) error
+}
+
+// SoftDeleteConversation 把一场会话标成已删除：只写 deleted_at，不动
+// title、cwd、team_id，也不动消息、成员、用量与执行状态。它是软删，
+// 不是物理删除 —— 库里的记录一条都不少，所有读入口改由
+// conversations.deleted_at IS NULL 把它们挡在外面。
+//
+// 幂等：同一场会话删第二次不报错、也不改写第一次的时间戳。行根本不存在
+// 才返回包了 ErrConversationNotFound 的错误。HTTP 层要区分「已删」与
+// 「从未存在」时用自己的可见性检查（Conversation 已把已删读成不存在），
+// 而不是让这里把「已经删了」说成错误。
+//
+// 会话不存在时返回包了 ErrConversationNotFound 的错误，让 HTTP 层能把
+// 404 与「库坏了」分开。存在性检查与 UPDATE 在同一个写事务里
+// （同一个写句柄上的 BEGIN IMMEDIATE），中间没有可乘之窗。
+func (s *Store) SoftDeleteConversation(ctx context.Context, convID string) error {
+	err := s.WriteTx(ctx, func(ctx context.Context, tx conversation.Tx) error {
+		impl, ok := tx.(softDeleteTx)
+		if !ok {
+			return fmt.Errorf("事务实现 %T 不支持软删除会话", tx)
+		}
+		return impl.softDeleteConversation(ctx, convID)
+	})
+	if err != nil {
+		return fmt.Errorf("soft delete conversation %s: %w", convID, err)
+	}
+	return nil
+}
+
+// softDeleteConversation 是 SoftDeleteConversation 的事务内动作。
+//
+// 先读 deleted_at 再 UPDATE，而不是直接 UPDATE ... WHERE deleted_at IS NULL
+// 看 RowsAffected：那样无法区分「行不存在」与「已经删过」，而这两件事
+// 在本方法里必须分开 —— 前者是 ErrConversationNotFound，后者是幂等成功。
+// 多一次主键查询换来的是正确语义，不是防御性代码。
+func (t *Tx) softDeleteConversation(ctx context.Context, convID string) error {
+	var deletedAt sql.NullString
+	err := t.tx.QueryRowContext(ctx,
+		`SELECT deleted_at FROM conversations WHERE id = ?`, convID,
+	).Scan(&deletedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("conversation %s: %w", convID, conversation.ErrConversationNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("check conversation %s: %w", convID, err)
+	}
+	if deletedAt.Valid {
+		// 已经删过：不改写时间戳（它回答的是「第一次被删是什么时候」），
+		// 也不把重试当成错误。
+		return nil
+	}
+	if _, err := t.tx.ExecContext(ctx,
+		`UPDATE conversations SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`,
+		formatTime(time.Now().UTC()), convID,
+	); err != nil {
+		return fmt.Errorf("update conversation deleted_at %s: %w", convID, err)
+	}
+	return nil
+}
+
 // AppendMessage 追加一条消息。ID、Seq、CreatedAt 由 store 填写，调用方传入的这三个字段一律忽略。
 func (t *Tx) AppendMessage(ctx context.Context, m conversation.Message) (conversation.Message, error) {
 	if !m.Kind.Valid() {

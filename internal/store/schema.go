@@ -33,6 +33,7 @@ var migrations = []migration{
 	{version: 4, stmts: v4DDL, shape: v4Shape},
 	{version: 5, stmts: v5DDL, shape: v5Shape},
 	{version: 6, stmts: v6DDL, shape: v6Shape},
+	{version: 7, stmts: v7DDL, shape: v7Shape},
 }
 
 // v1DDL 一次建齐 schema_migrations 与六张业务表。
@@ -479,6 +480,42 @@ func buildV6Shape() map[string][]columnShape {
 	// 最后一列一致，cid 按这个顺序比对。
 	shape["conversations"] = append(shape["conversations"], columnShape{
 		name: "cwd", typ: "TEXT", notnull: true,
+	})
+	return shape
+}
+
+// v7DDL 给 conversations 加 deleted_at：可空时间戳，NULL 表示没删。
+// 用 ALTER 而不是 DROP+CREATE：这是「软删除」，行与消息、成员、用量一条都不能少，
+// 拆表重建既会丢数据，也会让外键指向一张已经不存在的表。
+//
+// 列定义故意不带 NOT NULL / DEFAULT：
+//   - NULL 是「没删」的唯一表示，不是 1970 或空串；
+//   - 不带 DEFAULT 才能让迁移前的每一行自然读成 NULL，不需要 UPDATE 补值。
+//
+// 本片只加列。不建索引：会话列表在本地库的规模下是全表扫描，按 deleted_at
+// 建索引只会给每一次写入多付一份代价，读的时候仍要过滤掉绝大多数行。
+var v7DDL = []string{
+	`ALTER TABLE conversations ADD COLUMN deleted_at TEXT`,
+}
+
+// v7Shape 必须从 v6 深拷贝：新的 map，并且每张表一份新的列切片。
+// v7Shape = v6Shape 是裸别名，两份变量指向同一张 map，往 conversations
+// 末尾 append 会把 v6Shape 一起改掉 —— 那一版的历史库从此对不上，
+// 而迁移本身照跑、Open 照样成功，只有拿着 v6 旧库的人会炸。
+//
+// deleted_at 的 notnull 必须是 false：DDL 没写 NOT NULL，pragma_table_info
+// 对可空列返回 notnull=0。加在切片末尾，因为 ALTER 把新列加在表的最后一列。
+var v7Shape = buildV7Shape()
+
+func buildV7Shape() map[string][]columnShape {
+	shape := make(map[string][]columnShape, len(v6Shape))
+	for table, cols := range v6Shape {
+		copied := make([]columnShape, len(cols))
+		copy(copied, cols)
+		shape[table] = copied
+	}
+	shape["conversations"] = append(shape["conversations"], columnShape{
+		name: "deleted_at", typ: "TEXT", notnull: false,
 	})
 	return shape
 }

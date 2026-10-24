@@ -20,8 +20,9 @@ type Store interface {
 	WriteTx(ctx context.Context, fn func(context.Context, Tx) error) error
 
 	// Conversation 按 id 取会话。不存在时返回包了 ErrConversationNotFound 的错误。
+	// 已软删的会话同样按不存在处理。
 	Conversation(ctx context.Context, id string) (Conversation, error)
-	// Conversations 列出全部会话，按创建时间倒序。
+	// Conversations 列出全部未软删的会话，按创建时间倒序。
 	Conversations(ctx context.Context) ([]Conversation, error)
 	// Participants 列出某会话的成员。includeInactive 为 false 时只返回活跃成员。
 	Participants(ctx context.Context, convID string, includeInactive bool) ([]Participant, error)

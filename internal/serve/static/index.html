@@ -236,7 +236,7 @@
   }
   .conversation .meta { font-size: 11.5px; color: var(--muted-2); }
 
-  /* 每项右侧的「⋯」：会话级动作（本片只有重命名）都收在这里，
+  /* 每项右侧的「⋯」：会话级动作（重命名、删除）都收在这里，
      列表本身保持「点一下切会话」这一个主操作。 */
   .conv-more {
     position: absolute;
@@ -302,6 +302,48 @@
   .rename-hint { font-size: 11px; color: var(--muted-2); }
   .rename-error { font-size: 11px; line-height: 1.5; color: var(--danger); }
   .rename-error[hidden] { display: none; }
+
+  /* 删除确认框：删除是软删，但用户看到的是整场会话从列表里消失，
+     所以必须二次确认。默认焦点放在「取消」上，误按回车不会删。
+     用 fixed 覆盖全页而不是往下挤列表：确认期间背景里的 ⋯ 不能再点。 */
+  .confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(15, 17, 21, .38);
+  }
+  .confirm-overlay[hidden] { display: none; }
+  .confirm-card {
+    width: min(420px, 100%);
+    padding: 18px 18px 14px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .confirm-card h2 { margin: 0 0 8px; font-size: 14px; color: var(--ink); }
+  .confirm-text {
+    margin: 0 0 14px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink-2);
+    /* 标题可能很长：允许在任意位置折断，别把卡片撑出屏幕。 */
+    word-break: break-word;
+  }
+  .confirm-error { margin: 0 0 10px; font-size: 12px; line-height: 1.5; color: var(--danger); }
+  .confirm-error[hidden] { display: none; }
+  .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .confirm-actions .btn-small.danger {
+    border-color: var(--danger);
+    background: var(--danger);
+    color: #ffffff;
+  }
+  .confirm-actions .btn-small.danger:hover { opacity: .88; }
+  .confirm-actions .btn-small:disabled { opacity: .55; cursor: default; }
 
   #message-list {
     list-style: none;
@@ -1006,6 +1048,20 @@
     </div>
   </section>
   <div id="toast" class="toast" hidden></div>
+  <!-- 删除的二次确认。只写模式才会被打开；按钮顺序是「取消 / 删除」，
+       默认焦点由脚本放到取消上（见 openDeleteConfirm）。 -->
+  <div id="delete-confirm" class="confirm-overlay" role="dialog" aria-modal="true"
+       aria-labelledby="delete-confirm-title" aria-describedby="delete-confirm-text" hidden>
+    <div class="confirm-card">
+      <h2 id="delete-confirm-title">删除会话</h2>
+      <p id="delete-confirm-text" class="confirm-text"></p>
+      <p id="delete-confirm-error" class="confirm-error" hidden></p>
+      <div class="confirm-actions">
+        <button id="delete-cancel" class="btn-small" type="button">取消</button>
+        <button id="delete-confirm-button" class="btn-small danger" type="button">删除</button>
+      </div>
+    </div>
+  </div>
 </div>
 <script>
 (() => {
@@ -1027,6 +1083,10 @@
     // 非 null 表示正在原地改名：{ id, draft, error }。draft 由输入框的
     // input 事件同步，这样列表被轮询重画时草稿不会跟着丢。
     rename: null,
+    // 非 null 表示删除确认框开着：{ id, title, busy, returnFocus }。
+    // title 只用于文案，提交时以 id 为准；returnFocus 是关闭后要还回焦点的
+    // 「⋯」按钮（那一行可能已经因为删除而不在了，关闭时会再判一次）。
+    deleteConfirm: null,
     // 用户主动点了「改为新建」之后为 true：此时 currentId 为 null，但
     // 列表刷新不能再自动选中第一条，否则刚切到的「新建」会被下一次
     // refreshConversations 悄悄改回「续接」。显式选会话或开跑即清掉。
@@ -1132,6 +1192,11 @@
   const appRoot = document.getElementById('app');
   const toggleInspector = document.getElementById('toggle-inspector');
   const toast = document.getElementById('toast');
+  const deleteOverlay = document.getElementById('delete-confirm');
+  const deleteText = document.getElementById('delete-confirm-text');
+  const deleteError = document.getElementById('delete-confirm-error');
+  const deleteCancel = document.getElementById('delete-cancel');
+  const deleteConfirmButton = document.getElementById('delete-confirm-button');
 
   // 收起右栏是个偏好，不是一次性的动作：刷新之后还应该收着。
   const INSPECTOR_KEY = 'council.inspector.collapsed';
@@ -1410,6 +1475,20 @@
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && openConversationMenu) closeConversationMenu();
+  });
+
+  // 删除确认框的三种退出：取消按钮、Esc、点遮罩。请求在飞时都不生效
+  // （busy 由 closeDeleteConfirm / commitDelete 自己判断），避免半途关掉
+  // 之后请求真的成功了，界面却还显示着那一行。
+  deleteCancel.addEventListener('click', closeDeleteConfirm);
+  deleteConfirmButton.addEventListener('click', commitDelete);
+  deleteOverlay.addEventListener('click', (event) => {
+    if (event.target === deleteOverlay) closeDeleteConfirm();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !state.deleteConfirm) return;
+    event.preventDefault();
+    closeDeleteConfirm();
   });
 
   // ---- 工具条渲染 ----
@@ -2732,6 +2811,21 @@
     });
     menu.appendChild(rename);
 
+    // 删除与重命名同一层，不藏二级菜单：一行只有两个动作时多一层只是多一次点击。
+    // 只读模式根本不会走到这里（renderConversationRow 不画这个菜单），
+    // 所以菜单项本身不用再判 state.writable；openDeleteConfirm 里仍留了一道门，
+    // 防的是将来别处直接调用它。
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'menu-item';
+    remove.setAttribute('role', 'menuitem');
+    remove.textContent = '删除';
+    remove.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openDeleteConfirm(conversation, more);
+    });
+    menu.appendChild(remove);
+
     more.addEventListener('click', (event) => {
       event.stopPropagation();
       const opening = menu.hidden;
@@ -2771,8 +2865,8 @@
     const renameFocused = document.activeElement !== null
       && document.activeElement.classList.contains('rename-input');
 
-    // 会话不存在了（理论上不会——本片不做删除）就退出改名，不留下一个
-    // 永远提交不了的草稿。
+    // 会话从列表里消失（例如刚被删除）就退出改名，不留下一个永远提交
+    // 不了的草稿。
     if (state.rename && !state.conversations.some((conversation) => conversation.id === state.rename.id)) {
       state.rename = null;
     }
@@ -2884,6 +2978,120 @@
       // 用户可以继续改，或按 Esc 退出。
       showRenameError(err.message);
     }
+  }
+
+  // ---- 删除会话：二次确认 ----
+
+  // closeDeleteConfirm 只关界面，不发请求。请求在飞时（busy）拒绝关闭：
+  // 那一刻用户已经确认过，半途关掉会让界面停在「还在」而库里已经删了。
+  function closeDeleteConfirm() {
+    if (!state.deleteConfirm || state.deleteConfirm.busy) return;
+    const returnFocus = state.deleteConfirm.returnFocus;
+    state.deleteConfirm = null;
+    deleteOverlay.hidden = true;
+    deleteError.hidden = true;
+    deleteError.textContent = '';
+    deleteCancel.disabled = false;
+    deleteConfirmButton.disabled = false;
+    // 取消之后把焦点还给那一行的「⋯」。行还在，就回到原处；行没了
+    // （理论上只有删除成功才会发生，那条路不走这里），退回搜索框。
+    if (returnFocus && returnFocus.isConnected) {
+      returnFocus.focus();
+    } else {
+      conversationSearch.focus();
+    }
+  }
+
+  // openDeleteConfirm 打开确认框。标题只经 textContent 进入 DOM，不拼 HTML，
+  // 默认焦点放在「取消」上：删除不可撤销，误按回车应当是取消而不是删。
+  function openDeleteConfirm(conversation, trigger) {
+    if (!state.writable) {
+      showToast('只读模式不能删除：用 council serve -rw 启动');
+      return;
+    }
+    closeConversationMenu();
+    closePopover();
+    const title = conversation.title || '(无标题)';
+    state.deleteConfirm = {
+      id: conversation.id,
+      title,
+      busy: false,
+      returnFocus: trigger || null,
+    };
+    deleteText.textContent = '确定要删除「' + title + '」吗？删除后它会从会话列表中消失，'
+      + '库里的记录会保留（软删除）。';
+    deleteError.hidden = true;
+    deleteError.textContent = '';
+    deleteCancel.disabled = false;
+    deleteConfirmButton.disabled = false;
+    deleteOverlay.hidden = false;
+    deleteCancel.focus();
+  }
+
+  // forgetConversation 把一场已删会话从内存列表里摘掉，并在删的是当前会话时
+  // 把选择与消息区一起清空。newTarget=true 是给 refreshConversations 的：
+  // 不设的话下一次列表刷新会把剩下的第一条自动选回来，用户会看到「刚删掉的
+  // 会话变成了别人家」，而任务书要的是消息区停在空状态。
+  function forgetConversation(id) {
+    state.conversations = state.conversations.filter((conversation) => conversation.id !== id);
+    if (state.rename && state.rename.id === id) state.rename = null;
+    if (state.currentId === id) {
+      stopPolling();
+      state.currentId = null;
+      state.newTarget = true;
+      state.lastSeq = 0;
+      state.detail = null;
+      messageList.replaceChildren();
+      messagesTitle.textContent = '消息';
+      messagesMeta.textContent = '';
+      messagesEmpty.textContent = '会话已删除，在下面问一句就会新建一个';
+      messagesEmpty.hidden = false;
+      membersBody.replaceChildren();
+      membersEmpty.hidden = true;
+      renderCost(null);
+    }
+    renderConversationList();
+  }
+
+  // commitDelete 发真正的删除请求。成功之后先摘列表再清消息区，两步都在
+  // forgetConversation 里；失败则把错误留在确认框里，用户可以重试或取消。
+  async function commitDelete() {
+    if (!state.deleteConfirm || state.deleteConfirm.busy) return;
+    const id = state.deleteConfirm.id;
+    const title = state.deleteConfirm.title;
+    state.deleteConfirm.busy = true;
+    deleteCancel.disabled = true;
+    deleteConfirmButton.disabled = true;
+    deleteError.hidden = true;
+    deleteError.textContent = '';
+    try {
+      await postJSON('/api/conversations/' + encodeURIComponent(id) + '/delete', {});
+    } catch (err) {
+      // 表单这一层唯一失败的地方就是接口：把原因原样显示，别把它说成
+      // 「删除成功但列表没更新」。
+      if (!state.deleteConfirm || state.deleteConfirm.id !== id) return;
+      state.deleteConfirm.busy = false;
+      deleteCancel.disabled = false;
+      deleteConfirmButton.disabled = false;
+      deleteError.textContent = err.message;
+      deleteError.hidden = false;
+      deleteConfirmButton.focus();
+      return;
+    }
+    if (!state.deleteConfirm || state.deleteConfirm.id !== id) return;
+    const returnFocus = state.deleteConfirm.returnFocus;
+    state.deleteConfirm = null;
+    deleteOverlay.hidden = true;
+    deleteError.hidden = true;
+    deleteError.textContent = '';
+    deleteCancel.disabled = false;
+    deleteConfirmButton.disabled = false;
+    forgetConversation(id);
+    // 删除成功之后「⋯」按钮已经跟着那一行没了，不要 focus 一个脱离文档的
+    // 节点；搜索框是列表区里仍然存在的稳定落点。
+    if (returnFocus && returnFocus.isConnected) returnFocus.focus();
+    else conversationSearch.focus();
+    showToast('已删除「' + title + '」');
   }
 
   function renderCost(usage) {

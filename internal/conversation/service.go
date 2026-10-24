@@ -186,8 +186,10 @@ func (s *Service) BindTeam(ctx context.Context, convID, teamID string) error {
 // **事务外**（便宜、不需要原子性，失败时连写事务都不必开）：会话存在；Kind 合法；
 // SenderID 非空；**保留 sender**（user 与 system）不得携带脑子三列；
 // **Kind 为 KindAgent 时必须带 SenderProvider 与 SenderModel**（Effort 可空）。
-// 会话存在这一条留在外面是因为会话从不删除，不存在 TOCTOU，
-// 而先查一次能给出比事务内失败更友好的错误。
+// 会话存在这一条留在外面是为了给出比事务内失败更友好的错误；v7 起会话可以
+// 被软删，这个检查与写事务之间确实多了一个窗口。事务内的 requireConversation
+// 是最终裁量，它不按 deleted_at 过滤 —— 软删只改可见性，已经开始的一轮仍要
+// 能把自己的结果落库，不能因为一次删除丢掉一条已经付费的回复。
 //
 // **事务内**（与追加消息同一个事务）：SenderID 不是 ReservedSenderUser 时，
 // 它必须是该会话当前的活跃 participant。这一条必须在事务内，理由见
