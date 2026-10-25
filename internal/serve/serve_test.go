@@ -230,7 +230,7 @@ func TestServerConversationsOrderAndShape(t *testing.T) {
 	for i, row := range list {
 		requireKeys(t, "conversation", row,
 			"archived", "created_at", "cwd", "id", "last_activity", "last_seq", "members",
-			"message_count", "team_id", "title")
+			"message_count", "team_id", "title", "workspace_id")
 		if row["archived"] != false {
 			t.Errorf("未归档会话的 archived = %v，期望 false", row["archived"])
 		}
@@ -277,7 +277,7 @@ func TestServerConversationDetail(t *testing.T) {
 	getJSON(t, env.http.URL+"/api/conversations/"+conv.ID, http.StatusOK, &got)
 	requireKeys(t, "conversation detail", got,
 		"archived", "created_at", "cwd", "id", "last_activity", "last_seq", "members",
-		"message_count", "team_id", "title")
+		"message_count", "team_id", "title", "workspace_id")
 	if got["archived"] != false {
 		t.Errorf("未归档会话详情的 archived = %v，期望 false", got["archived"])
 	}

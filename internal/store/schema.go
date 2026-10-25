@@ -35,6 +35,7 @@ var migrations = []migration{
 	{version: 6, stmts: v6DDL, shape: v6Shape},
 	{version: 7, stmts: v7DDL, shape: v7Shape},
 	{version: 8, stmts: v8DDL, shape: v8Shape},
+	{version: 9, stmts: v9DDL, shape: v9Shape},
 }
 
 // v1DDL 一次建齐 schema_migrations 与六张业务表。
@@ -556,6 +557,75 @@ func buildV8Shape() map[string][]columnShape {
 	shape["conversations"] = append(shape["conversations"], columnShape{
 		name: "archived_at", typ: "TEXT", notnull: false,
 	})
+	return shape
+}
+
+// v9DDL 建工作区表，并给 conversations 加 workspace_id。
+//
+// 工作区是**纯分组**，不绑定目录：它不设 cwd / 路径列，也不和 projects 之类的
+// 概念对应。会话本来就有自己的 cwd（v6），一个工作区里的会话可以来自任意目录；
+// 把工作区做成「目录」会让「我想把两个项目的会话放一起看」变成一件做不到的事。
+//
+// 三件事写在同一个迁移里，因为它们是同一次契约面改动：
+//   - workspaces：id 是十六进制主键，name 唯一性由 store 在写事务里判（大小写
+//     不敏感），不建 UNIQUE 索引 —— 那张索引要写成 COLLATE NOCASE 才和判重
+//     口径一致，而 SQLite 的 NOCASE 只折 ASCII，把「唯一」写进索引会让人以为
+//     它也能折中文/希腊字母的大小写。判重与建表分开这件事在 workspace.go 里写明。
+//   - conversations.workspace_id：可空、无默认值。NULL 是「未分组」的唯一表示，
+//     不带 DEFAULT 才能让迁移前的每一行自然读成 NULL，不需要 UPDATE 补值。
+//     不加 REFERENCES workspaces(id)：删工作区时要把成员会话的归属置 NULL，
+//     而外键的 ON DELETE 动作会与那条 UPDATE 抢同一件事；归属是展示用的分组，
+//     不是会话的生存条件，让一个不存在的 workspace_id 留在行上也比删会话安全。
+//   - idx_conversations_workspace：工作区视图按列过滤，与 v7/v8 的「列表全表
+//     扫描」不同 —— 归档标记是时间戳、只用来排除绝大多数行；workspace_id 是
+//     等值分组，按下标取一组会话是这张索引存在的全部理由。
+var v9DDL = []string{
+	`CREATE TABLE workspaces (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+)`,
+	`ALTER TABLE conversations ADD COLUMN workspace_id TEXT`,
+	`CREATE INDEX idx_conversations_workspace ON conversations(workspace_id)`,
+}
+
+// v9Shape 必须从 v8 深拷贝：新的 map，并且每张表一份新的列切片。
+// v9Shape = v8Shape 是裸别名，两份变量指向同一张 map，往 conversations
+// 末尾 append 会把 v8Shape 一起改掉 —— 那一版的历史库从此对不上，
+// 而迁移本身照跑、Open 照样成功，只有拿着 v8 旧库的人会炸。
+//
+// 两处新结构：
+//   - workspaces 的 id 是 TEXT PRIMARY KEY，notnull 必须是 false：SQLite 只对
+//     INTEGER PRIMARY KEY 在 pragma_table_info 里报 notnull=1，TEXT 主键报 0
+//     （conversations.id、messages.id、turn_usage.turn_id 同一体例）。
+//   - conversations.workspace_id 的 notnull 必须是 false：DDL 没写 NOT NULL，
+//     加在切片末尾，因为 ALTER 把新列加在表的最后一列。
+var v9Shape = buildV9Shape()
+
+func buildV9Shape() map[string][]columnShape {
+	shape := make(map[string][]columnShape, len(v8Shape)+1)
+	for table, cols := range v8Shape {
+		copied := make([]columnShape, len(cols))
+		copy(copied, cols)
+		shape[table] = copied
+	}
+	// conversations 再拷一次才 append：上面逐表 copy 出来的切片 len 等于 cap，
+	// 唯独 conversations 是从 v8Shape 拷来的，而 v8 自己也做过一次 append，
+	// 它那份切片的 cap 大于 len。直接 append 会写进 v8 那块数组的空位，
+	// 看起来无害，却让「v9Shape 是深拷贝」这句话在 conversations 上不成立
+	// （v5Shape 的注释记过同一个坑）。多拷一次的代价是七行，不值得省。
+	conv := make([]columnShape, len(shape["conversations"]), len(shape["conversations"])+1)
+	copy(conv, shape["conversations"])
+	shape["conversations"] = append(conv, columnShape{
+		name: "workspace_id", typ: "TEXT", notnull: false,
+	})
+	shape["workspaces"] = []columnShape{
+		{name: "id", typ: "TEXT", notnull: false},
+		{name: "name", typ: "TEXT", notnull: true},
+		{name: "sort_order", typ: "INTEGER", notnull: true},
+		{name: "created_at", typ: "TEXT", notnull: true},
+	}
 	return shape
 }
 

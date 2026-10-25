@@ -36,9 +36,11 @@ func visibleConv(table string) string {
 //
 // 已归档的会话照常返回，Archived 为 true。归档是「从列表收起」，不是
 // 「不存在」：它必须还能被打开、被续接（归档不阻止继续对话）。
+// WorkspaceID 同理照常带出：归档不改变归属，一个已归档的会话仍然属于
+// 它原来的工作区，取消归档之后它要回到那一组里去。
 func (s *Store) Conversation(ctx context.Context, id string) (conversation.Conversation, error) {
 	row := s.read.QueryRowContext(ctx,
-		`SELECT id, title, created_at, team_id, cwd, archived_at FROM conversations WHERE id = ? AND deleted_at IS NULL`, id,
+		`SELECT id, title, created_at, team_id, cwd, archived_at, workspace_id FROM conversations WHERE id = ? AND deleted_at IS NULL`, id,
 	)
 	c, err := scanConversation(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -68,9 +70,12 @@ func (s *Store) ArchivedConversations(ctx context.Context) ([]conversation.Conve
 
 // listConversations 是两个列表查询的唯一实现。where 只由本文件的
 // Conversations / ArchivedConversations 传进来，不接受调用方拼条件。
+//
+// workspace_id 与 archived_at 一样原样带出：归档视图与默认视图都带归属，
+// 「归档与工作区正交」这句话在 SQL 里就是两个独立的列，谁也不是谁的条件。
 func (s *Store) listConversations(ctx context.Context, where string) ([]conversation.Conversation, error) {
 	rows, err := s.read.QueryContext(ctx,
-		`SELECT id, title, created_at, team_id, cwd, archived_at FROM conversations WHERE `+where+` ORDER BY created_at DESC, id ASC`,
+		`SELECT id, title, created_at, team_id, cwd, archived_at, workspace_id FROM conversations WHERE `+where+` ORDER BY created_at DESC, id ASC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
@@ -494,8 +499,8 @@ func int64PtrFromNull(n sql.NullInt64) *int64 {
 
 func scanConversation(sc rowScanner) (conversation.Conversation, error) {
 	var id, title, createdAt, teamID, cwd string
-	var archivedAt sql.NullString
-	if err := sc.Scan(&id, &title, &createdAt, &teamID, &cwd, &archivedAt); err != nil {
+	var archivedAt, workspaceID sql.NullString
+	if err := sc.Scan(&id, &title, &createdAt, &teamID, &cwd, &archivedAt, &workspaceID); err != nil {
 		return conversation.Conversation{}, err
 	}
 	ts, err := parseTime(createdAt)
@@ -510,6 +515,10 @@ func scanConversation(sc rowScanner) (conversation.Conversation, error) {
 		Cwd:       cwd,
 		// NULL 是「没归档」的唯一表示；非 NULL 的具体时刻不对外解释。
 		Archived: archivedAt.Valid,
+		// NULL 是「未分组」的唯一表示，读成空串。这里不区分「列是 NULL」
+		// 与「列是空串」：Store 只写 NULL 或一个真实 workspaces.id，
+		// 手改成空串的行与未分组是同一个意思。
+		WorkspaceID: workspaceID.String,
 	}, nil
 }
 

@@ -121,6 +121,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/settings", s.handleSettings)
 	mux.HandleFunc("/api/settings/agents", s.handleSettingsAgentSave)
 	mux.HandleFunc("/api/settings/agents/", s.handleSettingsAgentPath)
+	// 工作区（纯分组，GUI 第 9 片）：/api/workspaces 是 GET 列表 + POST 新建，
+	// /api/workspaces/{id}/rename 与 /{id}/delete 是写端点。GET 列表在只读模式下
+	// 同样可用（分组是库里既有的事实）；三个写端点的只读 405 在 handler 内部，
+	// 路由本身不按模式分叉。
+	mux.HandleFunc("/api/workspaces", s.handleWorkspaces)
+	mux.HandleFunc("/api/workspaces/", s.handleWorkspacePath)
 	mux.HandleFunc("/api/jobs/", s.handleJobPath)
 	mux.HandleFunc("/api/", s.handleAPINotFound)
 	mux.HandleFunc("/api", s.handleAPINotFound)
@@ -220,6 +226,10 @@ type conversationSummary struct {
 	// Archived 说明这一行属于「已归档」视图。前端据此在标题旁标灰字，
 	// 也据此决定 ⋯ 菜单里画「归档」还是「取消归档」。
 	Archived bool `json:"archived"`
+	// WorkspaceID 是这一行所属的工作区 id，空串表示未分组。
+	// 默认视图与归档视图都带它：归档与工作区正交，左栏按工作区分组时
+	// 两个视图都要能按同一个键归类。
+	WorkspaceID string `json:"workspace_id"`
 }
 
 type memberJSON struct {
@@ -247,6 +257,9 @@ type conversationDetail struct {
 	// Archived 与列表里的同名字段同口径：详情照常返回已归档会话，
 	// 但把「它已经归档」这件事说清楚。
 	Archived bool `json:"archived"`
+	// WorkspaceID 与列表里的同名字段同口径：空串表示未分组。
+	// 详情必须带它，否则前端在详情面板里改归属时只能从列表里猜。
+	WorkspaceID string `json:"workspace_id"`
 }
 
 // handleConversations 返回会话摘要，按最后活动倒序。
@@ -312,6 +325,7 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			LastSeq:      lastSeq,
 			MessageCount: len(msgs),
 			Archived:     conv.Archived,
+			WorkspaceID:  conv.WorkspaceID,
 		})
 	}
 
@@ -362,6 +376,10 @@ func (s *Server) handleConversationPath(w http.ResponseWriter, r *http.Request) 
 		case "members":
 			// GUI4：加人。只读模式的 405 在 handler 内部，路由不做模式分叉。
 			s.handleConversationMemberAdd(w, r, segments[0])
+		case "workspace":
+			// GUI 第 9 片：把会话放进/移出工作区。同样是写接口，只读模式的
+			// 405 在 handler 内部，不能被这里的 404 吃掉。
+			s.handleConversationWorkspace(w, r, segments[0])
 		default:
 			writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 		}
@@ -434,6 +452,7 @@ func (s *Server) handleConversationDetail(w http.ResponseWriter, r *http.Request
 		MessageCount: len(msgs),
 		Members:      members,
 		Archived:     conv.Archived,
+		WorkspaceID:  conv.WorkspaceID,
 	})
 }
 

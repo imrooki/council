@@ -249,17 +249,17 @@ func TestSchemaV7MigrationV6ToV7(t *testing.T) {
 		}
 	})
 
-	t.Run("deleted_at 与 archived_at 依次是 conversations 的列尾且可空、无默认值", func(t *testing.T) {
+	t.Run("deleted_at、archived_at 与 workspace_id 依次是 conversations 的列尾且可空、无默认值", func(t *testing.T) {
 		rows, err := raw.Query(`SELECT name, type, "notnull", dflt_value FROM pragma_table_info('conversations') ORDER BY cid`)
 		if err != nil {
 			t.Fatalf("读 pragma_table_info('conversations') 失败: %v", err)
 		}
 		defer rows.Close()
 		var names []string
-		var sawDeleted, sawArchived bool
-		var deletedType, archivedType string
-		var deletedNotNull, archivedNotNull int64
-		var deletedDefault, archivedDefault any
+		var sawDeleted, sawArchived, sawWorkspace bool
+		var deletedType, archivedType, workspaceType string
+		var deletedNotNull, archivedNotNull, workspaceNotNull int64
+		var deletedDefault, archivedDefault, workspaceDefault any
 		for rows.Next() {
 			var name, typ string
 			var notnull int64
@@ -280,15 +280,22 @@ func TestSchemaV7MigrationV6ToV7(t *testing.T) {
 				archivedNotNull = notnull
 				archivedDefault = dflt
 			}
+			if name == "workspace_id" {
+				sawWorkspace = true
+				workspaceType = typ
+				workspaceNotNull = notnull
+				workspaceDefault = dflt
+			}
 		}
 		if err := rows.Err(); err != nil {
 			t.Fatalf("遍历 pragma_table_info 失败: %v", err)
 		}
-		// v7 把 deleted_at 加在列尾；v8 再把 archived_at 加在它之后。
-		// 这条用例从 v6 一路升到当前版本，所以列序要跟到最新一版。
-		wantNames := []string{"id", "title", "created_at", "team_id", "cwd", "deleted_at", "archived_at"}
+		// v7 把 deleted_at 加在列尾；v8 再把 archived_at 加在它之后；
+		// v9 再把 workspace_id 加在 archived_at 之后。这条用例从 v6 一路
+		// 升到当前版本，所以列序要跟到最新一版。
+		wantNames := []string{"id", "title", "created_at", "team_id", "cwd", "deleted_at", "archived_at", "workspace_id"}
 		if !reflect.DeepEqual(names, wantNames) {
-			t.Errorf("conversations 列序 = %v，期望 %v（ALTER 依次追加 deleted_at、archived_at）", names, wantNames)
+			t.Errorf("conversations 列序 = %v，期望 %v（ALTER 依次追加 deleted_at、archived_at、workspace_id）", names, wantNames)
 		}
 		if !sawDeleted {
 			t.Fatal("pragma_table_info 里没有 deleted_at 列")
@@ -314,14 +321,29 @@ func TestSchemaV7MigrationV6ToV7(t *testing.T) {
 		if archivedDefault != nil {
 			t.Errorf("archived_at dflt_value = %#v，期望 NULL（不要给没归档的旧行编一个默认时间）", archivedDefault)
 		}
+		if !sawWorkspace {
+			t.Fatal("pragma_table_info 里没有 workspace_id 列")
+		}
+		if workspaceType != "TEXT" {
+			t.Errorf("workspace_id type = %q，期望 TEXT", workspaceType)
+		}
+		if workspaceNotNull != 0 {
+			t.Errorf("workspace_id notnull = %d，期望 0（NULL 表示未分组）", workspaceNotNull)
+		}
+		if workspaceDefault != nil {
+			t.Errorf("workspace_id dflt_value = %#v，期望 NULL（不要给未分组的旧行编一个空串默认值）", workspaceDefault)
+		}
 	})
 
-	t.Run("老会话的 deleted_at 与 archived_at 全是 NULL", func(t *testing.T) {
+	t.Run("老会话的 deleted_at、archived_at 与 workspace_id 全是 NULL", func(t *testing.T) {
 		if got := tstScanInt(t, raw, `SELECT COUNT(*) FROM conversations WHERE deleted_at IS NOT NULL`); got != 0 {
 			t.Errorf("迁移后有 %d 行 deleted_at 非 NULL，期望 0", got)
 		}
 		if got := tstScanInt(t, raw, `SELECT COUNT(*) FROM conversations WHERE archived_at IS NOT NULL`); got != 0 {
 			t.Errorf("迁移后有 %d 行 archived_at 非 NULL，期望 0", got)
+		}
+		if got := tstScanInt(t, raw, `SELECT COUNT(*) FROM conversations WHERE workspace_id IS NOT NULL`); got != 0 {
+			t.Errorf("迁移后有 %d 行 workspace_id 非 NULL，期望 0", got)
 		}
 		if got := tstScanInt(t, raw, `SELECT COUNT(*) FROM conversations`); got != int64(beforeCounts["conversations"]) {
 			t.Errorf("conversations 行数 = %d，期望 %d", got, beforeCounts["conversations"])

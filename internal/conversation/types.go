@@ -106,6 +106,32 @@ type Conversation struct {
 	// 库里存的是 conversations.archived_at（可空时间戳），这里收成 bool：
 	// 调用方只关心「是不是归档了」，第一次归档的时刻没有对外含义。
 	Archived bool
+	// WorkspaceID 是本会话所属的工作区 id。空串表示未分组。
+	// DDL 是 workspace_id TEXT（可空），NULL 读成空串：空串就是「未分组」
+	// 这一个含义，没有第二种，所以不用指针、不用可空类型。
+	//
+	// 工作区是纯分组，不绑定目录：它与 Cwd 正交，也与 Archived 正交 ——
+	// 归档只换列表，不改变归属。工作区被删时这一列被置回 NULL（见
+	// store.DeleteWorkspace），会话本身一行不少。
+	WorkspaceID string
+}
+
+// Workspace 是会话的一个纯分组，对应 workspaces 表。
+//
+// 它只有名字、顺序与创建时间：不带目录、不带成员、不带规则。
+// 工作区不是「项目」也不是「会话的宿主」—— 它只是左栏里的一层归类，
+// 删掉一个工作区不会删掉任何一场会话（成员的 workspace_id 置 NULL）。
+//
+// ConversationCount 不是表里的列，而是 Workspaces() 顺带数出来的成员数。
+// 口径写在 store.Workspaces 的注释里：已软删的会话不计，已归档的照计。
+type Workspace struct {
+	ID        string
+	Name      string
+	SortOrder int
+	CreatedAt time.Time
+	// ConversationCount 是这个工作区里的会话数。CreateWorkspace 返回 0，
+	// RenameWorkspace 与 Workspaces 返回真实计数。
+	ConversationCount int
 }
 
 // Participant 是会话里的一个成员。participant 不等于 provider：
