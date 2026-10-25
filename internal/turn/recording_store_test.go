@@ -120,6 +120,19 @@ func (s *recordingStore) Conversation(ctx context.Context, id string) (conversat
 }
 
 func (s *recordingStore) Conversations(ctx context.Context) ([]conversation.Conversation, error) {
+	// 归档与本假实现只有一场会话这件事无关，两个视图仍然互斥。
+	if s.conv.Archived {
+		return []conversation.Conversation{}, nil
+	}
+	return []conversation.Conversation{s.conv}, nil
+}
+
+// ArchivedConversations 是本假实现的第四张表：一场会话的 Archived 位决定它
+// 出现在 Conversations 还是这里。本文件没有用例归档，恒返回空切片。
+func (s *recordingStore) ArchivedConversations(ctx context.Context) ([]conversation.Conversation, error) {
+	if !s.conv.Archived {
+		return []conversation.Conversation{}, nil
+	}
 	return []conversation.Conversation{s.conv}, nil
 }
 

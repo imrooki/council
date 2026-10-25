@@ -23,7 +23,15 @@ const (
 	resumeTextLimit = 100
 )
 
-const resumeUsage = "用法: /resume [--all] [<编号|id 前缀>]"
+// resumeUsage 是参数不对时的用法行。
+// --archived 排在 --all 之后：两个 flag 管的都是「看哪一批」，
+// 连在一起写，用户才看得出 --all --archived 是跨项目的归档视图。
+const resumeUsage = "用法: /resume [--all] [--archived] [<编号|id 前缀>]"
+
+// resumeArchivedMark 是归档视图里打在每条标题后面的标记。
+// 用 ASCII 方括号配中文，与 [thought_dropped] 那类标记同一个体例；
+// 标题在最后一列，标记不会把后面的列撑歪。
+const resumeArchivedMark = " [已归档]"
 
 // NormalizeProjectDir 把启动目录收成可比较的绝对路径。
 // 同一个目录有大小写、末尾分隔符、相对路径、符号链接多种写法，
@@ -105,16 +113,22 @@ type resumeList struct {
 // loadResumeRows 取出 /resume 要显示或按编号挑选的会话。
 // 无参数列表和按编号选择必须走这同一个函数，两处编号才一致。
 //
+// archived 决定读哪张表：真读 ArchivedConversations，假读 Conversations。
+// 两张表都由 store 分好（过滤条件在 internal/store/read.go 的 SQL 里），
+// 这里不再按 c.Archived 自己分一次 —— 同一个条件写两处，早晚会有一处改漏。
+//
 // filtered 只在没带 --all 且当前有项目目录时为真：只保留 cwd 与 r.projectDir
 // 相同的会话。被滤掉的会话里 cwd 为空的个数记入 hiddenUnbound，
 // 用来提示还有没绑项目的旧会话。--all，或取不到启动目录时，不过滤。
+// 归档视图与默认视图共用这一条过滤：单独 --archived 是「本项目的归档会话」，
+// --all --archived 是「全部归档会话」。
 //
 // 排序在这里做，不改 store：store 的 created_at 倒序是 /conv 与 /use 依赖的契约，
 // /resume 要按最后活动排。lastActive 倒序，相同则 CreatedAt 倒序，再相同则 id 升序。
 // 最后活动时间没能从库里确定时，lastActive 仍是创建时间，只作排序兜底，
 // LAST_ACTIVE 那一格打 ?，不要把这个兜底时间印出去。
-func (r *REPL) loadResumeRows(ctx context.Context, all bool) (resumeList, error) {
-	convs, err := r.svc.Conversations(ctx)
+func (r *REPL) loadResumeRows(ctx context.Context, all, archived bool) (resumeList, error) {
+	convs, err := r.resumeConvs(ctx, archived)
 	if err != nil {
 		return resumeList{}, err
 	}
@@ -180,44 +194,78 @@ func (r *REPL) loadResumeRows(ctx context.Context, all bool) (resumeList, error)
 	return resumeList{rows: rows, hiddenUnbound: hiddenUnbound, filtered: filter}, nil
 }
 
+// resumeConvs 按视图取会话列表：归档视图读 ArchivedConversations，默认视图读
+// Conversations。两条都是「全库、未删除」的口径，区别只在归档位。
+//
+// 抽成一个函数，是因为列表与 id 前缀两条路都要它：谁读哪张表只在这里决定一次，
+// 不会出现列表是归档的、前缀却在活跃表里找那种对不上的行为。
+func (r *REPL) resumeConvs(ctx context.Context, archived bool) ([]conversation.Conversation, error) {
+	if archived {
+		return r.svc.ArchivedConversations(ctx)
+	}
+	return r.svc.Conversations(ctx)
+}
+
+// resumeListCommand 是提示里那句「先敲 … 看列表」用的命令名。
+// 归档视图必须带 --archived：不带的话用户看到的是另一张表，编号对不上，
+// 指向错的命令比不指更糟。
+func resumeListCommand(archived bool) string {
+	if archived {
+		return "/resume --archived"
+	}
+	return "/resume"
+}
+
 // cmdResume 列出本机会话，或按编号 / id 前缀接上。
 // needsConv 是假：没有当前会话时也要能列和接，否则它自己会答「先 /new 或 /use」。
 //
 // id 前缀不受项目过滤影响，同 /use：用户给的是完整身份线索，限制范围只会让他困惑。
 // 编号每次重新计算：列表会随新消息变序，编号不是稳定句柄。
 // 接上是纯读：不触发任何成员调用，不改成员，不写库。
+//
+// --archived 只换列表来源（归档表而不是默认表），别的都照旧：项目过滤、
+// 编号、回显概况与接上走的是同一套函数，归档会话接上后与普通会话没有区别。
 func cmdResume(ctx context.Context, r *REPL, args cmdArgs) error {
-	all, token, ok := parseResumeArgs(args.fields)
+	all, archived, token, ok := parseResumeArgs(args.fields)
 	if !ok {
 		return r.printf("%s\n", resumeUsage)
 	}
 	if token == "" {
-		return r.printResumeList(ctx, all)
+		return r.printResumeList(ctx, all, archived)
 	}
 	if isResumeIndex(token) {
-		return r.resumeByIndex(ctx, all, token)
+		return r.resumeByIndex(ctx, all, archived, token)
 	}
-	return r.resumeByPrefix(ctx, token)
+	return r.resumeByPrefix(ctx, token, archived)
 }
 
-// parseResumeArgs 从 fields 里拆出 --all 和至多一个选择 token。
-// --all 出现几次都行，位置不限。其余以 -- 开头的 token 是未知 flag。
-func parseResumeArgs(fields []string) (all bool, token string, ok bool) {
+// parseResumeArgs 从 fields 里拆出 --all、--archived 和至多一个选择 token。
+// 两个 flag 都出现几次都行，位置不限。其余以 -- 开头的 token 是未知 flag。
+//
+// --archived 与 --all 正交，四种组合都有意义：
+// 什么都不带 = 本项目的活跃会话；--all = 全部活跃会话；
+// --archived = 本项目的归档会话；--all --archived = 全部归档会话。
+// 不带 --archived 时行为与加这个 flag 之前逐字节相同。
+func parseResumeArgs(fields []string) (all, archived bool, token string, ok bool) {
 	ok = true
 	for _, f := range fields {
-		if f == "--all" {
+		switch f {
+		case "--all":
 			all = true
+			continue
+		case "--archived":
+			archived = true
 			continue
 		}
 		if strings.HasPrefix(f, "--") {
-			return false, "", false
+			return false, false, "", false
 		}
 		if token != "" {
-			return false, "", false
+			return false, false, "", false
 		}
 		token = f
 	}
-	return all, token, ok
+	return all, archived, token, ok
 }
 
 // isResumeIndex 判定 token 是不是列表编号：全是 ASCII 十进制数字，且长度不超过 3。
@@ -234,7 +282,8 @@ func isResumeIndex(token string) bool {
 	return true
 }
 
-// printResumeList 打无参数 /resume 的整段输出。
+// printResumeList 打无参数 /resume 的整段输出。archived 为真时打的是归档视图：
+// 列表来自 ArchivedConversations，每条标题后加 resumeArchivedMark。
 //
 // 表头说明行必须在建 tabwriter 之前或 Flush 之后写。tabwriter 在 Flush
 // 之前不输出，说明行若写在两者之间，会跑到表的后面。
@@ -245,8 +294,12 @@ func isResumeIndex(token string) bool {
 // --all 或没有项目目录时才有，这点错位是有意接受的。
 // 表后各行的顺序（读库失败说明、未绑定提示、编号提示）也是有意的：
 // 先说哪几行的数字不可信，再说还有没列出来的旧会话，最后才是怎么接上。
-func (r *REPL) printResumeList(ctx context.Context, all bool) error {
-	list, err := r.loadResumeRows(ctx, all)
+//
+// 归档视图与默认视图共用同一条项目过滤、同一张表的列与同一个排序，只有
+// 说明、空列表答复、未绑定提示与末尾的编号提示换词：这些提示里都带着命令，
+// 不带 --archived 的话用户照着敲会看到另一张表，编号也就对不上。
+func (r *REPL) printResumeList(ctx context.Context, all, archived bool) error {
+	list, err := r.loadResumeRows(ctx, all, archived)
 	if err != nil {
 		return r.reportErr("列出会话失败", err)
 	}
@@ -254,22 +307,33 @@ func (r *REPL) printResumeList(ctx context.Context, all bool) error {
 	n := len(rows)
 	if n == 0 {
 		var line string
-		if filter {
+		switch {
+		case archived && filter:
+			line = "本项目还没有归档会话，用 /resume --all --archived 看其它项目的"
+		case archived:
+			line = "还没有任何归档会话（在网页里归档的会话会出现在这里）"
+		case filter:
 			line = "本项目还没有会话，用 /new <标题> 建一个（/resume --all 看其它项目的）"
-		} else {
+		default:
 			line = "还没有任何会话，用 /new <标题> 建一个"
 		}
 		if err := r.printf("%s\n", line); err != nil {
 			return err
 		}
 		if filter && hiddenUnbound > 0 {
-			return r.printf("另有 %d 个未绑定项目的旧会话，/resume --all 查看\n", hiddenUnbound)
+			return r.printf("%s\n", resumeUnboundHint(hiddenUnbound, archived))
 		}
 		return nil
 	}
 
 	var head string
 	switch {
+	case archived && filter:
+		head = fmt.Sprintf("项目: %s（本项目 %d 个归档会话；/resume --all --archived 看全部）", r.projectDir, n)
+	case archived && all:
+		head = fmt.Sprintf("全部归档会话（%d 个）", n)
+	case archived:
+		head = fmt.Sprintf("没有项目目录，列出全部归档会话（%d 个）", n)
 	case filter:
 		head = fmt.Sprintf("项目: %s（本项目 %d 个会话；/resume --all 看全部）", r.projectDir, n)
 	case all:
@@ -310,7 +374,7 @@ func (r *REPL) printResumeList(ctx context.Context, all bool) error {
 			}
 			cells = append(cells, proj)
 		}
-		cells = append(cells, orPlaceholder(oneLine(c.Title)))
+		cells = append(cells, resumeTitleCell(c.Title, archived))
 		fmt.Fprintln(tw, strings.Join(cells, "\t"))
 	}
 	if err := tw.Flush(); err != nil {
@@ -330,11 +394,39 @@ func (r *REPL) printResumeList(ctx context.Context, all bool) error {
 		}
 	}
 	if filter && hiddenUnbound > 0 {
-		if err := r.printf("另有 %d 个未绑定项目的旧会话，/resume --all 查看\n", hiddenUnbound); err != nil {
+		if err := r.printf("%s\n", resumeUnboundHint(hiddenUnbound, archived)); err != nil {
 			return err
 		}
 	}
-	return r.printf("敲 /resume <编号> 接上；编号按最近活动排序，每次重新计算\n")
+	return r.printf("%s\n", resumeNumberHint(archived))
+}
+
+// resumeTitleCell 是 TITLE 那一格：压成一行、空标题换占位符，归档视图再在末尾加标记。
+//
+// 标记按视图打，不按 c.Archived 打：归档列表里的每一行都来自 ArchivedConversations，
+// 视图本身就是「这些是归档的」这件事的唯一出处。再去看每行的布尔，等于把同一个
+// 判定写两遍；两处一旦不一致，同一张表里就会出现有标记、没标记混着的行。
+func resumeTitleCell(title string, archived bool) string {
+	cell := orPlaceholder(oneLine(title))
+	if archived {
+		return cell + resumeArchivedMark
+	}
+	return cell
+}
+
+// resumeUnboundHint 是「另有 N 个未绑定项目的…」那行提示。
+// 归档视图指向 --all --archived：照着不带 --archived 的命令敲，看到的是另一张表。
+func resumeUnboundHint(n int, archived bool) string {
+	if archived {
+		return fmt.Sprintf("另有 %d 个未绑定项目的归档会话，/resume --all --archived 查看", n)
+	}
+	return fmt.Sprintf("另有 %d 个未绑定项目的旧会话，/resume --all 查看", n)
+}
+
+// resumeNumberHint 是列表最后那句「怎么接上」。编号是按当次这张表算的，
+// 所以提示里的命令必须带上 --archived，照抄才能接上同一张表里的编号。
+func resumeNumberHint(archived bool) string {
+	return fmt.Sprintf("敲 %s <编号> 接上；编号按最近活动排序，每次重新计算", resumeListCommand(archived))
 }
 
 // resumeLastActive 只在 lastKnown 时打时间。未知打一个 ASCII 问号：
@@ -371,22 +463,27 @@ func resumeCount64(n int64) string {
 }
 
 // resumeByIndex 按编号接上。编号取自与无参数列表同一个 loadResumeRows
-// 口径，越界不回落成 id 前缀：输错一位编号不该悄悄接上别的会话。
-func (r *REPL) resumeByIndex(ctx context.Context, all bool, token string) error {
+// 口径（连 --all / --archived 都一起传下去），越界不回落成 id 前缀：
+// 输错一位编号不该悄悄接上别的会话。
+//
+// 越界提示里的命令按视图给：归档视图下若还提示「先敲 /resume 看列表」，
+// 用户看到的是活跃会话那张表，编号只会更对不上。
+func (r *REPL) resumeByIndex(ctx context.Context, all, archived bool, token string) error {
 	n, err := strconv.Atoi(token)
 	if err != nil {
 		return r.printf("%s\n", resumeUsage)
 	}
-	list, err := r.loadResumeRows(ctx, all)
+	list, err := r.loadResumeRows(ctx, all, archived)
 	if err != nil {
 		return r.reportErr("列出会话失败", err)
 	}
 	rows := list.rows
+	cmd := resumeListCommand(archived)
 	if n < 1 || n > len(rows) {
 		if len(rows) == 0 {
-			return r.printf("编号 %d 超出范围（当前没有可选的会话），先敲 /resume 看列表\n", n)
+			return r.printf("编号 %d 超出范围（当前没有可选的会话），先敲 %s 看列表\n", n, cmd)
 		}
-		return r.printf("编号 %d 超出范围（1..%d），先敲 /resume 看列表\n", n, len(rows))
+		return r.printf("编号 %d 超出范围（1..%d），先敲 %s 看列表\n", n, len(rows), cmd)
 	}
 	return r.attachResume(ctx, rows[n-1].conv)
 }
@@ -395,8 +492,13 @@ func (r *REPL) resumeByIndex(ctx context.Context, all bool, token string) error 
 // 收窄到本项目会让别的目录里那个会话永远接不上。
 // 完整 id 先于前缀，避免短 id 被更长的前缀撞成多匹配。
 // 多匹配只列候选、不切换 r.cur。
-func (r *REPL) resumeByPrefix(ctx context.Context, prefix string) error {
-	convs, err := r.svc.Conversations(ctx)
+//
+// archived 只决定在哪张表里找：带 --archived 时找归档表，否则找默认表。
+// 两张表互斥，所以不带 --archived 时归档会话的 id 前缀不会命中 —— 这是
+// 有意的：要接归档会话就带上 --archived，与列表是同一张表。
+// 多匹配的候选表不加归档标记：这张表只有一种来源，没有「混着两种会话」的歧义。
+func (r *REPL) resumeByPrefix(ctx context.Context, prefix string, archived bool) error {
+	convs, err := r.resumeConvs(ctx, archived)
 	if err != nil {
 		return r.reportErr("列出会话失败", err)
 	}
@@ -412,6 +514,9 @@ func (r *REPL) resumeByPrefix(ctx context.Context, prefix string) error {
 	}
 	switch len(matched) {
 	case 0:
+		if archived {
+			return r.printf("没有 id 以 %s 开头的归档会话，用 /resume --all --archived 看看有哪些\n", prefix)
+		}
 		return r.printf("没有 id 以 %s 开头的会话，用 /resume --all 看看有哪些\n", prefix)
 	case 1:
 		return r.attachResume(ctx, matched[0])

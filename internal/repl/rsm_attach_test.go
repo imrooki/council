@@ -327,8 +327,8 @@ func TestRsmSelectByID(t *testing.T) {
 func TestRsmBadArgs(t *testing.T) {
 	fx := rsmListFixture(t)
 	rsmRun(t, fx.r, fx.out, "/use "+fx.p1)
-	const usage = "用法: /resume [--all] [<编号|id 前缀>]\n"
-	for _, line := range []string{"/resume --bogus", "/resume a b", "/resume --all a b", "/resume --all --bogus"} {
+	const usage = "用法: /resume [--all] [--archived] [<编号|id 前缀>]\n"
+	for _, line := range []string{"/resume --bogus", "/resume a b", "/resume --all a b", "/resume --all --bogus", "/resume --archived --bogus", "/resume --all --archived a b"} {
 		got := rsmRun(t, fx.r, fx.out, line)
 		if got != usage {
 			t.Errorf("%s 输出 = %q，期望恰好 %q", line, got, usage)

@@ -34,6 +34,11 @@ func (erroringSessionStore) Conversation(ctx context.Context, id string) (conver
 func (erroringSessionStore) Conversations(ctx context.Context) ([]conversation.Conversation, error) {
 	return nil, nil
 }
+
+// ArchivedConversations 只为满足接口而存在，理由同上：本文件不走会话列表读路径。
+func (erroringSessionStore) ArchivedConversations(ctx context.Context) ([]conversation.Conversation, error) {
+	return nil, nil
+}
 func (erroringSessionStore) Participants(ctx context.Context, convID string, includeInactive bool) ([]conversation.Participant, error) {
 	return nil, nil
 }

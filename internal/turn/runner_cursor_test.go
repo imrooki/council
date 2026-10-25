@@ -150,6 +150,11 @@ func (s *prefixRewriteStore) Conversations(ctx context.Context) ([]conversation.
 	return nil, nil
 }
 
+// ArchivedConversations 与 Conversations 一样是空桩：本用例只驱动 Messages。
+func (s *prefixRewriteStore) ArchivedConversations(ctx context.Context) ([]conversation.Conversation, error) {
+	return nil, nil
+}
+
 func (s *prefixRewriteStore) Participants(ctx context.Context, convID string, includeInactive bool) ([]conversation.Participant, error) {
 	return nil, nil
 }

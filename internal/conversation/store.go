@@ -25,6 +25,14 @@ type Store interface {
 	// Conversations 列出全部未软删、未归档的会话，按创建时间倒序。
 	// 已归档的会话不在主列表里；它们仍能经 Conversation 打开与续接。
 	Conversations(ctx context.Context) ([]Conversation, error)
+	// ArchivedConversations 列出全部未软删、已归档的会话，排序与 Conversations 相同。
+	// 两张表互斥：归档只把会话从默认列表里收起来，不动消息、成员、游标与用量，
+	// 也不改变 Conversation 能不能读到它。
+	//
+	// 这里进接口而不是让调用方自己过滤：归档位是 store 的列，过滤条件写在 SQL 里
+	// （internal/store/read.go 只在这一条读路径上滤 archived_at），
+	// 上层拿到的就是已经分好类的两份列表，不会出现两处各判一次、判得不一样。
+	ArchivedConversations(ctx context.Context) ([]Conversation, error)
 	// Participants 列出某会话的成员。includeInactive 为 false 时只返回活跃成员。
 	Participants(ctx context.Context, convID string, includeInactive bool) ([]Participant, error)
 	// Messages 取 seq 严格大于 afterSeq 的消息，按 seq 升序，最多 limit 条。

@@ -523,6 +523,17 @@ func (s *Service) MaxSeq(ctx context.Context, convID string) (int64, error) {
 	return s.store.MaxSeq(ctx, convID)
 }
 
+// ArchivedConversations 列出全部未软删、已归档的会话，与 Conversations 同一套
+// 排序与同一个「未删除」口径，只换一个归档条件。
+//
+// 单独开一个方法而不是给 Conversations 加参数：两张表在两个调用点上是各自
+// 完整的视图（默认列表、归档列表），带参数的写法会让每个调用方都必须回答
+// 「要哪一张」，而今天绝大多数调用方要的就是默认那一张，回答是白回答。
+// 纯直通，理由与上面三个相同。
+func (s *Service) ArchivedConversations(ctx context.Context) ([]Conversation, error) {
+	return s.store.ArchivedConversations(ctx)
+}
+
 // Conversation 按 id 取一场会话。不存在时返回包了 ErrConversationNotFound 的错误。
 // 纯读、不开事务：与 Store.Conversation 同一条读路径，不经过 WriteTx。
 func (s *Service) Conversation(ctx context.Context, id string) (Conversation, error) {

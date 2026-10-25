@@ -193,11 +193,31 @@ func (f *fakeStore) Conversation(ctx context.Context, id string) (conversation.C
 	return conversation.Conversation{}, fmt.Errorf("fake store: 会话 %q: %w", id, conversation.ErrConversationNotFound)
 }
 
+// Conversations 与 ArchivedConversations 是同一份数据的两个互斥视图，与真 store
+// 同一条契约（默认列表不含归档）。/resume --archived 的回归用例靠这条：
+// 假实现若不分开两张表，「不带 --archived 时不列归档」测的就是假实现自己。
 func (f *fakeStore) Conversations(ctx context.Context) ([]conversation.Conversation, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := make([]conversation.Conversation, 0, len(f.convs))
 	for i := len(f.convs) - 1; i >= 0; i-- {
+		if f.convs[i].Archived {
+			continue
+		}
+		out = append(out, f.convs[i])
+	}
+	return out, nil
+}
+
+// ArchivedConversations 只收归档的会话，顺序与 Conversations 相同（插入倒序）。
+func (f *fakeStore) ArchivedConversations(ctx context.Context) ([]conversation.Conversation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]conversation.Conversation, 0, len(f.convs))
+	for i := len(f.convs) - 1; i >= 0; i-- {
+		if !f.convs[i].Archived {
+			continue
+		}
 		out = append(out, f.convs[i])
 	}
 	return out, nil

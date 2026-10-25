@@ -303,35 +303,46 @@ func TestRsmTruncateRunes(t *testing.T) {
 
 func TestRsmParseResumeArgs(t *testing.T) {
 	cases := []struct {
-		name   string
-		fields []string
-		all    bool
-		token  string
-		ok     bool
+		name     string
+		fields   []string
+		all      bool
+		archived bool
+		token    string
+		ok       bool
 	}{
-		{name: "空", fields: nil, all: false, token: "", ok: true},
-		{name: "只有 --all", fields: []string{"--all"}, all: true, token: "", ok: true},
-		{name: "--all 在前", fields: []string{"--all", "2"}, all: true, token: "2", ok: true},
-		{name: "--all 在后", fields: []string{"2", "--all"}, all: true, token: "2", ok: true},
-		{name: "--all 重复", fields: []string{"--all", "--all"}, all: true, token: "", ok: true},
+		{name: "空", fields: nil, all: false, archived: false, token: "", ok: true},
+		{name: "只有 --all", fields: []string{"--all"}, all: true, archived: false, token: "", ok: true},
+		{name: "只有 --archived", fields: []string{"--archived"}, all: false, archived: true, token: "", ok: true},
+		{name: "--all 与 --archived", fields: []string{"--all", "--archived"}, all: true, archived: true, token: "", ok: true},
+		{name: "--archived 写在 --all 前面", fields: []string{"--archived", "--all"}, all: true, archived: true, token: "", ok: true},
+		{name: "--all 在前", fields: []string{"--all", "2"}, all: true, archived: false, token: "2", ok: true},
+		{name: "--all 在后", fields: []string{"2", "--all"}, all: true, archived: false, token: "2", ok: true},
+		{name: "--archived 带编号", fields: []string{"--archived", "2"}, all: false, archived: true, token: "2", ok: true},
+		{name: "编号写在 --archived 前", fields: []string{"2", "--archived"}, all: false, archived: true, token: "2", ok: true},
+		{name: "两个 flag 与编号", fields: []string{"--archived", "2", "--all"}, all: true, archived: true, token: "2", ok: true},
+		{name: "--all 重复", fields: []string{"--all", "--all"}, all: true, archived: false, token: "", ok: true},
+		{name: "--archived 重复", fields: []string{"--archived", "--archived"}, all: false, archived: true, token: "", ok: true},
 		{name: "未知 flag", fields: []string{"--bogus"}, ok: false},
 		{name: "--all 加未知 flag", fields: []string{"--all", "--bogus"}, ok: false},
+		{name: "--archived 加未知 flag", fields: []string{"--archived", "--bogus"}, ok: false},
 		{name: "两个 token", fields: []string{"a", "b"}, ok: false},
 		{name: "--all 加两个 token", fields: []string{"--all", "a", "b"}, ok: false},
-		{name: "单横线不是 flag", fields: []string{"-x"}, all: false, token: "-x", ok: true},
+		{name: "--archived 加两个 token", fields: []string{"--archived", "a", "b"}, ok: false},
+		{name: "单横线不是 flag", fields: []string{"-x"}, all: false, archived: false, token: "-x", ok: true},
+		{name: "单横线归档不是 flag", fields: []string{"-archived"}, all: false, archived: false, token: "-archived", ok: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			all, token, ok := parseResumeArgs(tc.fields)
+			all, archived, token, ok := parseResumeArgs(tc.fields)
 			if ok != tc.ok {
-				t.Errorf("parseResumeArgs(%v) ok = %v，期望 %v（all=%v token=%q）", tc.fields, ok, tc.ok, all, token)
+				t.Errorf("parseResumeArgs(%v) ok = %v，期望 %v（all=%v archived=%v token=%q）", tc.fields, ok, tc.ok, all, archived, token)
 			}
 			if !tc.ok {
 				return
 			}
-			if all != tc.all || token != tc.token {
-				t.Errorf("parseResumeArgs(%v) = (%v, %q, %v)，期望 (%v, %q, %v)",
-					tc.fields, all, token, ok, tc.all, tc.token, tc.ok)
+			if all != tc.all || archived != tc.archived || token != tc.token {
+				t.Errorf("parseResumeArgs(%v) = (%v, %v, %q, %v)，期望 (%v, %v, %q, %v)",
+					tc.fields, all, archived, token, ok, tc.all, tc.archived, tc.token, tc.ok)
 			}
 		})
 	}
@@ -482,9 +493,14 @@ func TestRsmCommandRegistered(t *testing.T) {
 	if cmd.needsRunner {
 		t.Error("resume.needsRunner = true，期望 false")
 	}
-	const wantSummary = "列出本机会话并接上: /resume 列出当前项目的会话；/resume --all 列出全部；/resume [--all] <编号> 按列表编号接上；/resume <id 前缀> 按 id 接上（同 /use，并回显概况）"
+	const wantSummary = "列出本机会话并接上: /resume 列出当前项目的会话；/resume --all 列出全部；/resume --archived 列出本项目的归档会话（标题后标 [已归档]）；/resume --all --archived 列出全部归档会话；/resume [--all] [--archived] <编号> 按列表编号接上；/resume [--archived] <id 前缀> 按 id 接上（同 /use，并回显概况）"
 	if spec.Summary != wantSummary {
 		t.Errorf("summary = %q，期望 %q", spec.Summary, wantSummary)
+	}
+	// Args 是 council commands 与 GUI 面板看到的参数形状，--archived 必须在这里出现，
+	// 否则命令目录里 /resume 仍然只写着 --all 与编号。
+	if !strings.Contains(spec.Args, "--archived") {
+		t.Errorf("Args = %q，期望含 %q", spec.Args, "--archived")
 	}
 	if cmd.run == nil {
 		t.Error("resume.run 是 nil，期望指向 cmdResume")

@@ -68,7 +68,7 @@ func newCommandRegistry() *registry {
 	reg.Register(command.Spec{Name: "copy", Args: "[n]", Scopes: []command.Scope{command.ScopeTUI}, Summary: "复制最近 n 条成员或你的发言到剪贴板: /copy [n]（不带参数是 1 条）"}, cmdEntry{run: cmdCopy})
 	reg.Register(command.Spec{Name: "conv", Summary: "列出全部会话，标出当前那个"}, cmdEntry{needsSvc: true, run: cmdConv})
 	reg.Register(command.Spec{Name: "use", Args: "<id 或 id 前缀>", Summary: "切换当前会话: /use <id 或 id 前缀>"}, cmdEntry{needsSvc: true, run: cmdUse})
-	reg.Register(command.Spec{Name: "resume", Args: "[--all] [<编号> | <id 前缀>]", Summary: "列出本机会话并接上: /resume 列出当前项目的会话；/resume --all 列出全部；/resume [--all] <编号> 按列表编号接上；/resume <id 前缀> 按 id 接上（同 /use，并回显概况）"}, cmdEntry{needsSvc: true, run: cmdResume})
+	reg.Register(command.Spec{Name: "resume", Args: "[--all] [--archived] [<编号> | <id 前缀>]", Summary: "列出本机会话并接上: /resume 列出当前项目的会话；/resume --all 列出全部；/resume --archived 列出本项目的归档会话（标题后标 [已归档]）；/resume --all --archived 列出全部归档会话；/resume [--all] [--archived] <编号> 按列表编号接上；/resume [--archived] <id 前缀> 按 id 接上（同 /use，并回显概况）"}, cmdEntry{needsSvc: true, run: cmdResume})
 	reg.Register(command.Spec{Name: "add", Args: "<全名|编号|前缀>[,...] | --refresh", Summary: "把 agent 加进当前会话: /add 列出配置里可加的与识别出的模型；/add <全名|编号|前缀>[,...] 一次加多个；识别出的模型可以直接 /add 它的名字（识别表里的 ID，或模型名），也可以 /add +编号，都可带 [--id <新 id>] [--effort <强度>]，配置里还没有就先写进配置再加入；/add --refresh 重新识别"}, cmdEntry{needsSvc: true, needsConv: true, run: cmdAdd})
 	reg.Register(command.Spec{Name: "join", Args: "同 /add", Summary: "同 /add"}, cmdEntry{needsSvc: true, needsConv: true, run: cmdAdd})
 	reg.Register(command.Spec{Name: "leave", Args: "<agent-id>", Summary: "让 agent 退出当前会话: /leave <agent-id>"}, cmdEntry{needsSvc: true, needsConv: true, run: cmdLeave})

@@ -62,6 +62,9 @@ type rsmFlakyStore struct {
 	// 末条读不到，LAST_ACTIVE 必须打 ?，不能当成「没有消息」。
 	emptyMessages map[string]bool
 	failList      bool
+	// failArchivedList 让归档列表整体读失败（/resume --archived 的失败路径）。
+	// 与 failList 分开：两张表是两条读路径，一个失败另一个照常能读。
+	failArchivedList bool
 }
 
 func (s *rsmFlakyStore) Conversations(ctx context.Context) ([]conversation.Conversation, error) {
@@ -69,6 +72,13 @@ func (s *rsmFlakyStore) Conversations(ctx context.Context) ([]conversation.Conve
 		return nil, errRsmBoom
 	}
 	return s.fakeStore.Conversations(ctx)
+}
+
+func (s *rsmFlakyStore) ArchivedConversations(ctx context.Context) ([]conversation.Conversation, error) {
+	if s.failArchivedList {
+		return nil, errRsmBoom
+	}
+	return s.fakeStore.ArchivedConversations(ctx)
 }
 
 func (s *rsmFlakyStore) Participants(ctx context.Context, convID string, includeInactive bool) ([]conversation.Participant, error) {

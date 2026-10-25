@@ -268,6 +268,11 @@ func (erroringAllSessionsStore) Conversation(ctx context.Context, id string) (co
 func (erroringAllSessionsStore) Conversations(ctx context.Context) ([]conversation.Conversation, error) {
 	return nil, nil
 }
+
+// ArchivedConversations 只为满足接口而存在，理由同上：AuditDrift 不读会话列表。
+func (erroringAllSessionsStore) ArchivedConversations(ctx context.Context) ([]conversation.Conversation, error) {
+	return nil, nil
+}
 func (erroringAllSessionsStore) Participants(ctx context.Context, convID string, includeInactive bool) ([]conversation.Participant, error) {
 	return nil, nil
 }

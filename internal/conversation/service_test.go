@@ -111,9 +111,26 @@ func (f *fakeStore) Conversation(ctx context.Context, id string) (Conversation, 
 }
 
 func (f *fakeStore) Conversations(ctx context.Context) ([]Conversation, error) {
-	// 规格 F：按 created_at 倒序。
+	// 规格 F：按 created_at 倒序。归档的会话不在默认列表里（与真 store 同一条
+	// 契约）：两张表互斥，下面的 ArchivedConversations 只收归档的。
 	out := make([]Conversation, 0, len(f.convs))
 	for i := len(f.convs) - 1; i >= 0; i-- {
+		if f.convs[i].Archived {
+			continue
+		}
+		out = append(out, f.convs[i])
+	}
+	return out, nil
+}
+
+// ArchivedConversations 与 Conversations 是同一份数据的两个互斥视图。
+// 本包没有用例设置 Archived，所以既有两个视图的行为与加这个方法之前一样。
+func (f *fakeStore) ArchivedConversations(ctx context.Context) ([]Conversation, error) {
+	out := make([]Conversation, 0, len(f.convs))
+	for i := len(f.convs) - 1; i >= 0; i-- {
+		if !f.convs[i].Archived {
+			continue
+		}
 		out = append(out, f.convs[i])
 	}
 	return out, nil
