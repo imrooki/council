@@ -196,9 +196,19 @@ type healthResponse struct {
 	OK      bool   `json:"ok"`
 	Version string `json:"version"`
 	DB      string `json:"db"`
-	// Writable 只在 -rw 时为 true，omitempty 让只读模式的响应与 SRV1
-	// 逐字节一致（既有 health 用例钉死了恰好三个键）。
+	// Writable 只在 -rw 时为 true，omitempty 让只读模式不出现这个键。
 	Writable bool `json:"writable,omitempty"`
+	// SchemaVersion 是库里的 schema 版本。只读模式打开旧库时它会小于
+	// SchemaExpectedVersion；看板据此显示升级提示条。
+	SchemaVersion int64 `json:"schema_version"`
+	// SchemaExpectedVersion 是当前二进制期望的 schema 版本，也就是提示条
+	// 文案里的「程序是 vM」。任务书只点名了 schema_version 与 schema_lag，
+	// 但文案要同时说出两个版本号；让前端去猜或者写死一个数字都会在下次
+	// 迁移时悄悄说错，所以把「期望值」也一并从同一个 Store 带出来。
+	SchemaExpectedVersion int64 `json:"schema_expected_version"`
+	// SchemaLag 为 true 表示库版本 < 期望版本。前端只在这个值为 true 时
+	// 显示黄条；库比二进制新时 OpenReadOnly 已经拒绝启动，走不到这里。
+	SchemaLag bool `json:"schema_lag"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -206,10 +216,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, healthResponse{
-		OK:       true,
-		Version:  s.version,
-		DB:       s.store.Path(),
-		Writable: s.write != nil,
+		OK:                    true,
+		Version:               s.version,
+		DB:                    s.store.Path(),
+		Writable:              s.write != nil,
+		SchemaVersion:         s.store.SchemaVersion(),
+		SchemaExpectedVersion: s.store.ExpectedSchemaVersion(),
+		SchemaLag:             s.store.SchemaLag(),
 	})
 }
 

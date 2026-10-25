@@ -192,7 +192,7 @@ func TestServerHealth(t *testing.T) {
 	env := newServeTestEnv(t, nil)
 	var got map[string]any
 	getJSON(t, env.http.URL+"/api/health", http.StatusOK, &got)
-	requireKeys(t, "health", got, "db", "ok", "version")
+	requireKeys(t, "health", got, "db", "ok", "schema_expected_version", "schema_lag", "schema_version", "version")
 	if got["ok"] != true {
 		t.Errorf("health.ok = %v，期望 true", got["ok"])
 	}
@@ -201,6 +201,16 @@ func TestServerHealth(t *testing.T) {
 	}
 	if got["db"] != env.store.Path() {
 		t.Errorf("health.db = %v，期望 %q", got["db"], env.store.Path())
+	}
+	if got["schema_version"] != float64(env.store.SchemaVersion()) {
+		t.Errorf("health.schema_version = %v，期望 %d", got["schema_version"], env.store.SchemaVersion())
+	}
+	if got["schema_expected_version"] != float64(env.store.ExpectedSchemaVersion()) {
+		t.Errorf("health.schema_expected_version = %v，期望 %d",
+			got["schema_expected_version"], env.store.ExpectedSchemaVersion())
+	}
+	if got["schema_lag"] != false {
+		t.Errorf("最新库的 health.schema_lag = %v，期望 false", got["schema_lag"])
 	}
 }
 

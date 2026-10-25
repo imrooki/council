@@ -67,6 +67,10 @@
           "Hiragino Sans GB", "Microsoft YaHei UI", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    /* 只读看板的 schema 提示条（见 .schema-lag）排在 #app 之前，
+       用纵向 flex 让它自然占一行、#app 填满剩下的高度。 */
+    display: flex;
+    flex-direction: column;
   }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb {
@@ -76,7 +80,33 @@
     border-radius: 999px;
   }
   ::selection { background: var(--accent-soft); color: var(--ink); }
-  #app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100vh; }
+  #app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; flex: 1; min-height: 0; }
+
+  /* 只读模式打开旧 schema 时的黄色提示条。它是 body 的直接子元素，
+     不参与 #app 的三行 grid；关掉（hidden）之后 #app 自动填满整屏。 */
+  .schema-lag {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 6px 14px;
+    background: var(--warn-soft);
+    color: var(--warn);
+    border-bottom: 1px solid var(--warn);
+    font-size: 12.5px;
+  }
+  .schema-lag[hidden] { display: none; }
+  .schema-lag-close {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 4px;
+  }
+  .schema-lag-close:hover { opacity: .7; }
 
   .topbar {
     display: flex;
@@ -1555,6 +1585,14 @@
 </style>
 </head>
 <body>
+<!-- 只读看板打开旧 schema 库时的提示条。文案由 loadHealth 按
+     /api/health 的 schema_version / schema_expected_version 填，
+     × 的关闭状态存 sessionStorage（升级后 lag 消失，提示自然不再出现）。 -->
+<div id="schema-lag" class="schema-lag" role="status" hidden>
+  <span id="schema-lag-text"></span>
+  <button id="schema-lag-close" class="schema-lag-close" type="button"
+          title="关闭这条提示" aria-label="关闭这条提示">×</button>
+</div>
 <div id="app">
   <header class="topbar">
     <button id="toggle-sidebar" type="button" title="收起/展开会话列表" aria-label="收起或展开会话列表">
@@ -2178,6 +2216,13 @@
   const costNote = document.getElementById('cost-note');
   const statusLine = document.getElementById('status');
   const brandNote = document.querySelector('.brand small');
+  // 只读看板打开旧 schema 库时的黄条。文案全部走 textContent（前端保持
+  // 不用 HTML 字符串）；关闭状态只存 sessionStorage：同一个标签页里不再
+  // 烦人，升级之后 /api/health 的 schema_lag 变成 false，提示自己消失。
+  const schemaLagBanner = document.getElementById('schema-lag');
+  const schemaLagText = document.getElementById('schema-lag-text');
+  const schemaLagClose = document.getElementById('schema-lag-close');
+  const SCHEMA_LAG_DISMISS_KEY = 'council.serve.schemaLagDismissed';
   const askPanel = document.getElementById('ask-panel');
   const askPrompt = document.getElementById('ask-prompt');
   const askRun = document.getElementById('ask-run');
@@ -3800,12 +3845,54 @@
     renderComposer();
   }
 
+  // renderSchemaLag 画只读看板的旧库提示条。只认 /api/health 的
+  // schema_lag === true；两个版本号必须是整数，缺字段就不画，不猜一个
+  // 数字出来。关闭状态存 sessionStorage：升级之后 schema_lag 变 false，
+  // 黄条自然不再出现，不需要用户去清 localStorage。
+  function renderSchemaLag(health) {
+    if (!health || health.schema_lag !== true) {
+      schemaLagBanner.hidden = true;
+      return;
+    }
+    const dbVersion = health.schema_version;
+    const expectedVersion = health.schema_expected_version;
+    if (!Number.isInteger(dbVersion) || !Number.isInteger(expectedVersion)) {
+      schemaLagBanner.hidden = true;
+      return;
+    }
+    let dismissed = false;
+    try {
+      dismissed = window.sessionStorage.getItem(SCHEMA_LAG_DISMISS_KEY) === '1';
+    } catch (err) {
+      // 隐私模式禁 sessionStorage：按「没关过」处理，提示照常显示。
+      dismissed = false;
+    }
+    if (dismissed) {
+      schemaLagBanner.hidden = true;
+      return;
+    }
+    schemaLagText.textContent = '库是 v' + dbVersion + '，程序是 v' + expectedVersion +
+      '，跑一次 council serve -rw（或任意一次新版 CLI）即可升级';
+    schemaLagBanner.hidden = false;
+  }
+
+  schemaLagClose.addEventListener('click', () => {
+    schemaLagBanner.hidden = true;
+    try {
+      window.sessionStorage.setItem(SCHEMA_LAG_DISMISS_KEY, '1');
+    } catch (err) {
+      // 存不进去时本次关闭仍生效，只是刷新页面之后会再出现一次。
+    }
+  });
+
   async function loadHealth() {
     try {
       const health = await api('/api/health');
       state.writable = health && health.writable === true;
+      renderSchemaLag(health);
     } catch (err) {
       state.writable = false;
+      renderSchemaLag(null);
     }
     askPanel.hidden = !state.writable;
     // 设置接口只在 -rw 下存在：只读模式连入口都不画。

@@ -339,6 +339,8 @@ func (s *Server) readWorkspaceName(w http.ResponseWriter, r *http.Request) (stri
 // 409 的文案要点名是哪个名字、以及「大小写不敏感」这条判重口径：
 // 用户建了 `工作区` 再建 `工作区`，若只说「重名」而不说口径，会以为
 // 是两次请求撞了同一个名字；说清之后他才知道 `Work` 与 `work` 也只能有一个。
+// 具体折叠边界在 store.workspaceNamesEqual：Unicode 简单折叠 + ToLower
+// 兜底，不做规范化 / 兼容折叠，文案不必把这些细节全塞进 409。
 //
 // 404 要点名 id（与 rename / delete / archive 对会话的 404 同一体例）：
 // 只说「工作区不存在」而库里有好几个组时，用户不知道自己点错了哪一个。
@@ -346,7 +348,7 @@ func writeWorkspaceError(w http.ResponseWriter, err error, name, id string) bool
 	switch {
 	case errors.Is(err, store.ErrWorkspaceNameTaken):
 		writeError(w, http.StatusConflict,
-			fmt.Sprintf("工作区名 %q 已被占用（大小写不敏感，去空白后比较）", name))
+			fmt.Sprintf("工作区名 %q 已被占用（大小写不敏感：去空白后按 Unicode 大小写折叠比较）", name))
 		return true
 	case errors.Is(err, store.ErrInvalidWorkspaceName):
 		writeError(w, http.StatusBadRequest,

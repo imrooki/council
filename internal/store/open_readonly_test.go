@@ -77,9 +77,15 @@ func TestOpenReadOnlyMissingDatabase(t *testing.T) {
 	})
 }
 
-// TestOpenReadOnlySchemaVersionMismatch 覆盖「版本不符也不迁移」。
-// 造法一：删掉迁移账本里最高的几行，模拟旧库；造法二：塞一行未来的版本号。
-// 两种都必须报 ErrSchemaVersionMismatch，而且库本身一个字节都不该被改回去。
+// TestOpenReadOnlySchemaVersionMismatch 覆盖只读的版本门：
+//
+//   - 旧库（账本版本 < 本二进制期望版本）现在必须能只读打开，不迁移、
+//     不写库，并通过 SchemaVersion / SchemaLag 报出自己的版本；
+//   - 新库（账本或 user_version 比二进制新）仍然拒绝；
+//   - 库版本为 0（没有迁移记录）也拒绝：那不是旧库，是别的库。
+//
+// 注意旧库那几条用的仍然是「删掉账本最高几行」的造法，物理结构还是最新版；
+// 真正缺列的 v7 库由 TestOpenReadOnlyV7DatabaseReadsWithLag 覆盖。
 func TestOpenReadOnlySchemaVersionMismatch(t *testing.T) {
 	expected := expectedSchemaVersion()
 	if expected <= 0 {
@@ -100,14 +106,35 @@ func TestOpenReadOnlySchemaVersionMismatch(t *testing.T) {
 		return dir
 	}
 
-	t.Run("旧库", func(t *testing.T) {
+	t.Run("旧库可以只读打开并报告落后", func(t *testing.T) {
 		dir := openAndMutate(t, `DELETE FROM schema_migrations WHERE version >= ?`, expected)
-		_, err := OpenReadOnly(tstCtx(t), dir)
-		if !errors.Is(err, ErrSchemaVersionMismatch) {
-			t.Fatalf("旧库在 OpenReadOnly 下期望 ErrSchemaVersionMismatch，实际: %v", err)
+		ro, err := OpenReadOnly(tstCtx(t), dir)
+		if err != nil {
+			t.Fatalf("旧库在 OpenReadOnly 下必须能打开，实际: %v", err)
 		}
-		if !strings.Contains(err.Error(), "旧版本") {
-			t.Errorf("旧库的错误应当说明「旧版本」，实际: %v", err)
+		if got := ro.SchemaVersion(); got != older {
+			t.Errorf("SchemaVersion = %d，期望 %d", got, older)
+		}
+		if got := ro.ExpectedSchemaVersion(); got != expected {
+			t.Errorf("ExpectedSchemaVersion = %d，期望 %d", got, expected)
+		}
+		if !ro.SchemaLag() {
+			t.Errorf("SchemaLag = false，期望 true（库 %d < 二进制 %d）", older, expected)
+		}
+		if _, err := ro.Conversations(tstCtx(t)); err != nil {
+			t.Errorf("旧库列表读取失败: %v", err)
+		}
+		if err := ro.Close(); err != nil {
+			t.Fatalf("关闭只读 Store 失败: %v", err)
+		}
+
+		raw := tstRawDB(t, filepath.Join(dir, dbFileName))
+		if got := tstScanInt(t, raw, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`); got != older {
+			t.Errorf("只读打开之后 schema_migrations 的最大版本 = %d，期望仍是 %d（不该被迁移补成 %d）",
+				got, older, expected)
+		}
+		if got := tstScanInt(t, raw, `PRAGMA user_version`); got != 0 {
+			t.Errorf("只读打开之后 PRAGMA user_version = %d，期望仍是 0（只读进程不该写库）", got)
 		}
 	})
 
@@ -125,27 +152,20 @@ func TestOpenReadOnlySchemaVersionMismatch(t *testing.T) {
 	})
 
 	// user_version 这条单独造：任务书点名要读它。本项目的正常库永远是 0，
-	// 所以非 0 且不等于期望值就必须拦下，哪怕迁移账本看上去还是对的。
-	t.Run("user_version 被改成别的版本", func(t *testing.T) {
+	// 所以它比期望值新时仍然必须拦下，哪怕迁移账本看上去还是对的。
+	t.Run("user_version 比二进制新", func(t *testing.T) {
 		dir := openAndMutate(t, fmt.Sprintf(`PRAGMA user_version = %d`, expected+99))
 		_, err := OpenReadOnly(tstCtx(t), dir)
 		if !errors.Is(err, ErrSchemaVersionMismatch) {
-			t.Fatalf("user_version 不符时期望 ErrSchemaVersionMismatch，实际: %v", err)
+			t.Fatalf("user_version 比二进制新时期望 ErrSchemaVersionMismatch，实际: %v", err)
 		}
 	})
 
-	t.Run("版本不符时不会把迁移补回去", func(t *testing.T) {
-		dir := openAndMutate(t, `DELETE FROM schema_migrations WHERE version >= ?`, expected)
-		if _, err := OpenReadOnly(tstCtx(t), dir); !errors.Is(err, ErrSchemaVersionMismatch) {
-			t.Fatalf("前置条件不成立：期望版本错误，实际 %v", err)
-		}
-		raw := tstRawDB(t, filepath.Join(dir, dbFileName))
-		if got := tstScanInt(t, raw, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`); got != older {
-			t.Errorf("只读打开之后 schema_migrations 的最大版本 = %d，期望仍是 %d（不该被迁移补成 %d）",
-				got, older, expected)
-		}
-		if got := tstScanInt(t, raw, `PRAGMA user_version`); got != 0 {
-			t.Errorf("只读打开之后 PRAGMA user_version = %d，期望仍是 0（只读进程不该写库）", got)
+	t.Run("没有迁移记录的库仍然拒绝", func(t *testing.T) {
+		dir := openAndMutate(t, `DELETE FROM schema_migrations`)
+		_, err := OpenReadOnly(tstCtx(t), dir)
+		if !errors.Is(err, ErrSchemaVersionMismatch) {
+			t.Fatalf("版本 0 的库期望 ErrSchemaVersionMismatch，实际: %v", err)
 		}
 	})
 }

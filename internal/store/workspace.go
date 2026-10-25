@@ -33,9 +33,13 @@ var (
 
 	// ErrWorkspaceNameTaken 表示名字已被另一个工作区占用。
 	//
-	// 判重口径是「去空白之后、大小写不敏感」：`Foo` 与 `foo` 是同一个名字，
-	// ` 工作区 ` 与 `工作区` 也是。哨兵单独一个而不是复用 ErrInvalidWorkspaceName：
-	// 名字合法但重名要映射 409，名字不合法映射 400，两件事在 HTTP 上不同。
+	// 判重口径是「去空白之后、Unicode 大小写折叠后相同」：`Foo` 与 `foo`、
+	// ` 工作区 ` 与 `工作区`、`İstanbul` 与 `istanbul` 都是同一个名字；
+	// 全角 `Ａ` 与半角 `A` 不是（不做兼容折叠）。完整边界写在
+	// requireWorkspaceNameFree 的注释里。
+	//
+	// 哨兵单独一个而不是复用 ErrInvalidWorkspaceName：名字合法但重名要
+	// 映射 409，名字不合法映射 400，两件事在 HTTP 上不同。
 	ErrWorkspaceNameTaken = errors.New("workspace name already taken")
 
 	// ErrInvalidWorkspaceName 表示名字去空白之后不是 1–60 个字符。
@@ -64,6 +68,13 @@ const MaxWorkspaceNameChars = 60
 // 用相关子查询而不是 LEFT JOIN + GROUP BY：GROUP BY 版本要额外判 NULL 组，
 // 而这里只要每张表一行；工作区数量是「用户在左栏里手动建的那些」的量级。
 func (s *Store) Workspaces(ctx context.Context) ([]conversation.Workspace, error) {
+	// v9 之前没有 workspaces 表。只读看板打开 v7/v8 旧库时，左栏应当按
+	// 「全部未分组」画，而不是让 GET /api/workspaces 回 500、连带整次
+	// refreshConversations 失败（前端把分组与会话列表放在同一个 Promise.all 里）。
+	// 空切片不是 nil，与本文件其余 List 方法的约定一致。
+	if !s.shape.workspaces {
+		return []conversation.Workspace{}, nil
+	}
 	rows, err := s.read.QueryContext(ctx, `
 SELECT w.id, w.name, w.sort_order, w.created_at,
        (SELECT COUNT(*) FROM conversations c WHERE c.workspace_id = w.id AND c.deleted_at IS NULL)
@@ -89,7 +100,8 @@ ORDER BY w.sort_order ASC, w.name ASC`)
 }
 
 // CreateWorkspace 新建一个工作区。名字去空白后必须是 1–60 个字符，
-// 且与现存工作区不重名（大小写不敏感）。返回补全后的 Workspace，其中
+// 且与现存工作区不重名（Unicode 大小写折叠，边界见
+// requireWorkspaceNameFree）。返回补全后的 Workspace，其中
 // ConversationCount 恒为 0（新建的工作区里还没有会话）。
 //
 // sort_order 取 MAX(sort_order)+1，让新工作区排在左栏末尾。DDL 上的
@@ -121,8 +133,9 @@ func (s *Store) CreateWorkspace(ctx context.Context, name string) (conversation.
 	return created, nil
 }
 
-// RenameWorkspace 改工作区的名字。名字规则与 CreateWorkspace 相同，
-// 判重时排除自己：把一个工作区改成它现在的名字（哪怕大小写不同）不算重名。
+// RenameWorkspace 改工作区的名字。名字规则与 CreateWorkspace 相同
+// （Unicode 大小写折叠判重），判重时排除自己：把一个工作区改成它现在的
+// 名字（哪怕大小写不同）不算重名。
 //
 // 只改 name 一列：sort_order、created_at 与成员的归属都不动，改个名字不是
 // 一次工作区的重新定义。返回改完之后的 Workspace（含真实 ConversationCount），
@@ -355,27 +368,76 @@ func (t *Tx) setConversationWorkspace(ctx context.Context, convID, workspaceID s
 }
 
 // requireWorkspaceNameFree 判定名字有没有被占用。excludeID 非空时排除它自己
-// （改名的场景：把工作区改成它现在的名字不算重名）。
+// （改名的场景：把工作区改成它现在的名字——哪怕只改大小写——不算重名）。
 //
-// COLLATE NOCASE 只折 ASCII 大小写，这是 SQLite 的能力边界：中文没有大小写，
-// 希腊/西里尔字母的折叠它做不到。所以「大小写不敏感」这句话在代码里就是
-// NOCASE 这一个词，不要以为它能覆盖全部 Unicode；真要覆盖得在 Go 里用
-// strings.EqualFold 读全表，而那样判重就不再是 SQL 的等值查询了。
+// 判重不用 SQL 的 COLLATE NOCASE：那个只折 ASCII，能挡住 `Work` 与 `work`，
+// 挡不住 `İstanbul` 与 `istanbul`，也挡不住希腊/西里尔字母的大小写。这里在
+// 写事务里把现有名字全读出来，用 Go 的字符串比较：
+//
+//   - 两边都先 strings.TrimSpace，与 normalizeWorkspaceName 存下来的形态对齐；
+//   - strings.EqualFold 做 Unicode 简单大小写折叠：`Café`/`CAFÉ` 相等，
+//     `K`（U+212A KELVIN SIGN）与 `k` 相等；
+//   - 再用 strings.ToLower 兜底一次：少数大写字符没有简单折叠，但能折成
+//     单个小写 rune。典型是 U+0130 `İ`（LATIN CAPITAL LETTER I WITH DOT
+//     ABOVE）：EqualFold("İstanbul","istanbul") 为 false，而两者的 ToLower
+//     都是 "istanbul"，所以本实现判为重名。
+//
+// 已知边界（不要读成「完整 Unicode 大小写不敏感」）：
+//
+//   - 不做 Unicode 规范化：预组合的 `é`（U+00E9）与 `e` + U+0301 是两个名字；
+//   - 不做兼容折叠（NFKC/NFKD）：全角 `Ａ`（U+FF21）与半角 `A` 不相等；
+//   - 不做变音符号剥离：`café` 与 `cafe` 是两个名字（只折大小写，
+//     `café` 与 `CAFÉ` 相等）；
+//   - 不展开 ß、ﬁ 这类需要全量 case folding 的字符：`Straße` 与 `STRASSE`
+//     不相等；
+//   - strings.ToLower 是语言无关的逐 rune 映射，不是土耳其语区域规则
+//     （土耳其语里 İ→i、I→ı 是两套不同规则；这里只按 Unicode 默认映射走）。
+//
+// 中文没有大小写，逐字相等即同名，不受上述折叠影响。
+//
+// 读全表而不是一条 SELECT ... WHERE：现有工作区是「用户在左栏里手动建的
+// 那些」的量级，几十行；换来的是判重口径只由 Go 这一处决定，不会出现
+// SQLite 的 NOCASE 与 Go 的 EqualFold 各说各话。判重与插入仍在同一个写事务
+// （BEGIN IMMEDIATE）里，并发同名请求不会都插进去（见 CreateWorkspace）。
 func (t *Tx) requireWorkspaceNameFree(ctx context.Context, name, excludeID string) error {
-	q := `SELECT COUNT(*) FROM workspaces WHERE name = ? COLLATE NOCASE`
-	args := []any{name}
-	if excludeID != "" {
-		q += ` AND id <> ?`
-		args = append(args, excludeID)
-	}
-	var n int
-	if err := t.tx.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
+	rows, err := t.tx.QueryContext(ctx, `SELECT id, name FROM workspaces`)
+	if err != nil {
 		return fmt.Errorf("check workspace name %q: %w", name, err)
 	}
-	if n > 0 {
-		return fmt.Errorf("workspace name %q: %w", name, ErrWorkspaceNameTaken)
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, existing string
+		if err := rows.Scan(&id, &existing); err != nil {
+			return fmt.Errorf("check workspace name %q: %w", name, err)
+		}
+		if excludeID != "" && id == excludeID {
+			continue
+		}
+		if workspaceNamesEqual(name, existing) {
+			return fmt.Errorf("workspace name %q（与现有工作区的名字 %q 折叠后相同）: %w",
+				name, existing, ErrWorkspaceNameTaken)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("check workspace name %q: %w", name, err)
 	}
 	return nil
+}
+
+// workspaceNamesEqual 是工作区判重的唯一比较函数。
+//
+// 调用方传进来的 name 已经由 normalizeWorkspaceName 去过空白；existing 来自
+// 库，正常路径也是去空白之后的形态，但直插的行可能带空白，所以这里两边
+// 都再 trim 一次。比较顺序是先 EqualFold 再 ToLower 兜底，语义与边界见
+// requireWorkspaceNameFree 的注释。
+func workspaceNamesEqual(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == b || strings.EqualFold(a, b) {
+		return true
+	}
+	return strings.ToLower(a) == strings.ToLower(b)
 }
 
 // workspaceRow 按 id 读一行工作区（不含会话数），不存在时返回包了

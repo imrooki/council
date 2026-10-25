@@ -567,10 +567,11 @@ func buildV8Shape() map[string][]columnShape {
 // 把工作区做成「目录」会让「我想把两个项目的会话放一起看」变成一件做不到的事。
 //
 // 三件事写在同一个迁移里，因为它们是同一次契约面改动：
-//   - workspaces：id 是十六进制主键，name 唯一性由 store 在写事务里判（大小写
-//     不敏感），不建 UNIQUE 索引 —— 那张索引要写成 COLLATE NOCASE 才和判重
-//     口径一致，而 SQLite 的 NOCASE 只折 ASCII，把「唯一」写进索引会让人以为
-//     它也能折中文/希腊字母的大小写。判重与建表分开这件事在 workspace.go 里写明。
+//   - workspaces：id 是十六进制主键，name 唯一性由 store 在写事务里判（Unicode
+//     大小写折叠），不建 UNIQUE 索引 —— SQLite 的 COLLATE NOCASE 只折 ASCII，
+//     而写进索引的规则必须与 workspace.go 的 Go 判重逐字一致；把「唯一」写进
+//     一个只折 ASCII 的索引，会让人以为中文/希腊字母/İ 也被覆盖了。判重与
+//     建表分开这件事在 workspace.go 里写明。
 //   - conversations.workspace_id：可空、无默认值。NULL 是「未分组」的唯一表示，
 //     不带 DEFAULT 才能让迁移前的每一行自然读成 NULL，不需要 UPDATE 补值。
 //     不加 REFERENCES workspaces(id)：删工作区时要把成员会话的归属置 NULL，

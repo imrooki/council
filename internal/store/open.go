@@ -27,6 +27,51 @@ type Store struct {
 	write *sql.DB
 	read  *sql.DB
 	lock  *dataDirLock
+
+	// schemaVersion 是打开时库里的 schema 版本。写模式在迁移成功之后等于
+	// expectedVersion；只读模式可能更小（旧库），见 SchemaVersion。
+	schemaVersion int64
+	// expectedVersion 是这个 Store 的二进制期望的 schema 版本，打开时冻结。
+	// 不在每次读 health 时重算：migrations 是包级变量，测试会临时截断它，
+	// 一个已经打开的 Store 不该因为别人改了全局变量而突然改变口径。
+	expectedVersion int64
+	// shape 是只读打开旧库时按 PRAGMA 探测出来的实际结构。写模式固定为
+	// 「当前版本的全集」；只读模式缺的列按零值读，见 read.go。
+	shape readShape
+}
+
+// readShape 记录读取路径依赖的 conversations 列与 workspaces 表是否存在。
+//
+// 为什么只探测这几项：v7/v8/v9 这三次迁移只给 conversations 加了
+// deleted_at / archived_at / workspace_id，并新建了 workspaces 表；看板的
+// 列表、详情、消息与分组都直接按列名读它们。更早的 cwd (v6) / team_id (v4)
+// 也一并探测，让 v5/v6 的旧库至少能正常列出会话与详情。
+//
+// 这里不做「整库所有列」的探测：消息、成员、游标从 v1 起就没变过；
+// turn_usage 在 v2/v4 改过结构，v4 之前的旧库不在只读看板的保证范围内，
+// 让它按真实的 SQL 错误暴露，而不是假装读得出。
+type readShape struct {
+	teamID      bool
+	cwd         bool
+	deletedAt   bool
+	archivedAt  bool
+	workspaceID bool
+	// workspaces 是 workspaces 表是否存在（v9 才有）。旧库没有分组，
+	// GET /api/workspaces 按空列表返回，而不是让左栏整个 500。
+	workspaces bool
+}
+
+// currentReadShape 是当前 schema 版本（v9）的结构全集。写模式迁移之后、
+// 以及只读打开一个最新库时用它。
+func currentReadShape() readShape {
+	return readShape{
+		teamID:      true,
+		cwd:         true,
+		deletedAt:   true,
+		archivedAt:  true,
+		workspaceID: true,
+		workspaces:  true,
+	}
 }
 
 var _ conversation.Store = (*Store)(nil)
@@ -155,6 +200,13 @@ func Open(ctx context.Context, dataDir string) (*Store, error) {
 		}
 		return nil, fmt.Errorf("check schema %s: %w", dbPath, err)
 	}
+
+	// 写模式一定停在 migrations 的最后一版：migrate 负责补齐，validateSchema
+	// 负责证明补齐之后确实是这一版的结构。所以这里可以同时把版本与结构
+	// 都记成「当前版本」，不留「库比二进制旧」的中间态。
+	s.schemaVersion = expectedSchemaVersion()
+	s.expectedVersion = s.schemaVersion
+	s.shape = currentReadShape()
 	return s, nil
 }
 
@@ -196,6 +248,26 @@ func (s *Store) Close() error {
 // Path 返回库文件的绝对路径。
 func (s *Store) Path() string {
 	return s.path
+}
+
+// SchemaVersion 返回打开时库里的 schema 版本。写模式在迁移之后等于当前
+// 二进制期望的版本；只读模式可能是更小的旧版本（旧库允许只读打开）。
+func (s *Store) SchemaVersion() int64 {
+	return s.schemaVersion
+}
+
+// ExpectedSchemaVersion 返回打开这个 Store 的二进制期望的 schema 版本，
+// 也就是 migrations 最后一版的版本号。它不随库里的实际版本变化，供
+// /api/health 与前端提示条说明「程序是 vM」。
+func (s *Store) ExpectedSchemaVersion() int64 {
+	return s.expectedVersion
+}
+
+// SchemaLag 回答「库比这个二进制旧」。只读模式打开旧库时 true，看板据此
+// 显示一条升级提示；写模式迁移之后恒为 false。库比二进制新时 OpenReadOnly
+// 会直接拒绝，走不到这里。
+func (s *Store) SchemaLag() bool {
+	return s.schemaVersion < s.expectedVersion
 }
 
 func newID() (string, error) {

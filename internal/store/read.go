@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"council/internal/conversation"
 )
@@ -21,7 +22,15 @@ type rowScanner interface {
 // 用 EXISTS 而不是 JOIN：这些查询本来只读一张表，加 JOIN 会让每一列都要
 // 判断歧义，而且 LIMIT / ORDER BY 的语义也得跟着重看一遍。EXISTS 只加一个
 // 半连接，读出来的行数与列都保持原样。
-func visibleConv(table string) string {
+//
+// 只读打开 v7 之前的旧库时，conversations 没有 deleted_at 这一列（v7 才加）。
+// 那时整条过滤退化成恒真：那个版本的 council 根本没有软删除这回事，库里
+// 不可能存在带 deleted_at 标记的行。这是「缺的列按零值读」的一种，不是
+// 把删除过滤悄悄关掉——当前库与 v7+ 的旧库照旧走 EXISTS。
+func (s *Store) visibleConv(table string) string {
+	if !s.shape.deletedAt {
+		return `1 = 1`
+	}
 	return `EXISTS (SELECT 1 FROM conversations c WHERE c.id = ` + table + `.conv_id AND c.deleted_at IS NULL)`
 }
 
@@ -39,9 +48,11 @@ func visibleConv(table string) string {
 // WorkspaceID 同理照常带出：归档不改变归属，一个已归档的会话仍然属于
 // 它原来的工作区，取消归档之后它要回到那一组里去。
 func (s *Store) Conversation(ctx context.Context, id string) (conversation.Conversation, error) {
-	row := s.read.QueryRowContext(ctx,
-		`SELECT id, title, created_at, team_id, cwd, archived_at, workspace_id FROM conversations WHERE id = ? AND deleted_at IS NULL`, id,
-	)
+	q := `SELECT ` + s.conversationSelectColumns() + ` FROM conversations WHERE id = ?`
+	if s.shape.deletedAt {
+		q += ` AND deleted_at IS NULL`
+	}
+	row := s.read.QueryRowContext(ctx, q, id)
 	c, err := scanConversation(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return conversation.Conversation{}, fmt.Errorf("conversation %s: %w", id, conversation.ErrConversationNotFound)
@@ -58,14 +69,73 @@ func (s *Store) Conversation(ctx context.Context, id string) (conversation.Conve
 // 这是全包唯一过滤 archived_at 的读路径。详情、消息、成员、用量与
 // 执行状态都不许跟：归档只影响「主列表里还出不出现」，不影响会话本身。
 func (s *Store) Conversations(ctx context.Context) ([]conversation.Conversation, error) {
-	return s.listConversations(ctx, `deleted_at IS NULL AND archived_at IS NULL`)
+	return s.listConversations(ctx, s.conversationListWhere(false))
 }
 
 // ArchivedConversations 列出全部未删除、已归档的会话，排序与 Conversations 相同。
 // 已软删的会话一样不含：删除的优先级高于归档，两种标记都有的会话对外不存在。
 // 空结果是空切片不是 nil。
 func (s *Store) ArchivedConversations(ctx context.Context) ([]conversation.Conversation, error) {
-	return s.listConversations(ctx, `deleted_at IS NULL AND archived_at IS NOT NULL`)
+	return s.listConversations(ctx, s.conversationListWhere(true))
+}
+
+// conversationSelectColumns 是 Conversation / listConversations 共用的八列
+// SELECT 前缀。列数与顺序恒定，scanConversation 不需要为旧库再写一份扫描。
+//
+// 旧库缺的列用零值表达式补：
+//   - team_id / cwd 是 NOT NULL TEXT，缺列时补空串；用 NULL 会扫不进 string；
+//   - archived_at / workspace_id 缺列时补 NULL，这是它们「没归档 / 未分组」的
+//     唯一表示，补空串会让 archived_at 读成「有值」而误判为已归档。
+//
+// 探测结果来自 OpenReadOnly 的 probeReadOnlyShape；写模式固定为当前版本全集，
+// 所以这条函数对现有库拼出来的 SQL 与 A3 之前逐字相同（只是多了别名）。
+func (s *Store) conversationSelectColumns() string {
+	teamID, cwd := "''", "''"
+	if s.shape.teamID {
+		teamID = "team_id"
+	}
+	if s.shape.cwd {
+		cwd = "cwd"
+	}
+	archivedAt, workspaceID := "NULL", "NULL"
+	if s.shape.archivedAt {
+		archivedAt = "archived_at"
+	}
+	if s.shape.workspaceID {
+		workspaceID = "workspace_id"
+	}
+	return `id, title, created_at, ` +
+		teamID + ` AS team_id, ` +
+		cwd + ` AS cwd, ` +
+		archivedAt + ` AS archived_at, ` +
+		workspaceID + ` AS workspace_id`
+}
+
+// conversationListWhere 拼两个列表视图的 WHERE。参数只由本文件的
+// Conversations / ArchivedConversations 传进来，不接受调用方拼条件。
+//
+// 旧库缺列时的语义：
+//   - 没有 deleted_at：这个版本没有软删除，不补条件；
+//   - 没有 archived_at：没有「已归档」这个概念，默认视图就是全部，归档视图
+//     必须是空集（返回恒假，而不是退回默认列表——两个视图显示同一批会话
+//     会让「已归档」这个按钮看起来坏了）。
+func (s *Store) conversationListWhere(archived bool) string {
+	var conds []string
+	if s.shape.deletedAt {
+		conds = append(conds, "deleted_at IS NULL")
+	}
+	switch {
+	case s.shape.archivedAt && archived:
+		conds = append(conds, "archived_at IS NOT NULL")
+	case s.shape.archivedAt:
+		conds = append(conds, "archived_at IS NULL")
+	case archived:
+		return "0 = 1"
+	}
+	if len(conds) == 0 {
+		return "1 = 1"
+	}
+	return strings.Join(conds, " AND ")
 }
 
 // listConversations 是两个列表查询的唯一实现。where 只由本文件的
@@ -75,7 +145,7 @@ func (s *Store) ArchivedConversations(ctx context.Context) ([]conversation.Conve
 // 「归档与工作区正交」这句话在 SQL 里就是两个独立的列，谁也不是谁的条件。
 func (s *Store) listConversations(ctx context.Context, where string) ([]conversation.Conversation, error) {
 	rows, err := s.read.QueryContext(ctx,
-		`SELECT id, title, created_at, team_id, cwd, archived_at, workspace_id FROM conversations WHERE `+where+` ORDER BY created_at DESC, id ASC`,
+		`SELECT `+s.conversationSelectColumns()+` FROM conversations WHERE `+where+` ORDER BY created_at DESC, id ASC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
@@ -100,7 +170,7 @@ func (s *Store) listConversations(ctx context.Context, where string) ([]conversa
 // 结果按 agent_id 升序。空结果是空切片不是 nil。
 // 已软删的会话按「没有成员」处理，不把成员行留给调用方去拼。
 func (s *Store) Participants(ctx context.Context, convID string, includeInactive bool) ([]conversation.Participant, error) {
-	q := `SELECT conv_id, agent_id, display_name, provider, active, joined_at, left_at FROM participants WHERE conv_id = ? AND ` + visibleConv("participants")
+	q := `SELECT conv_id, agent_id, display_name, provider, active, joined_at, left_at FROM participants WHERE conv_id = ? AND ` + s.visibleConv("participants")
 	args := []any{convID}
 	if !includeInactive {
 		q += ` AND active = 1`
@@ -132,7 +202,7 @@ func (s *Store) Participants(ctx context.Context, convID string, includeInactive
 // 已软删的会话返回空切片：消息行还在，但对外的会话已经不存在。
 func (s *Store) Messages(ctx context.Context, convID string, afterSeq int64, limit int) ([]conversation.Message, error) {
 	const cols = `id, conv_id, seq, sender_id, sender_provider, sender_model, sender_effort, recipients, kind, text, thought, parent_id, created_at, meta`
-	q := `SELECT ` + cols + ` FROM messages WHERE conv_id = ? AND ` + visibleConv("messages") + ` AND seq > ? ORDER BY seq ASC`
+	q := `SELECT ` + cols + ` FROM messages WHERE conv_id = ? AND ` + s.visibleConv("messages") + ` AND seq > ? ORDER BY seq ASC`
 
 	var (
 		rows *sql.Rows
@@ -167,7 +237,7 @@ func (s *Store) Messages(ctx context.Context, convID string, afterSeq int64, lim
 func (s *Store) MaxSeq(ctx context.Context, convID string) (int64, error) {
 	var seq int64
 	if err := s.read.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(seq), 0) FROM messages WHERE conv_id = ? AND `+visibleConv("messages"), convID,
+		`SELECT COALESCE(MAX(seq), 0) FROM messages WHERE conv_id = ? AND `+s.visibleConv("messages"), convID,
 	).Scan(&seq); err != nil {
 		return 0, fmt.Errorf("max seq %s: %w", convID, err)
 	}
@@ -178,7 +248,7 @@ func (s *Store) MaxSeq(ctx context.Context, convID string) (int64, error) {
 // 已软删的会话读不到游标：它的执行状态仍在库里，但不能经 convID 再被读出来。
 func (s *Store) Cursor(ctx context.Context, convID, agentID string) (conversation.Cursor, error) {
 	row := s.read.QueryRowContext(ctx,
-		`SELECT conv_id, agent_id, seq, pending, updated_at FROM cursors WHERE conv_id = ? AND agent_id = ? AND `+visibleConv("cursors"),
+		`SELECT conv_id, agent_id, seq, pending, updated_at FROM cursors WHERE conv_id = ? AND agent_id = ? AND `+s.visibleConv("cursors"),
 		convID, agentID,
 	)
 	c, err := scanCursor(row)
@@ -195,7 +265,7 @@ func (s *Store) Cursor(ctx context.Context, convID, agentID string) (conversatio
 // 已软删的会话返回空切片，理由同 Cursor。
 func (s *Store) Cursors(ctx context.Context, convID string) ([]conversation.Cursor, error) {
 	rows, err := s.read.QueryContext(ctx,
-		`SELECT conv_id, agent_id, seq, pending, updated_at FROM cursors WHERE conv_id = ? AND `+visibleConv("cursors")+` ORDER BY agent_id ASC`,
+		`SELECT conv_id, agent_id, seq, pending, updated_at FROM cursors WHERE conv_id = ? AND `+s.visibleConv("cursors")+` ORDER BY agent_id ASC`,
 		convID,
 	)
 	if err != nil {
@@ -228,7 +298,7 @@ func (s *Store) ProviderSession(ctx context.Context, convID, agentID string) (co
 	row := s.read.QueryRowContext(ctx, `
 SELECT conv_id, agent_id, provider_session_id, cursor_seq, cost_total_usd,
        have_cost_total, last_turn_at, identity_fp, spoken, baseline_suspect
-FROM provider_sessions WHERE conv_id = ? AND agent_id = ? AND `+visibleConv("provider_sessions"),
+FROM provider_sessions WHERE conv_id = ? AND agent_id = ? AND `+s.visibleConv("provider_sessions"),
 		convID, agentID,
 	)
 	ps, err := scanProviderSession(row)
@@ -309,7 +379,7 @@ func (s *Store) InflightFor(ctx context.Context, convID, agentID string) (conver
 	row := s.read.QueryRowContext(ctx, `
 SELECT turn_id, conv_id, agent_id, provider, planned_session_id, resume_session_id,
        cursor_seq, scanned_to, started_at, phase, tier, work_dir
-FROM inflight_turns WHERE conv_id = ? AND agent_id = ? AND `+visibleConv("inflight_turns"),
+FROM inflight_turns WHERE conv_id = ? AND agent_id = ? AND `+s.visibleConv("inflight_turns"),
 		convID, agentID,
 	)
 	t, err := scanInflightTurn(row)
@@ -387,7 +457,7 @@ func (s *Store) TurnUsages(ctx context.Context, convID, agentID string, limit in
        input_tokens, cache_create, cache_read, output_tokens, thinking_tokens,
        cost_usd, cost_cumulative_usd, cold_start, wall_ms, prompt_bytes,
        delivered_lo, delivered_hi, created_at, identity_fp, round_id`
-	where := `WHERE conv_id = ? AND ` + visibleConv("turn_usage")
+	where := `WHERE conv_id = ? AND ` + s.visibleConv("turn_usage")
 	args := []any{convID}
 	if agentID != "" {
 		where += ` AND agent_id = ?`
