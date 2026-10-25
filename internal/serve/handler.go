@@ -50,6 +50,15 @@ type Server struct {
 	// write 非 nil 表示 -rw 写模式已经装配好：有配置、Service 与 Runner，
 	// /api/ask 与 /api/jobs 才会真正工作。只读模式保持 nil，两个端点回 405。
 	write *WriteDeps
+	// cfgMu 保护 write.Cfg。设置页保存成功后会把它换成磁盘上的新配置
+	// （展示用），而 /api/options 与成员管理可能同时在读。RunCfg 不换，
+	// 不需要这把锁（见 WriteDeps.RunCfg 的注释）。
+	cfgMu sync.RWMutex
+	// settingsMu 让设置页的两次写盘串行化。两次并发保存各自「读原文 ->
+	// 写临时文件 -> 校验 -> 备份 -> Rename」时，最终文件仍是其中一次的
+	// 完整结果（不会写坏），但两份备份与两次校验交错没有意义：拿到锁
+	// 之后再读当前配置，第二次写才看得见第一次的结果。
+	settingsMu sync.Mutex
 	// jobs 是写模式的内存任务表；只有 EnableWrite 之后才非 nil。
 	jobs *jobTable
 	// jobTTL 是任务结束后在内存里保留的时长，零值表示 defaultJobTTL。
@@ -95,6 +104,13 @@ func (s *Server) Handler() http.Handler {
 	// （handler 里的 s.write == nil）。路由本身不按模式分叉，只读模式
 	// 才能回 405 + 说明而不是被 /api/ 兜底成 404。
 	mux.HandleFunc("/api/options", s.handleOptions)
+	// 设置页（GUI 第 6 片）：GET /api/settings 是合并配置的只读快照，
+	// 两个 POST 是本仓库唯一会写用户配置文件的路径。与 /api/ask 同一个
+	// 门：只读模式下都由 handler 里的 s.write == nil 回 405，路由本身
+	// 不按模式分叉。
+	mux.HandleFunc("/api/settings", s.handleSettings)
+	mux.HandleFunc("/api/settings/agents", s.handleSettingsAgentSave)
+	mux.HandleFunc("/api/settings/agents/", s.handleSettingsAgentPath)
 	mux.HandleFunc("/api/jobs/", s.handleJobPath)
 	mux.HandleFunc("/api/", s.handleAPINotFound)
 	mux.HandleFunc("/api", s.handleAPINotFound)

@@ -63,8 +63,8 @@ func (s *Server) agentModel(agentID string) string {
 	if model := s.models[agentID]; model != "" {
 		return model
 	}
-	if s.write != nil && s.write.Cfg != nil {
-		return s.write.Cfg.Agents[agentID].Model
+	if cfg := s.currentCfg(); cfg != nil {
+		return cfg.Agents[agentID].Model
 	}
 	return ""
 }
@@ -167,7 +167,7 @@ func (s *Server) handleConversationMemberAdd(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ac, ok := cfgAgents(s.write.Cfg)[agentID]
+	ac, ok := cfgAgents(s.currentCfg())[agentID]
 	if !ok {
 		writeError(w, http.StatusBadRequest,
 			fmt.Sprintf("未知成员 %q：它不在当前配置的 [agents] 里（Claude 导入的成员会合并进来）", agentID))

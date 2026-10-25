@@ -186,7 +186,15 @@ func RestoreFile(path string, orig []byte) error {
 // 占时，错误文本同时写出不带后缀的名字与 -2..99。某个名字已经建好、Write 或
 // Close 写到一半失败时，那个残缺的文件不删，返回空串（open item (p)，待主代理）。
 func writeBackup(path string, orig []byte, now time.Time) (string, error) {
-	base := path + ".bak-add-" + now.Format("20060102-150405")
+	return writeBackupWithSuffix(path, ".bak-add-", orig, now)
+}
+
+// writeBackupWithSuffix 是两种备份共用的实现：/add 用 ".bak-add-"，
+// 设置页的原地改写用任务书指定的 ".bak-"（<文件名>.bak-<YYYYMMDD-HHmmss>）。
+// 后缀不同是刻意的：一眼就能分出「这是追加前的原件」与「这是设置页写前的
+// 原件」，两者的还原路径不同。
+func writeBackupWithSuffix(path, suffix string, orig []byte, now time.Time) (string, error) {
+	base := path + suffix + now.Format("20060102-150405")
 	for i := 1; i <= maxBackupAttempts; i++ {
 		name := base
 		if i > 1 {
@@ -214,31 +222,55 @@ func writeBackup(path string, orig []byte, now time.Time) (string, error) {
 // writeFileAtomic 在 path 的同一目录建 <名字>.tmp-add-*，写完、Sync、关闭、
 // 按 perm Chmod，再 Rename 覆盖 path。Windows 上 os.Rename 会替换已存在的目标。
 // 任何一步失败都删掉临时文件；成功之后临时文件已经改名为 path，不再删。
-func writeFileAtomic(path string, data []byte, perm fs.FileMode) (err error) {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-add-*")
+func writeFileAtomic(path string, data []byte, perm fs.FileMode) error {
+	tmpName, err := writeTempFile(filepath.Dir(path), filepath.Base(path)+".tmp-add-*", data, perm)
 	if err != nil {
 		return err
 	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
+}
+
+// writeTempFile 在 dir 里建一个临时文件（pattern 必须带 *），写入 data、
+// Sync、按 perm Chmod 之后关闭，返回临时文件路径。任何一步失败都会删掉
+// 这个临时文件。成功之后临时文件归调用方：它负责 Rename 覆盖目标，或者在
+// 放弃时自己删掉。
+//
+// 单独抽出来是给设置页用的：那边要先拿临时文件当「最高优先层」跑一遍
+// LoadMerged + Validate，通过了才备份并 Rename。校验失败时目标文件一个
+// 字节都没动，临时文件在这里被清掉。
+func writeTempFile(dir, pattern string, data []byte, perm fs.FileMode) (string, error) {
+	if !strings.Contains(pattern, "*") {
+		pattern += "*"
+	}
+	tmp, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return "", err
+	}
 	tmpName := tmp.Name()
+	keep := false
 	defer func() {
-		if err != nil {
+		if !keep {
 			_ = os.Remove(tmpName)
 		}
 	}()
-	if _, err = tmp.Write(data); err != nil {
+	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
-		return err
+		return "", err
 	}
-	if err = tmp.Sync(); err != nil {
+	if err := tmp.Sync(); err != nil {
 		tmp.Close()
-		return err
+		return "", err
 	}
-	if err = tmp.Close(); err != nil {
-		return err
+	if err := tmp.Close(); err != nil {
+		return "", err
 	}
-	if err = os.Chmod(tmpName, perm); err != nil {
-		return err
+	if err := os.Chmod(tmpName, perm); err != nil {
+		return "", err
 	}
-	return os.Rename(tmpName, path)
+	keep = true
+	return tmpName, nil
 }

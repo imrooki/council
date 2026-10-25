@@ -75,6 +75,17 @@ type WriteDeps struct {
 	Svc     *conversation.Service
 	Rn      *turn.Runner
 	DataDir string
+	// RunCfg 是启动时交给 Runner 的那一份配置。设置页保存成功后 Cfg 会被
+	// 换成磁盘上的新配置（只用于展示），RunCfg 保持不变：Runner 不重建，
+	// /api/ask 的校验与执行必须继续按启动时的那份来，否则会出现「设置页
+	// 刚加的成员校验通过、Runner 不认识它」的错位。
+	// 为空时 EnableWrite 把它设成 Cfg（同一个指针）；直接构造 WriteDeps 的
+	// 测试不必关心这个字段。
+	RunCfg *config.Config
+	// Layers 是启动时实际合并的配置层（高优先级在前），设置页靠它展示
+	// 层清单、决定写哪一份。生产由 runWritable 填入；直接构造 WriteDeps
+	// 的测试可以留空，设置接口会退化成「ConfigPath 这一份」。
+	Layers []config.Layer
 	// ProjectDir 与 app.Run 里那个同义：从服务进程的启动目录规范化而来，
 	// 新会话据此归属项目，CLI 的 /resume 才能按同一个项目把它们列出来。
 	ProjectDir string
@@ -114,6 +125,11 @@ type WriteDeps struct {
 // Service 与 Runner；本方法只保存引用并建任务表，不做任何装配工作，
 // 因为「怎么装配」属于 serve.Run 的职责，不属于 HTTP handler。
 func (s *Server) EnableWrite(deps WriteDeps) {
+	if deps.RunCfg == nil {
+		// 同一个指针：之后设置页只会替换 deps.Cfg 这个字段，不会原地改
+		// 这份配置，所以 Runner 手里的那份仍是启动时的内容。
+		deps.RunCfg = deps.Cfg
+	}
 	s.write = &deps
 	s.jobs = newJobTable()
 	// 后台议会的父 ctx 跟着 Server 的生命周期，不跟任何一条 HTTP 请求。
@@ -170,6 +186,7 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 		}
 	}
 	cfg, rules, dataDir, configPath := wc.cfg, wc.rules, wc.dataDir, wc.path
+	layers := wc.layers
 
 	st, err := store.Open(ctx, dataDir)
 	if err != nil {
@@ -257,6 +274,7 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 		DataDir:                     dataDir,
 		ProjectDir:                  projectDir,
 		ConfigPath:                  configPath,
+		Layers:                      layers,
 		Cwd:                         cwd,
 		ClaudeAgents:                claude.agents,
 		ClaudeAgentsMerged:          claude.merged,
@@ -300,6 +318,11 @@ type writeConfig struct {
 	dataDir string
 	path    string
 	notices []string
+	// layers 是本次实际参与合并的配置层（高优先级在前）。设置页要展示
+	// 「哪几层生效、写回会落到哪一份」，而写目标永远是 layers[0]。把它
+	// 一并交回，比在 handler 里按 cwd / HOME 重新解析一遍可靠：进程启动
+	// 之后目录与环境变量都可能变，重新解析会指向另一份文件。
+	layers []config.Layer
 }
 
 // loadWriteConfig 是写模式与只读模式的 resolveDataDir 分开的一份：写模式
@@ -345,6 +368,7 @@ func loadWriteConfig(configPath string) (writeConfig, error) {
 		dataDir: dataDir,
 		path:    primary,
 		notices: merged.Notices,
+		layers:  layers,
 	}, nil
 }
 
@@ -468,7 +492,7 @@ func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
 		Teams:      []teamOption{},
 		Skills:     []skillOption{},
 	}
-	cfg := s.write.Cfg
+	cfg := s.currentCfg()
 	if cfg != nil {
 		resp.SummaryAgent = cfg.Summary.Agent
 	}
@@ -476,30 +500,7 @@ func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
 	// 配置里的成员与 Claude 导入的成员合成一张表再排序，前端拿到的仍是
 	// 一份按 id 字典序的稳定列表；只排两段再接起来的话，Claude id 落在
 	// 配置 id 中间时顺序会乱。
-	//
-	// 合并之后「配置成员」与「Claude 成员」都在 cfg.Agents 里，来源必须靠
-	// ClaudeAgentsMerged 区分：否则导入的成员会被误标成 source = "config"，
-	// 前端就再也没法把它们画成只读导入的那一类。
-	configAgents := cfgAgents(cfg)
-	agents := make([]agentOption, 0, len(configAgents)+len(s.write.ClaudeAgents))
-	for _, id := range sortedAgentIDs(configAgents) {
-		source := agentSourceConfig
-		if _, merged := s.write.ClaudeAgentsMerged[id]; merged {
-			source = agentSourceClaude
-		}
-		agents = append(agents, newAgentOption(id, configAgents[id], source))
-	}
-	for _, id := range sortedAgentIDs(s.write.ClaudeAgents) {
-		if _, ok := configAgents[id]; ok {
-			// 配置优先。ScanClaudeAgents 已经按 reserved 跳过了一遍，
-			// 这里再挡一次：直接构造 WriteDeps 的测试或将来别的装配方
-			// 可能绕过扫描，重复的 id 不该出现在响应里。
-			continue
-		}
-		agents = append(agents, newAgentOption(id, s.write.ClaudeAgents[id], agentSourceClaude))
-	}
-	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
-	resp.Agents = append(resp.Agents, agents...)
+	resp.Agents = append(resp.Agents, s.displayAgentOptions(cfg)...)
 
 	if cfg != nil {
 		teamIDs := make([]string, 0, len(cfg.Teams))
@@ -532,6 +533,39 @@ func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// displayAgentOptions 返回「展示用」的成员表：配置成员 + Claude 导入成员，
+// 按 id 排序，并标出来源。/api/options 与设置页共用这一份，来源规则只有
+// 一处实现——两处各写一遍迟早会漂成两套「谁是只读导入」的答案。
+//
+// 合并之后「配置成员」与「Claude 成员」都在 cfg.Agents 里，来源必须靠
+// ClaudeAgentsMerged 区分：否则导入的成员会被误标成 source = "config"，
+// 前端就再也没法把它们画成只读导入的那一类。
+func (s *Server) displayAgentOptions(cfg *config.Config) []agentOption {
+	if s.write == nil {
+		return nil
+	}
+	configAgents := cfgAgents(cfg)
+	agents := make([]agentOption, 0, len(configAgents)+len(s.write.ClaudeAgents))
+	for _, id := range sortedAgentIDs(configAgents) {
+		source := agentSourceConfig
+		if _, merged := s.write.ClaudeAgentsMerged[id]; merged {
+			source = agentSourceClaude
+		}
+		agents = append(agents, newAgentOption(id, configAgents[id], source))
+	}
+	for _, id := range sortedAgentIDs(s.write.ClaudeAgents) {
+		if _, ok := configAgents[id]; ok {
+			// 配置优先。ScanClaudeAgents 已经按 reserved 跳过了一遍，
+			// 这里再挡一次：直接构造 WriteDeps 的测试或将来别的装配方
+			// 可能绕过扫描，重复的 id 不该出现在响应里。
+			continue
+		}
+		agents = append(agents, newAgentOption(id, s.write.ClaudeAgents[id], agentSourceClaude))
+	}
+	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
+	return agents
 }
 
 // cfgAgents 容忍 nil 配置：只读装配不会走到 /api/options（s.write == nil
@@ -1042,7 +1076,10 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	// 校验失败时再交给 claudeProviderHint 看一眼：名字确实来自
 	// .claude/agents、只是缺 [providers.claude] 的那几条，要在 400 里
 	// 说清根因，而不是让用户对着「配置里没有这个 agent」去改配置。
-	if err := headless.Validate(opts, s.write.Cfg); err != nil {
+	// 校验用启动时的那一份（RunCfg），不是设置页刚换掉的展示配置：Runner
+	// 不重建，按新配置放行的成员在 Runner 眼里仍然不存在。设置页保存后的
+	// 提示里已经把「重启后生效」写清楚了。
+	if err := headless.Validate(opts, s.runCfg()); err != nil {
 		writeError(w, http.StatusBadRequest, s.claudeProviderHint(err, opts.Members).Error())
 		return
 	}
@@ -1298,7 +1335,7 @@ func (s *Server) runAskJob(j *job, opts headless.Options) {
 	var buf bytes.Buffer
 
 	deps := headless.Deps{
-		Cfg:        s.write.Cfg,
+		Cfg:        s.runCfg(),
 		Svc:        s.write.Svc,
 		Rn:         s.write.Rn,
 		DataDir:    s.write.DataDir,

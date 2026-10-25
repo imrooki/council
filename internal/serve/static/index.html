@@ -935,6 +935,231 @@
   }
   .toast[hidden] { display: none; }
 
+  /* ---- 设置页（GUI 第 6 片） ----
+     这是唯一会写用户配置文件的界面：入口在右上角，面板只读展示合并后的
+     配置，agents 行可以增 / 改 / 删。保存前一定先经过预览确认框，成功后
+     把备份路径与「重启后生效」显示在 #settings-result 里。 */
+  .settings-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    margin-left: 4px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .settings-button:hover { background: var(--surface-2); color: var(--ink); }
+  .settings-button[aria-expanded="true"] { background: var(--surface-2); color: var(--ink); }
+  .settings-button[hidden] { display: none; }
+  .settings-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(15, 17, 21, .38);
+  }
+  .settings-overlay[hidden] { display: none; }
+  #settings-preview { z-index: 80; }
+  .settings-panel {
+    width: min(1040px, 100%);
+    max-height: calc(100vh - 48px);
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .settings-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .settings-head h2 { margin: 0; font-size: 15px; letter-spacing: -.01em; }
+  .settings-sub {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11.5px;
+    color: var(--muted-2);
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  }
+  .settings-head .btn-small { margin-left: auto; flex: none; }
+  .settings-body { overflow: auto; padding: 2px 18px 18px; }
+  .settings-section { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .settings-section:last-child { border-bottom: 0; }
+  .settings-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 8px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+  }
+  .settings-section h3 .btn-small { margin-left: auto; text-transform: none; letter-spacing: 0; }
+  .settings-note {
+    margin: 0 0 8px;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--muted);
+    word-break: break-all;
+  }
+  .settings-layers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .settings-layer {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    font-size: 12px;
+  }
+  .settings-layer.is-target { border-color: var(--accent); background: var(--accent-soft); }
+  .settings-layer .layer-tag {
+    flex: none;
+    padding: 1px 7px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--ink-2);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .settings-layer .layer-path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ink-2);
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  }
+  .settings-layer .layer-state { flex: none; font-size: 11px; color: var(--muted-2); white-space: nowrap; }
+  .settings-layer.is-target .layer-state { color: var(--accent); }
+  .settings-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .settings-table thead th {
+    padding: 6px;
+    border-bottom: 1px solid var(--line-strong);
+    color: var(--muted-2);
+    font-size: 11px;
+    font-weight: 600;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .settings-table tbody td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .settings-table tbody tr:last-child td { border-bottom: 0; }
+  .settings-table .mono {
+    color: var(--ink);
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  }
+  .settings-source { color: var(--muted-2); white-space: nowrap; }
+  .settings-row-actions { text-align: right; white-space: nowrap; }
+  .settings-row-actions .btn-small { padding: 3px 8px; font-size: 11.5px; }
+  .settings-row-actions .btn-small + .btn-small { margin-left: 4px; }
+  .settings-row-actions .btn-small.danger { color: var(--danger); }
+  .settings-row-actions .btn-small:disabled { opacity: .45; cursor: default; }
+  .settings-facts {
+    display: grid;
+    grid-template-columns: 140px minmax(0, 1fr);
+    gap: 6px 12px;
+    margin: 0;
+    font-size: 12px;
+  }
+  .settings-facts dt { color: var(--muted-2); }
+  .settings-facts dd {
+    margin: 0;
+    word-break: break-all;
+    color: var(--ink-2);
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  }
+  .settings-result {
+    margin: 12px 0 0;
+    padding: 10px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--accent-soft);
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: pre-line;
+    word-break: break-all;
+  }
+  .settings-result[hidden] { display: none; }
+  .settings-error {
+    margin: 12px 0 0;
+    padding: 9px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--warn-soft);
+    color: var(--danger);
+    font-size: 12px;
+    line-height: 1.6;
+    word-break: break-word;
+  }
+  .settings-error[hidden] { display: none; }
+  .settings-form-card { width: min(600px, 100%); max-height: calc(100vh - 48px); overflow: auto; }
+  .settings-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    margin: 12px 0 10px;
+  }
+  .settings-field { display: flex; flex-direction: column; gap: 5px; }
+  .settings-field label { font-size: 11.5px; color: var(--muted); }
+  .settings-field input,
+  .settings-field select {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12.5px;
+  }
+  .settings-field input:focus,
+  .settings-field select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .settings-field input:disabled { color: var(--muted-2); background: var(--surface-2); }
+  .settings-form-hint { margin: 0 0 10px; font-size: 11.5px; line-height: 1.7; color: var(--muted-2); word-break: break-all; }
+  .settings-preview-card { width: min(680px, 100%); max-height: calc(100vh - 48px); overflow: auto; }
+  .settings-preview-target { margin: 0 0 8px; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); word-break: break-all; }
+  .settings-diff { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0 12px; }
+  .settings-diff[hidden] { display: none; }
+  .settings-diff th {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--line-strong);
+    color: var(--muted-2);
+    font-size: 11px;
+    font-weight: 600;
+    text-align: left;
+  }
+  .settings-diff td { padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; word-break: break-all; }
+  .settings-diff .diff-field { color: var(--muted); white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+  .settings-diff .diff-old { color: var(--muted-2); }
+  .settings-diff .diff-new { color: var(--ink); font-weight: 600; }
+  .settings-diff tr.is-changed td { background: var(--accent-soft); }
+
   @media (max-width: 1180px) {
     .workspace { grid-template-columns: 250px minmax(0, 1fr); }
     .inspector { display: none; }
@@ -966,6 +1191,18 @@
       <span class="cost-note" id="cost-note"></span>
       <span class="cost-value" id="cost-value">—</span>
     </div>
+    <!-- 设置入口（右上角）。只读模式隐藏：设置接口只在 -rw 下可用，
+         画一个点了只会报错的按钮没有意义。 -->
+    <button id="open-settings" class="settings-button" type="button"
+            title="查看合并后的配置，编辑 agents（需要 council serve -rw）"
+            aria-haspopup="dialog" aria-expanded="false" hidden>
+      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+        <circle cx="8" cy="8" r="2.4" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M8 1.6v1.5M8 12.9v1.5M1.6 8h1.5M12.9 8h1.5M3.5 3.5l1 1M11.5 11.5l1 1M12.5 3.5l-1 1M4.5 11.5l-1 1"
+              fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      </svg>
+      <span>设置</span>
+    </button>
   </header>
   <main class="workspace">
     <aside class="sidebar">
@@ -1183,6 +1420,137 @@
       </div>
     </div>
   </div>
+  <!-- 设置面板（GUI 第 6 片）：只读展示合并后的配置层、agents、teams 与
+       providers。所有能写的东西只有 agents 的增 / 改 / 删，且每次写之前
+       都要经过下面的预览确认框。 -->
+  <div id="settings-overlay" class="settings-overlay" role="dialog" aria-modal="true"
+       aria-labelledby="settings-title" hidden>
+    <div class="settings-panel">
+      <div class="settings-head">
+        <h2 id="settings-title">设置</h2>
+        <span id="settings-sub" class="settings-sub"></span>
+        <button id="settings-close" class="btn-small" type="button">关闭</button>
+      </div>
+      <div id="settings-body" class="settings-body">
+        <div id="settings-result" class="settings-result" hidden></div>
+        <div id="settings-error" class="settings-error" hidden></div>
+        <section class="settings-section">
+          <h3>配置层</h3>
+          <p id="settings-write-target" class="settings-note"></p>
+          <ul id="settings-layers" class="settings-layers"></ul>
+        </section>
+        <section class="settings-section">
+          <h3>agents
+            <button id="settings-agent-add" class="btn-small primary" type="button">+ 新增 agent</button>
+          </h3>
+          <table class="settings-table">
+            <thead>
+              <tr>
+                <th>id</th>
+                <th>display_name</th>
+                <th>provider</th>
+                <th>model</th>
+                <th>effort</th>
+                <th>permissions</th>
+                <th>mode</th>
+                <th>来源</th>
+                <th aria-label="操作"></th>
+              </tr>
+            </thead>
+            <tbody id="settings-agents-body"></tbody>
+          </table>
+          <p id="settings-agents-empty" class="empty" hidden>配置里还没有 agent</p>
+        </section>
+        <section class="settings-section">
+          <h3>teams（只读）</h3>
+          <ul id="settings-teams" class="settings-layers"></ul>
+          <p id="settings-teams-empty" class="empty" hidden>还没有 team</p>
+        </section>
+        <section class="settings-section">
+          <h3>其它（只读）</h3>
+          <dl class="settings-facts">
+            <dt>summary.agent</dt><dd id="settings-summary-agent"></dd>
+            <dt>data_dir</dt><dd id="settings-data-dir"></dd>
+            <dt>config_path</dt><dd id="settings-config-path"></dd>
+            <dt>providers</dt><dd id="settings-providers"></dd>
+          </dl>
+        </section>
+      </div>
+    </div>
+  </div>
+  <!-- agent 表单。点「预览并保存」不直接落盘：先关掉表单、打开预览确认框。 -->
+  <div id="settings-form-overlay" class="settings-overlay" role="dialog" aria-modal="true"
+       aria-labelledby="settings-form-title" hidden>
+    <div class="confirm-card settings-form-card">
+      <h2 id="settings-form-title">编辑 agent</h2>
+      <div class="settings-form-grid">
+        <div class="settings-field">
+          <label for="settings-form-id">id</label>
+          <input id="settings-form-id" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="小写字母、数字、点号、下划线、连字符">
+        </div>
+        <div class="settings-field">
+          <label for="settings-form-display">display_name</label>
+          <input id="settings-form-display" type="text" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="settings-field">
+          <label for="settings-form-provider">provider（必须是已配置的 provider）</label>
+          <select id="settings-form-provider"></select>
+        </div>
+        <div class="settings-field">
+          <label for="settings-form-model">model（必填）</label>
+          <input id="settings-form-model" type="text" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="settings-field">
+          <label for="settings-form-effort">effort（可留空）</label>
+          <input id="settings-form-effort" type="text" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="settings-field">
+          <label for="settings-form-permissions">permissions</label>
+          <select id="settings-form-permissions">
+            <option value="read">read（只读）</option>
+            <option value="workspace">workspace（可改文件）</option>
+            <option value="full">full（完全权限）</option>
+          </select>
+        </div>
+        <div class="settings-field">
+          <label for="settings-form-mode">mode</label>
+          <select id="settings-form-mode">
+            <option value="discussion">discussion</option>
+            <option value="worker">worker</option>
+            <option value="discussion_and_worker">discussion_and_worker</option>
+            <option value="judge">judge</option>
+            <option value="manager">manager</option>
+          </select>
+        </div>
+      </div>
+      <p id="settings-form-hint" class="settings-form-hint"></p>
+      <p id="settings-form-error" class="confirm-error" hidden></p>
+      <div class="confirm-actions">
+        <button id="settings-form-cancel" class="btn-small" type="button">取消</button>
+        <button id="settings-form-save" class="btn-small primary" type="button">预览并保存</button>
+      </div>
+    </div>
+  </div>
+  <!-- 写入前的确认框：显示「将写入 <路径>」与该 agent 的字段新旧对比。
+       确认之后才发请求；备份路径与「重启后生效」在成功提示里显示。 -->
+  <div id="settings-preview" class="confirm-overlay" role="dialog" aria-modal="true"
+       aria-labelledby="settings-preview-title" hidden>
+    <div class="confirm-card settings-preview-card">
+      <h2 id="settings-preview-title">确认写入配置</h2>
+      <p id="settings-preview-target" class="settings-preview-target"></p>
+      <p id="settings-preview-backup" class="settings-form-hint"></p>
+      <table id="settings-preview-diff" class="settings-diff" hidden>
+        <thead><tr><th>字段</th><th>旧值</th><th>新值</th></tr></thead>
+        <tbody id="settings-preview-diff-body"></tbody>
+      </table>
+      <p id="settings-preview-error" class="confirm-error" hidden></p>
+      <div class="confirm-actions">
+        <button id="settings-preview-cancel" class="btn-small" type="button">取消</button>
+        <button id="settings-preview-confirm" class="btn-small primary" type="button">确认写入</button>
+      </div>
+    </div>
+  </div>
 </div>
 <script>
 (() => {
@@ -1212,6 +1580,15 @@
     // busy, returnFocus }。与 deleteConfirm 分开：两个确认框不会同时开，
     // 但共用一套 Esc / 遮罩关闭习惯，状态各自独立。
     memberConfirm: null,
+    // 设置页（GUI 第 6 片）。settings 是 GET /api/settings 的原始响应；
+    // settingsForm 非 null 表示 agent 表单开着（只存「是不是编辑」与来源）；
+    // settingsPreview 非 null 表示写入确认框开着：{ kind, id, payload,
+    // changes, busy }；settingsResult 是最近一次写成功的提示（备份路径 +
+    // 重启后生效），关掉面板再打开仍然显示，刷新页面才清空。
+    settings: null,
+    settingsForm: null,
+    settingsPreview: null,
+    settingsResult: '',
     // 最近一次读到的用量。加人 / 踢人只改变成员表，不该为了重绘右栏再拉
     // 一次用量；重绘时用它把每行的轮数与金额原样接上。
     usage: null,
@@ -1338,6 +1715,47 @@
   const deleteError = document.getElementById('delete-confirm-error');
   const deleteCancel = document.getElementById('delete-cancel');
   const deleteConfirmButton = document.getElementById('delete-confirm-button');
+  // 设置页元素（GUI 第 6 片）。全部走 textContent / createElement，
+  // 不拼任何 HTML 字符串。
+  const openSettingsButton = document.getElementById('open-settings');
+  const settingsOverlay = document.getElementById('settings-overlay');
+  const settingsSub = document.getElementById('settings-sub');
+  const settingsClose = document.getElementById('settings-close');
+  const settingsWriteTarget = document.getElementById('settings-write-target');
+  const settingsLayers = document.getElementById('settings-layers');
+  const settingsAgentsBody = document.getElementById('settings-agents-body');
+  const settingsAgentsEmpty = document.getElementById('settings-agents-empty');
+  const settingsAgentAdd = document.getElementById('settings-agent-add');
+  const settingsTeams = document.getElementById('settings-teams');
+  const settingsTeamsEmpty = document.getElementById('settings-teams-empty');
+  const settingsSummaryAgent = document.getElementById('settings-summary-agent');
+  const settingsDataDir = document.getElementById('settings-data-dir');
+  const settingsConfigPath = document.getElementById('settings-config-path');
+  const settingsProviders = document.getElementById('settings-providers');
+  const settingsResult = document.getElementById('settings-result');
+  const settingsError = document.getElementById('settings-error');
+  const settingsFormOverlay = document.getElementById('settings-form-overlay');
+  const settingsFormTitle = document.getElementById('settings-form-title');
+  const settingsFormID = document.getElementById('settings-form-id');
+  const settingsFormDisplay = document.getElementById('settings-form-display');
+  const settingsFormProvider = document.getElementById('settings-form-provider');
+  const settingsFormModel = document.getElementById('settings-form-model');
+  const settingsFormEffort = document.getElementById('settings-form-effort');
+  const settingsFormPermissions = document.getElementById('settings-form-permissions');
+  const settingsFormMode = document.getElementById('settings-form-mode');
+  const settingsFormHint = document.getElementById('settings-form-hint');
+  const settingsFormError = document.getElementById('settings-form-error');
+  const settingsFormCancel = document.getElementById('settings-form-cancel');
+  const settingsFormSave = document.getElementById('settings-form-save');
+  const settingsPreview = document.getElementById('settings-preview');
+  const settingsPreviewTitle = document.getElementById('settings-preview-title');
+  const settingsPreviewTarget = document.getElementById('settings-preview-target');
+  const settingsPreviewBackup = document.getElementById('settings-preview-backup');
+  const settingsPreviewDiff = document.getElementById('settings-preview-diff');
+  const settingsPreviewDiffBody = document.getElementById('settings-preview-diff-body');
+  const settingsPreviewError = document.getElementById('settings-preview-error');
+  const settingsPreviewCancel = document.getElementById('settings-preview-cancel');
+  const settingsPreviewConfirm = document.getElementById('settings-preview-confirm');
 
   // 收起右栏是个偏好，不是一次性的动作：刷新之后还应该收着。
   const INSPECTOR_KEY = 'council.inspector.collapsed';
@@ -2425,6 +2843,8 @@
       state.writable = false;
     }
     askPanel.hidden = !state.writable;
+    // 设置接口只在 -rw 下存在：只读模式连入口都不画。
+    openSettingsButton.hidden = !state.writable;
     updateMemberAddButton();
     if (state.writable) {
       // 只读模式的标题与空库文案一个字都不动；写模式把「只读」改成
@@ -3800,6 +4220,484 @@
       membersBody.appendChild(row);
     }
   }
+
+  // ---- 设置页（GUI 第 6 片） ----
+  //
+  // 这一片是整个看板唯一会写用户配置文件的地方。三条规则写死在这里：
+  //   1. 保存 / 删除之前必须经过预览确认框：显示「将写入 <路径>」与该
+  //      agent 的字段新旧对比，确认之后才发请求；
+  //   2. 成功之后必须显示备份路径与「下次重启 serve 后生效」；
+  //   3. claude 来源的成员在界面上不可编辑、不可删除（服务端也会拒绝）：
+  //      写进配置文件会静默盖住 .claude/agents 里的定义，删也删不掉那边
+  //      的事实源。
+  //
+  // providers 与 teams 本片只读。表单里的 provider 下拉来自
+  // /api/settings 的 providers（服务端新增的只读字段），用户不会手打错
+  // command 指向的 provider id。
+
+  const SETTINGS_SOURCES = { config: 'config', claude: 'claude' };
+  const SETTINGS_EDIT_FIELDS = ['display_name', 'provider', 'model', 'effort', 'permissions', 'mode'];
+
+  function settingsAgentByID(agentID) {
+    const settings = state.settings;
+    if (!settings || !Array.isArray(settings.agents)) return null;
+    return settings.agents.find((agent) => agent && agent.id === agentID) || null;
+  }
+
+  function setSettingsError(message) {
+    settingsError.textContent = message || '';
+    settingsError.hidden = !message;
+  }
+
+  function setSettingsResult(message) {
+    settingsResult.textContent = message || '';
+    settingsResult.hidden = !message;
+  }
+
+  function setFormError(message) {
+    settingsFormError.textContent = message || '';
+    settingsFormError.hidden = !message;
+  }
+
+  function layerLabel(layer) {
+    return layer.project ? '项目层' : '全局层';
+  }
+
+  function renderSettingsLayers() {
+    settingsLayers.replaceChildren();
+    const settings = state.settings;
+    if (!settings) return;
+    const layers = Array.isArray(settings.layers) ? settings.layers : [];
+    for (const layer of layers) {
+      const isTarget = layer.path === settings.write_target;
+      const item = document.createElement('li');
+      item.className = 'settings-layer';
+      if (isTarget) item.classList.add('is-target');
+      const tag = document.createElement('span');
+      tag.className = 'layer-tag';
+      tag.textContent = layerLabel(layer);
+      const path = document.createElement('span');
+      path.className = 'layer-path';
+      path.textContent = layer.path || '';
+      path.title = layer.path || '';
+      const stateText = document.createElement('span');
+      stateText.className = 'layer-state';
+      stateText.textContent = layer.exists
+        ? (isTarget ? '生效 · 写回目标' : '生效')
+        : '不存在';
+      item.append(tag, path, stateText);
+      settingsLayers.appendChild(item);
+    }
+    settingsWriteTarget.textContent = settings.write_target
+      ? '写回目标：' + settings.write_target + '（只改这一份里与所选 agent 相关的段，其它内容与其它层一个字节都不动）'
+      : '';
+  }
+
+  function renderSettingsAgents() {
+    settingsAgentsBody.replaceChildren();
+    const agents = state.settings && Array.isArray(state.settings.agents) ? state.settings.agents : [];
+    settingsAgentsEmpty.hidden = agents.length !== 0;
+    for (const agent of agents) {
+      const row = document.createElement('tr');
+      const addCell = (text, className) => {
+        const cell = document.createElement('td');
+        cell.textContent = text === undefined || text === null ? '' : String(text);
+        if (className) cell.className = className;
+        row.appendChild(cell);
+        return cell;
+      };
+      addCell(agent.id, 'mono');
+      addCell(agent.display_name || '');
+      addCell(agent.provider || '');
+      addCell(agent.model || '');
+      addCell(agent.effort || '—');
+      addCell(agent.permissions || '');
+      addCell(agent.mode || '');
+      const source = SETTINGS_SOURCES[agent.source] || agent.source || '';
+      const sourceCell = addCell(source, 'settings-source');
+      if (agent.source === 'claude') {
+        sourceCell.title = '来自 .claude/agents 的只读导入，请直接改那边的文件';
+      }
+
+      const actions = document.createElement('td');
+      actions.className = 'settings-row-actions';
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'btn-small';
+      edit.textContent = '编辑';
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn-small danger';
+      remove.textContent = '删除';
+      const readOnly = agent.source === 'claude';
+      for (const button of [edit, remove]) {
+        button.disabled = readOnly;
+        if (readOnly) button.title = '来自 .claude/agents 的成员只读：请改那边的文件';
+      }
+      edit.addEventListener('click', () => openAgentForm(agent.id));
+      remove.addEventListener('click', () => openAgentDelete(agent.id));
+      actions.append(edit, remove);
+      row.appendChild(actions);
+      settingsAgentsBody.appendChild(row);
+    }
+  }
+
+  function renderSettingsTeams() {
+    settingsTeams.replaceChildren();
+    const teams = state.settings && Array.isArray(state.settings.teams) ? state.settings.teams : [];
+    settingsTeamsEmpty.hidden = teams.length !== 0;
+    for (const team of teams) {
+      const item = document.createElement('li');
+      item.className = 'settings-layer';
+      const tag = document.createElement('span');
+      tag.className = 'layer-tag';
+      tag.textContent = team.id || '';
+      const members = document.createElement('span');
+      members.className = 'layer-path';
+      const names = Array.isArray(team.members) ? team.members : [];
+      members.textContent = names.length > 0 ? names.join(', ') : '（没有成员）';
+      const label = document.createElement('span');
+      label.className = 'layer-state';
+      label.textContent = team.display_name || '';
+      item.append(tag, members, label);
+      settingsTeams.appendChild(item);
+    }
+  }
+
+  function renderSettingsFacts() {
+    const settings = state.settings || {};
+    settingsSummaryAgent.textContent = settings.summary_agent || '（未配置）';
+    settingsDataDir.textContent = settings.data_dir || '（未配置）';
+    settingsConfigPath.textContent = settings.config_path || '（未知）';
+    const providers = Array.isArray(settings.providers) ? settings.providers : [];
+    settingsProviders.textContent = providers.length === 0
+      ? '（没有 provider）'
+      : providers.map((provider) => provider.id + ' → ' + (provider.command || '（空 command）')).join('；');
+  }
+
+  function renderSettings() {
+    const settings = state.settings;
+    if (!settings) return;
+    settingsSub.textContent = settings.config_path || '';
+    renderSettingsLayers();
+    renderSettingsAgents();
+    renderSettingsTeams();
+    renderSettingsFacts();
+    setSettingsResult(state.settingsResult);
+  }
+
+  async function loadSettings() {
+    const settings = await api('/api/settings');
+    state.settings = settings && typeof settings === 'object' ? settings : null;
+    renderSettings();
+  }
+
+  function openSettings() {
+    if (!state.writable) {
+      showToast('只读模式没有设置：用 council serve -rw 启动');
+      return;
+    }
+    closePopover();
+    closeConversationMenu();
+    state.settingsResult = '';
+    state.settingsForm = null;
+    state.settingsPreview = null;
+    settingsFormOverlay.hidden = true;
+    settingsPreview.hidden = true;
+    setSettingsError('');
+    settingsOverlay.hidden = false;
+    openSettingsButton.setAttribute('aria-expanded', 'true');
+    loadSettings().then(() => {
+      settingsClose.focus();
+    }).catch((err) => {
+      setSettingsError('读取设置失败：' + err.message);
+      settingsClose.focus();
+    });
+  }
+
+  function closeSettings() {
+    if (state.settingsPreview && state.settingsPreview.busy) return;
+    // 直接收起整摞界面：预览 / 表单都不该留在一个看不见的面板里。
+    state.settingsPreview = null;
+    state.settingsForm = null;
+    settingsPreview.hidden = true;
+    settingsFormOverlay.hidden = true;
+    settingsOverlay.hidden = true;
+    openSettingsButton.setAttribute('aria-expanded', 'false');
+    openSettingsButton.focus();
+  }
+
+  // renderProviderOptions 用服务端给的 provider 列表填下拉。当前值不在
+  // 列表里（例如配置引用了一个已删掉的 provider）时也保留它，否则一次
+  // 打开表单就会把非法值悄悄换成第一个 provider。
+  function renderProviderOptions(selected) {
+    settingsFormProvider.replaceChildren();
+    const providers = state.settings && Array.isArray(state.settings.providers)
+      ? state.settings.providers
+      : [];
+    for (const provider of providers) {
+      const option = document.createElement('option');
+      option.value = provider.id;
+      option.textContent = provider.id;
+      settingsFormProvider.appendChild(option);
+    }
+    if (selected && !providers.some((provider) => provider.id === selected)) {
+      const option = document.createElement('option');
+      option.value = selected;
+      option.textContent = selected + '（不在 providers 里）';
+      settingsFormProvider.appendChild(option);
+    }
+    settingsFormProvider.value = selected || (providers[0] ? providers[0].id : '');
+  }
+
+  function openAgentForm(agentID) {
+    if (!state.settings) return;
+    const agent = agentID ? settingsAgentByID(agentID) : null;
+    if (agentID && !agent) {
+      showToast('这个 agent 不在最新配置里，请重新打开设置');
+      return;
+    }
+    if (agent && agent.source === 'claude') {
+      showToast('claude 来源的成员只读：请改 .claude/agents 下的文件');
+      return;
+    }
+    state.settingsForm = { editing: Boolean(agent) };
+    settingsFormTitle.textContent = agent ? '编辑 agent · ' + agent.id : '新增 agent';
+    settingsFormID.value = agent ? agent.id : '';
+    settingsFormID.disabled = Boolean(agent);
+    settingsFormDisplay.value = agent ? (agent.display_name || '') : '';
+    renderProviderOptions(agent ? (agent.provider || '') : '');
+    settingsFormModel.value = agent ? (agent.model || '') : '';
+    settingsFormEffort.value = agent ? (agent.effort || '') : '';
+    settingsFormPermissions.value = agent ? (agent.permissions || 'read') : 'read';
+    settingsFormMode.value = agent ? (agent.mode || 'discussion') : 'discussion';
+    settingsFormHint.textContent = agent
+      ? '保存前会先显示「将写入 <路径>」与字段新旧对比；写盘前自动把原文备份成 <文件名>.bak-<YYYYMMDD-HHmmss>。'
+      : '新增的成员会写进写回目标的末尾；保存前会先显示预览。';
+    setFormError('');
+    settingsFormOverlay.hidden = false;
+    (agent ? settingsFormModel : settingsFormID).focus();
+  }
+
+  function closeAgentForm() {
+    settingsFormOverlay.hidden = true;
+    state.settingsForm = null;
+    setFormError('');
+  }
+
+  function readAgentForm() {
+    return {
+      agent_id: settingsFormID.value.trim(),
+      display_name: settingsFormDisplay.value.trim(),
+      provider: settingsFormProvider.value,
+      model: settingsFormModel.value.trim(),
+      effort: settingsFormEffort.value.trim(),
+      permissions: settingsFormPermissions.value,
+      mode: settingsFormMode.value,
+    };
+  }
+
+  // previewAgentSave 只做前端能确定的那几条检查；provider 是否存在、model
+  // 是否为空、permission 是否合法最终都由服务端的 config.Validate 判定，
+  // 这里不复制它的一套规则，只挡下「按了也没意义」的空字段。
+  function previewAgentSave() {
+    if (!state.settingsForm) return;
+    const payload = readAgentForm();
+    if (payload.agent_id === '') {
+      setFormError('id 不能为空');
+      settingsFormID.focus();
+      return;
+    }
+    if (payload.provider === '') {
+      setFormError('provider 不能为空：先在配置里加一个 [providers.*]');
+      settingsFormProvider.focus();
+      return;
+    }
+    if (payload.model === '') {
+      setFormError('model 不能为空');
+      settingsFormModel.focus();
+      return;
+    }
+    const current = state.settingsForm.editing ? settingsAgentByID(payload.agent_id) : null;
+    if (state.settingsForm.editing && !current) {
+      setFormError('这个 agent 不在最新配置里，请关闭设置后重开');
+      return;
+    }
+    const changes = [];
+    changes.push({
+      field: 'id',
+      old: current ? current.id : '（新增）',
+      new: payload.agent_id,
+    });
+    for (const field of SETTINGS_EDIT_FIELDS) {
+      changes.push({
+        field,
+        old: current ? String(current[field] || '') : '（新增）',
+        new: String(payload[field] || ''),
+      });
+    }
+    state.settingsPreview = { kind: 'save', id: payload.agent_id, payload, changes, busy: false };
+    openSettingsPreview();
+  }
+
+  function openAgentDelete(agentID) {
+    const agent = settingsAgentByID(agentID);
+    if (!agent) {
+      showToast('这个 agent 不在最新配置里，请重新打开设置');
+      return;
+    }
+    if (agent.source === 'claude') {
+      showToast('claude 来源的成员只读：请改 .claude/agents 下的文件');
+      return;
+    }
+    state.settingsPreview = { kind: 'delete', id: agentID, payload: {}, changes: [], busy: false };
+    openSettingsPreview();
+  }
+
+  function openSettingsPreview() {
+    const preview = state.settingsPreview;
+    if (!preview) return;
+    const target = (state.settings && state.settings.write_target) || '（未知路径）';
+    const isDelete = preview.kind === 'delete';
+    settingsPreviewTitle.textContent = isDelete ? '确认删除 agent' : '确认写入配置';
+    settingsPreviewTarget.textContent = isDelete
+      ? '将从 ' + target + ' 删除 [agents.' + preview.id + '] 这一段；文件里的其它段、注释与行尾保持原样。'
+      : '将写入 ' + target + ' 的 [agents.' + preview.id + '] 段；文件里的其它段、注释与行尾保持原样。';
+    settingsPreviewBackup.textContent =
+      '写入前会先把原文备份成 <配置文件名>.bak-<YYYYMMDD-HHmmss>，备份路径在成功提示里显示。';
+
+    settingsPreviewDiffBody.replaceChildren();
+    settingsPreviewDiff.hidden = isDelete || preview.changes.length === 0;
+    if (!isDelete) {
+      for (const change of preview.changes) {
+        const row = document.createElement('tr');
+        if (change.old !== change.new) row.classList.add('is-changed');
+        for (const [text, className] of [
+          [change.field, 'diff-field'],
+          [change.old, 'diff-old'],
+          [change.new, 'diff-new'],
+        ]) {
+          const cell = document.createElement('td');
+          cell.className = className;
+          cell.textContent = text;
+          row.appendChild(cell);
+        }
+        settingsPreviewDiffBody.appendChild(row);
+      }
+    }
+
+    settingsPreviewError.hidden = true;
+    settingsPreviewError.textContent = '';
+    settingsPreviewCancel.disabled = false;
+    settingsPreviewConfirm.disabled = false;
+    settingsPreviewConfirm.textContent = isDelete ? '确认删除' : '确认写入';
+    settingsFormOverlay.hidden = true;
+    settingsPreview.hidden = false;
+    // 安全默认：焦点在「取消」上，误按回车不会写文件。
+    settingsPreviewCancel.focus();
+  }
+
+  // closeSettingsPreview 只关界面，不发请求。请求在飞时（busy）拒绝关闭：
+  // 那一刻用户已经确认过，半途关掉会让界面停在「没写」而磁盘上已经写了。
+  function closeSettingsPreview(force) {
+    const preview = state.settingsPreview;
+    if (!preview) return;
+    if (preview.busy && !force) return;
+    state.settingsPreview = null;
+    settingsPreview.hidden = true;
+    settingsPreviewError.hidden = true;
+    settingsPreviewError.textContent = '';
+    settingsPreviewCancel.disabled = false;
+    settingsPreviewConfirm.disabled = false;
+    // 保存被取消时回到表单继续改；删除被取消时回到设置面板。
+    if (preview.kind === 'save' && state.settingsForm && !force) {
+      settingsFormOverlay.hidden = false;
+      settingsFormSave.focus();
+    }
+  }
+
+  async function commitSettingsPreview() {
+    const preview = state.settingsPreview;
+    if (!preview || preview.busy) return;
+    preview.busy = true;
+    settingsPreviewCancel.disabled = true;
+    settingsPreviewConfirm.disabled = true;
+    settingsPreviewError.hidden = true;
+    settingsPreviewError.textContent = '';
+    const isDelete = preview.kind === 'delete';
+    const url = isDelete
+      ? '/api/settings/agents/' + encodeURIComponent(preview.id) + '/delete'
+      : '/api/settings/agents';
+    try {
+      const result = await postJSON(url, isDelete ? {} : preview.payload);
+      // 先记下成功提示再重新读设置：renderSettings 会把 settingsResult
+      // 一起画出来，顺序反了会看到一瞬「提示没了」。
+      const lines = [];
+      if (result && result.backup_path) {
+        lines.push('备份：' + result.backup_path);
+      } else {
+        lines.push('没有生成备份（内容与原文相同，文件未改动）。');
+      }
+      if (result && result.write_target) {
+        lines.push((isDelete ? '已从 ' : '已写入 ') + result.write_target);
+      }
+      if (result && result.note) {
+        lines.push(result.note);
+      }
+      state.settingsResult = lines.join('\n');
+      state.settingsPreview = null;
+      state.settingsForm = null;
+      settingsPreview.hidden = true;
+      settingsFormOverlay.hidden = true;
+      setSettingsResult(state.settingsResult);
+      await loadSettings();
+      // 工作台的成员列表也要立刻反映新配置：/api/options 读的是同一份
+      // 展示配置，只重画设置面板会让两处显示不一致。
+      await loadOptions();
+      showToast(isDelete ? '已删除 agent ' + preview.id : '已保存 agent ' + preview.id);
+    } catch (err) {
+      if (state.settingsPreview !== preview) return;
+      preview.busy = false;
+      settingsPreviewCancel.disabled = false;
+      settingsPreviewConfirm.disabled = false;
+      settingsPreviewError.textContent = err.message;
+      settingsPreviewError.hidden = false;
+      settingsPreviewConfirm.focus();
+    }
+  }
+
+  openSettingsButton.addEventListener('click', openSettings);
+  settingsClose.addEventListener('click', closeSettings);
+  settingsOverlay.addEventListener('click', (event) => {
+    if (event.target === settingsOverlay) closeSettings();
+  });
+  settingsAgentAdd.addEventListener('click', () => openAgentForm(''));
+  settingsFormCancel.addEventListener('click', closeAgentForm);
+  settingsFormSave.addEventListener('click', previewAgentSave);
+  settingsPreviewCancel.addEventListener('click', () => closeSettingsPreview(false));
+  settingsPreviewConfirm.addEventListener('click', commitSettingsPreview);
+  settingsPreview.addEventListener('click', (event) => {
+    if (event.target === settingsPreview) closeSettingsPreview(false);
+  });
+  // Escape 按「最上面那一层」逐层退出：预览 -> 表单 -> 设置面板。
+  // 这个监听放在最后注册，先于它注册的弹层 Esc 处理不会把整摞一起关掉。
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (state.settingsPreview) {
+      event.preventDefault();
+      closeSettingsPreview(false);
+      return;
+    }
+    if (!settingsFormOverlay.hidden) {
+      event.preventDefault();
+      closeAgentForm();
+      return;
+    }
+    if (!settingsOverlay.hidden) {
+      event.preventDefault();
+      closeSettings();
+    }
+  });
 
   function resetToEmptyLibrary() {
     state.currentId = null;
