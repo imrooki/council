@@ -151,7 +151,10 @@ func fileExists(path string) bool {
 //   - --user-data-dir：独立 profile。不显式指定的话，--app 会挂到用户日常
 //     浏览器的 profile 上，那个窗口的历史、会话与扩展就和日常浏览混在一起；
 //   - --no-first-run / --no-default-browser-check：新 profile 第一次启动时
-//     Chromium 会弹引导页与「设为默认浏览器」提示，正好盖住刚打开的看板。
+//     Chromium 会弹引导页与「设为默认浏览器」提示，正好盖住刚打开的看板；
+//   - --disable-sync：上面两条挡不住 Edge 的账号同步弹窗。独立 profile 虽然
+//     是空的，Edge 仍会经 Windows 账号自动登录，第一次打开就弹「在所有设备上
+//     同步浏览数据」盖住看板。关掉同步之后这条提示不再出现（真机 2026-10-25 验）。
 func appWindowArgs(url, dataDir string) []string {
 	return []string{
 		"--app=" + url,
@@ -159,6 +162,7 @@ func appWindowArgs(url, dataDir string) []string {
 		"--user-data-dir=" + filepath.Join(dataDir, appProfileDirName),
 		"--no-first-run",
 		"--no-default-browser-check",
+		"--disable-sync",
 	}
 }
 

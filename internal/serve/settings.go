@@ -141,10 +141,12 @@ func (s *Server) runCfg() *config.Config {
 	if s.write == nil {
 		return nil
 	}
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
 	if s.write.RunCfg != nil {
 		return s.write.RunCfg
 	}
-	return s.currentCfg()
+	return s.write.Cfg
 }
 
 // isClaudeAgent 判断这个 id 是不是从 .claude/agents 导入的成员。

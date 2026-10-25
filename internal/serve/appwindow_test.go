@@ -26,6 +26,7 @@ func TestAppWindowArgs(t *testing.T) {
 		"--user-data-dir=" + filepath.Join(dataDir, "ui-profile"),
 		"--no-first-run",
 		"--no-default-browser-check",
+		"--disable-sync",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("参数个数 = %d，期望 %d：%v", len(got), len(want), got)

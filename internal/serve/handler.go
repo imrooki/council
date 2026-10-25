@@ -59,6 +59,11 @@ type Server struct {
 	// 完整结果（不会写坏），但两份备份与两次校验交错没有意义：拿到锁
 	// 之后再读当前配置，第二次写才看得见第一次的结果。
 	settingsMu sync.Mutex
+	// modelsMu 保护模型识别结果的缓存（models.go）：「+ 添加成员」先看
+	// 识别表，点一行时还要拿同一份确认它确实识别得到。
+	modelsMu sync.Mutex
+	modelsAt time.Time
+	modelsDB []discoveredProvider
 	// jobs 是写模式的内存任务表；只有 EnableWrite 之后才非 nil。
 	jobs *jobTable
 	// jobTTL 是任务结束后在内存里保留的时长，零值表示 defaultJobTTL。
@@ -104,6 +109,11 @@ func (s *Server) Handler() http.Handler {
 	// （handler 里的 s.write == nil）。路由本身不按模式分叉，只读模式
 	// 才能回 405 + 说明而不是被 /api/ 兜底成 404。
 	mux.HandleFunc("/api/options", s.handleOptions)
+	// 模型识别（GUI 第 8 片）：GET /api/models 跑一次零花费的识别，把本机
+	// 每一家当前可用的模型列出来。只在 -rw 下可用，判断与 /api/options 同一个门。
+	mux.HandleFunc("/api/models", s.handleModels)
+	// 工作目录选择器（GUI 第 9 片）：GET /api/fs/dirs 列出子目录，供点选。
+	mux.HandleFunc("/api/fs/dirs", s.handleFSDirs)
 	// 设置页（GUI 第 6 片）：GET /api/settings 是合并配置的只读快照，
 	// 两个 POST 是本仓库唯一会写用户配置文件的路径。与 /api/ask 同一个
 	// 门：只读模式下都由 handler 里的 s.write == nil 回 405，路由本身
@@ -329,6 +339,14 @@ func (s *Server) handleConversationPath(w http.ResponseWriter, r *http.Request) 
 		default:
 			writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 		}
+	case 3:
+		// GUI 第 8 片：/api/conversations/{id}/members/from-model。
+		// 只认这一段固定尾巴，别的一律 404。
+		if segments[1] == "members" && segments[2] == "from-model" {
+			s.handleConversationMemberFromModel(w, r, segments[0])
+			return
+		}
+		writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 	case 4:
 		// GUI4：踢人，/api/conversations/{id}/members/{agentID}/remove。
 		// 只认恰好四段，多一段少一段都是 404；删掉不存在的东西不在

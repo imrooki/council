@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -110,10 +110,16 @@
   .cost-note.warn { color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 3px 9px; }
   .cost-value { font-size: 15px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 
-  .workspace { display: grid; grid-template-columns: 288px minmax(0, 1fr) 352px; min-height: 0; }
+  /* 两栏宽度由 JS 写在 :root 上的变量决定（可拖动调整，见 bindResizer）；
+     没有存过宽度时回落到默认值。 */
+  .workspace {
+    display: grid;
+    grid-template-columns: var(--sidebar-w, 288px) minmax(0, 1fr) var(--inspector-w, 352px);
+    min-height: 0;
+  }
   .sidebar, .inspector, .conversation { display: flex; flex-direction: column; min-height: 0; }
-  .sidebar { background: var(--surface); border-right: 1px solid var(--line); }
-  .inspector { background: var(--surface); border-left: 1px solid var(--line); }
+  .sidebar { position: relative; background: var(--surface); border-right: 1px solid var(--line); }
+  .inspector { position: relative; background: var(--surface); border-left: 1px solid var(--line); }
   .conversation { background: var(--bg); }
 
   .side-head, .conv-head {
@@ -694,6 +700,16 @@
     text-transform: uppercase;
     color: var(--muted-2);
   }
+  /* 「+ 添加成员」菜单里的分段标题：配置里的模型 / 本机识别 / 识别到的模型。
+     比 .popover-title 轻一档，菜单里每个标题都不该跟主标题抢注意力。 */
+  .menu-section {
+    padding: 8px 8px 2px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+  }
   .menu-item {
     display: flex;
     align-items: center;
@@ -710,7 +726,117 @@
     cursor: pointer;
   }
   .menu-item:hover { background: var(--surface-2); color: var(--ink); }
-  .menu-item.is-current { background: var(--accent-soft); color: var(--accent); }
+  /* 权限菜单底部的「用副本」开关：它是权限档之外的第二个维度，画成一行
+     勾选而不是第四个单选项，免得看起来像第四档权限。 */
+  .menu-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    margin-top: 4px;
+    border-top: 1px solid var(--line);
+    color: var(--ink-2);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  /* 菜单里的小字说明：给「完全权限」这种不可逆的选项一句人话 */
+  .menu-note {
+    padding: 0 8px 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--muted-2);
+  }
+  .menu-check input { margin: 0; }
+  .menu-check.is-disabled { color: var(--muted-2); cursor: not-allowed; }
+  /* 工作目录选择器：弹窗里的一条路径栏 + 一个可滚动的目录列表 + 底部动作。
+     列表限高，目录再大也不会把按钮顶出屏幕。 */
+  .cwd-card { width: min(560px, 100%); display: flex; flex-direction: column; gap: 10px; }
+  .cwd-bar { display: flex; align-items: center; gap: 8px; }
+  .cwd-up {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink-2);
+    font: inherit;
+    cursor: pointer;
+  }
+  .cwd-up:hover:not(:disabled) { border-color: var(--line-strong); color: var(--ink); }
+  .cwd-up:disabled { color: var(--muted-2); cursor: not-allowed; }
+  .cwd-path {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    font-size: 12px;
+    color: var(--ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+    text-align: left;
+  }
+  .cwd-roots { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cwd-roots button {
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .cwd-roots button:hover { border-color: var(--line-strong); color: var(--ink); }
+  .cwd-list {
+    min-height: 200px;
+    max-height: 46vh;
+    overflow-y: auto;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+  }
+  .cwd-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .cwd-row:hover { background: var(--surface-2); color: var(--ink); }
+  .cwd-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cwd-row-go { color: var(--muted-2); }
+  .cwd-empty { padding: 18px 10px; font-size: 12px; color: var(--muted-2); text-align: center; }
+  .cwd-foot { display: flex; align-items: center; gap: 8px; }
+  .cwd-foot-spacer { flex: 1; }
+  .cwd-link {
+    align-self: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .cwd-link:hover { color: var(--ink); text-decoration: underline; }
+  /* 这两块默认是 hidden：.cwd-roots / .cwd-manual 自己写了 display，
+     不加这条 [hidden] 规则的话 display 会把 hidden 盖掉。 */
+  .cwd-roots[hidden], .cwd-manual[hidden] { display: none; }
+  .cwd-manual { display: flex; gap: 8px; }
+  .cwd-manual input { flex: 1; min-width: 0; }  .menu-item.is-current { background: var(--accent-soft); color: var(--accent); }
   /* 设置页新增、当前进程还跑不了的成员：留在列表里让人知道它存在，但画灰
      并禁用点击；title 说明重启后可用。 */
   .menu-item.is-unrunnable,
@@ -843,8 +969,64 @@
   .ask-error[hidden] { display: none; }
 
   /* 收起右栏：给正文腾地方，状态记在 localStorage 里 */
-  #app.no-inspector .workspace { grid-template-columns: 288px minmax(0, 1fr); }
+  #app.no-inspector .workspace { grid-template-columns: var(--sidebar-w, 288px) minmax(0, 1fr); }
   #app.no-inspector .inspector { display: none; }
+  /* 收起左栏：与右栏对称，正文吃掉两栏让出来的宽度 */
+  #app.no-sidebar .workspace { grid-template-columns: minmax(0, 1fr) var(--inspector-w, 352px); }
+  #app.no-sidebar .sidebar { display: none; }
+  #app.no-sidebar.no-inspector .workspace { grid-template-columns: minmax(0, 1fr); }
+  /* 拖动中的分隔条：给一条高亮线，并把整页光标锁成 col-resize。 */
+  .resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 12px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: col-resize;
+    z-index: 6;
+    touch-action: none;
+  }
+  /* 平时是一条透明的 2px；鼠标压上去或正在拖时变成品牌色的实线，
+     拖的时候再加一条更宽的淡底，越过 1px 边框也看得见。 */
+  .resizer::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: transparent;
+    transition: background .12s ease;
+  }
+  /* 拖动区对称地跨在边框上，但只伸进面板 4px：右栏每行末尾那个「⋯」
+     就在边上，再往里就会抢它的点击。高亮线仍然正好压在边框上。 */
+  .resizer-right { right: -8px; }
+  .resizer-right::after { right: 7px; }
+  .resizer-left { left: -8px; }
+  .resizer-left::after { left: 7px; }
+  .resizer:hover::after, .resizer:focus-visible::after, .resizer.is-active::after {
+    background: var(--accent);
+  }
+  .resizer.is-active::after { width: 3px; }
+  body.is-resizing { cursor: col-resize; user-select: none; }
+  body.is-resizing * { cursor: col-resize !important; }
+  #toggle-sidebar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 28px; height: 28px;
+    margin-right: 10px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  #toggle-sidebar:hover { background: var(--surface-2); color: var(--ink); }
+  #app.no-sidebar #toggle-sidebar { color: var(--ink); background: var(--surface-2); }
   #toggle-cost {
     display: inline-flex;
     align-items: center;
@@ -1174,8 +1356,10 @@
   .settings-diff tr.is-changed td { background: var(--accent-soft); }
 
   @media (max-width: 1180px) {
-    .workspace { grid-template-columns: 250px minmax(0, 1fr); }
+    .workspace { grid-template-columns: var(--sidebar-w, 250px) minmax(0, 1fr); }
     .inspector { display: none; }
+    /* 这一档右栏本来就不画，收起左栏之后只剩正文一列 */
+    #app.no-sidebar .workspace { grid-template-columns: minmax(0, 1fr); }
   }
   @media (max-width: 820px) {
     .workspace { grid-template-columns: minmax(0, 1fr); }
@@ -1186,6 +1370,12 @@
 <body>
 <div id="app">
   <header class="topbar">
+    <button id="toggle-sidebar" type="button" title="收起/展开会话列表" aria-label="收起或展开会话列表">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M5.5 2.5v11" fill="none" stroke="currentColor" stroke-width="1.4"/>
+      </svg>
+    </button>
     <div class="brand">Council <small>只读看板</small></div>
     <div id="status" class="status" hidden></div>
     <button id="toggle-inspector" type="button" title="收起/展开「成员与费用」" aria-label="收起或展开成员与费用">
@@ -1219,6 +1409,8 @@
   </header>
   <main class="workspace">
     <aside class="sidebar">
+      <button id="sidebar-resizer" class="resizer resizer-right" type="button"
+              role="separator" aria-orientation="vertical" aria-label="调整会话列表宽度" tabindex="0"></button>
       <div class="side-head">
         <h2>会话</h2>
         <button id="refresh-conversations" type="button" title="重新读一次会话列表" aria-label="刷新会话列表">
@@ -1261,6 +1453,8 @@
     </section>
 
     <aside class="inspector">
+      <button id="inspector-resizer" class="resizer resizer-left" type="button"
+              role="separator" aria-orientation="vertical" aria-label="调整成员与费用宽度" tabindex="0"></button>
       <div class="side-head">
         <h2>成员与费用</h2>
         <div class="chip-wrap member-add-wrap">
@@ -1295,22 +1489,18 @@
       <div id="composer-bar" class="composer-bar" role="toolbar" aria-label="工作台工具">
         <div class="chip-wrap">
           <button id="cwd-chip" class="chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="工作目录"></button>
-          <div id="cwd-popover" class="popover" role="dialog" aria-label="工作目录" hidden>
-            <div class="popover-title">工作目录</div>
-            <div class="popover-field">
-              <label for="cwd-input">绝对路径</label>
-              <input id="cwd-input" type="text" autocomplete="off" spellcheck="false" placeholder="D:\path\to\project">
-              <div class="popover-actions">
-                <button id="cwd-apply" class="btn-small primary" type="button">应用</button>
-              </div>
-            </div>
-          </div>
         </div>
         <div class="chip-wrap">
           <button id="permission-chip" class="chip" type="button" aria-haspopup="menu" aria-expanded="false"></button>
           <div id="permission-menu" class="popover" role="menu" aria-label="权限" hidden>
             <button class="menu-item" type="button" role="menuitemradio" data-permission="read">只读</button>
-            <button class="menu-item" type="button" role="menuitemradio" data-permission="workspace">可改文件（副本）</button>
+            <button class="menu-item" type="button" role="menuitemradio" data-permission="workspace">工作区可写</button>
+            <button class="menu-item" type="button" role="menuitemradio" data-permission="full">完全权限</button>
+            <div class="menu-note">成员不受工作目录限制，可读写本机任意路径。选中前会再确认一次。</div>
+            <label class="menu-check" for="copy-check">
+              <input id="copy-check" type="checkbox" checked>
+              <span>改文件时用副本（不碰原目录）</span>
+            </label>
           </div>
         </div>
         <div class="chip-wrap">
@@ -1430,6 +1620,44 @@
       <div class="confirm-actions">
         <button id="member-remove-cancel" class="btn-small" type="button">取消</button>
         <button id="member-remove-confirm-button" class="btn-small danger" type="button">移除</button>
+      </div>
+    </div>
+  </div>
+  <!-- 工作目录选择器（GUI 第 9 片）：点目录进入、↑ 上一级、盘符切换，底部
+       「选择此文件夹」落下。用遮罩弹窗而不是贴着 chip 的浮层：浮层在这个位置
+       会被窗口下沿切掉，主按钮根本露不出来。 -->
+  <div id="cwd-modal" class="confirm-overlay" role="dialog" aria-modal="true"
+       aria-labelledby="cwd-modal-title" hidden>
+    <div class="confirm-card cwd-card">
+      <h2 id="cwd-modal-title">选择工作目录</h2>
+      <div class="cwd-bar">
+        <button id="cwd-up" class="cwd-up" type="button" title="上一级" aria-label="上一级">↑</button>
+        <span id="cwd-browse-path" class="cwd-path"></span>
+      </div>
+      <div id="cwd-roots" class="cwd-roots" hidden></div>
+      <div id="cwd-list" class="cwd-list" role="listbox" aria-label="子目录"></div>
+      <div id="cwd-manual" class="cwd-manual" hidden>
+        <input id="cwd-input" type="text" autocomplete="off" spellcheck="false" placeholder="D:\path\to\project">
+        <button id="cwd-apply" class="btn-small" type="button">使用</button>
+      </div>
+      <div class="cwd-foot">
+        <button id="cwd-manual-toggle" class="cwd-link" type="button">直接输入路径</button>
+        <span class="cwd-foot-spacer"></span>
+        <button id="cwd-cancel" class="btn-small" type="button">取消</button>
+        <button id="cwd-choose" class="btn-small primary" type="button">选择此文件夹</button>
+      </div>
+    </div>
+  </div>
+  <!-- 完全权限的二次确认。这一档不可逆：成员不再受工作目录限制，能读写
+       本机任意路径，所以选它必须先过这道门。默认焦点在「取消」上。 -->
+  <div id="full-confirm" class="confirm-overlay" role="dialog" aria-modal="true"
+       aria-labelledby="full-confirm-title" aria-describedby="full-confirm-text" hidden>
+    <div class="confirm-card">
+      <h2 id="full-confirm-title">完全权限</h2>
+      <p id="full-confirm-text" class="confirm-text">这一轮的成员不再受工作目录限制，可以读写本机任意路径。误用时可能改到工作目录之外的文件。确定要这么做吗？</p>
+      <div class="confirm-actions">
+        <button id="full-cancel" class="btn-small" type="button">取消</button>
+        <button id="full-ok" class="btn-small danger" type="button">我明白，使用完全权限</button>
       </div>
     </div>
   </div>
@@ -1605,6 +1833,10 @@
     // 最近一次读到的用量。加人 / 踢人只改变成员表，不该为了重绘右栏再拉
     // 一次用量；重绘时用它把每行的轮数与金额原样接上。
     usage: null,
+    // 最近一次 GET /api/models 的结果（GUI 第 8 片）。null 表示这次打开页面
+    // 还没识别过；识别不花钱，结果留在内存里，菜单关掉再开不必重跑。
+    discovered: null,
+    discovering: false,
     // 用户主动点了「改为新建」之后为 true：此时 currentId 为 null，但
     // 列表刷新不能再自动选中第一条，否则刚切到的「新建」会被下一次
     // refreshConversations 悄悄改回「续接」。显式选会话或开跑即清掉。
@@ -1627,6 +1859,14 @@
     skills: [],
     cwd: '',
     permission: 'read',
+    // copy 是权限之外的第二个维度：工作区可写 / 完全权限时，成员是在
+    // 隔离副本里改文件（默认），还是直接改原目录。只读档下它没有意义。
+    copy: true,
+    // browse 是工作目录选择器当前列出的那一层（GET /api/fs/dirs 的响应）。
+    browse: null,
+    // pendingFull 是「确认完全权限之后要接着做的事」：套用一条预设时，
+    // 先弹确认，确认了才真正套用。
+    pendingFull: null,
     selectedAgents: [],
     contexts: [],
     // 本轮的三个参数（SRV13）。它们和成员、目录一起进提交体；summary 用
@@ -1684,11 +1924,23 @@
   const askProgress = document.getElementById('ask-progress');
   const askError = document.getElementById('ask-error');
   const cwdChip = document.getElementById('cwd-chip');
-  const cwdPopover = document.getElementById('cwd-popover');
+  const cwdModal = document.getElementById('cwd-modal');
   const cwdInput = document.getElementById('cwd-input');
+  const cwdCancel = document.getElementById('cwd-cancel');
+  const cwdManual = document.getElementById('cwd-manual');
+  const cwdManualToggle = document.getElementById('cwd-manual-toggle');
+  const cwdUp = document.getElementById('cwd-up');
+  const cwdChoose = document.getElementById('cwd-choose');
+  const cwdList = document.getElementById('cwd-list');
+  const cwdRoots = document.getElementById('cwd-roots');
+  const cwdBrowsePath = document.getElementById('cwd-browse-path');
   const cwdApply = document.getElementById('cwd-apply');
   const permissionChip = document.getElementById('permission-chip');
   const permissionMenu = document.getElementById('permission-menu');
+  const copyCheck = document.getElementById('copy-check');
+  const fullConfirm = document.getElementById('full-confirm');
+  const fullOk = document.getElementById('full-ok');
+  const fullCancel = document.getElementById('full-cancel');
   const paramChip = document.getElementById('param-chip');
   const paramPopover = document.getElementById('param-popover');
   const paramRounds = document.getElementById('param-rounds');
@@ -1783,6 +2035,110 @@
       window.localStorage.setItem(INSPECTOR_KEY, appRoot.classList.contains('no-inspector') ? '1' : '0');
     } catch (err) { /* 同上 */ }
   });
+
+  // 左栏同理：窄窗口下会话列表占掉 288px，正文会挤得没法读。
+  const toggleSidebar = document.getElementById('toggle-sidebar');
+  const SIDEBAR_KEY = 'council.sidebar.collapsed';
+  try {
+    if (window.localStorage.getItem(SIDEBAR_KEY) === '1') appRoot.classList.add('no-sidebar');
+  } catch (err) {
+    // 隐私模式禁 localStorage 时按默认展开走，不影响功能。
+  }
+  toggleSidebar.addEventListener('click', () => {
+    appRoot.classList.toggle('no-sidebar');
+    try {
+      window.localStorage.setItem(SIDEBAR_KEY, appRoot.classList.contains('no-sidebar') ? '1' : '0');
+    } catch (err) { /* 同上 */ }
+  });
+
+  // ---- 拖动分栏 ----
+  // 两条分隔条分别改 :root 上的 --sidebar-w / --inspector-w。宽度记在
+  // localStorage；双击归位，拿到焦点之后也可以用左右键微调。
+  const RESIZE_LIMITS = {
+    sidebar: { min: 200, max: 520, fallback: 288 },
+    inspector: { min: 260, max: 640, fallback: 352 },
+  };
+  const RESIZE_KEYS = { sidebar: 'council.sidebar.width', inspector: 'council.inspector.width' };
+
+  function clampWidth(value, limits) {
+    return Math.min(limits.max, Math.max(limits.min, Math.round(value)));
+  }
+
+  function panelWidth(name) {
+    const panel = document.querySelector(name === 'sidebar' ? '.sidebar' : '.inspector');
+    return panel ? panel.getBoundingClientRect().width : RESIZE_LIMITS[name].fallback;
+  }
+
+  function setPanelWidth(name, width) {
+    document.documentElement.style.setProperty('--' + name + '-w',
+      clampWidth(width, RESIZE_LIMITS[name]) + 'px');
+  }
+
+  function persistPanelWidth(name) {
+    try {
+      window.localStorage.setItem(RESIZE_KEYS[name], String(Math.round(panelWidth(name))));
+    } catch (err) { /* 隐私模式：这次拖动仍然生效，只是不记 */ }
+  }
+
+  // 启动时恢复上次拖出来的宽度。
+  for (const name of Object.keys(RESIZE_LIMITS)) {
+    try {
+      const raw = parseInt(window.localStorage.getItem(RESIZE_KEYS[name]), 10);
+      if (Number.isFinite(raw) && raw > 0) setPanelWidth(name, raw);
+    } catch (err) { /* 同上 */ }
+  }
+
+  // edge 是分隔条所在的那一侧：左栏的条在最右边，往右拖是变宽；右栏相反。
+  function bindResizer(handle, name, edge) {
+    if (!handle) return;
+    let startX = 0;
+    let startWidth = 0;
+
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      startX = event.clientX;
+      startWidth = panelWidth(name);
+      document.body.classList.add('is-resizing');
+      handle.classList.add('is-active');
+      handle.setPointerCapture(event.pointerId);
+
+      const onMove = (moveEvent) => {
+        const delta = edge === 'right' ? moveEvent.clientX - startX : startX - moveEvent.clientX;
+        setPanelWidth(name, startWidth + delta);
+      };
+      const onUp = () => {
+        document.body.classList.remove('is-resizing');
+        handle.classList.remove('is-active');
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onUp);
+        persistPanelWidth(name);
+      };
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onUp);
+    });
+
+    // 双击回到默认宽度：拖窄了想恢复，不用自己找原来的数。
+    handle.addEventListener('dblclick', () => {
+      document.documentElement.style.removeProperty('--' + name + '-w');
+      try { window.localStorage.removeItem(RESIZE_KEYS[name]); } catch (err) { /* 同上 */ }
+    });
+
+    handle.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      const step = event.shiftKey ? 48 : 16;
+      const grow = event.key === 'ArrowRight';
+      const signed = edge === 'right' ? (grow ? step : -step) : (grow ? -step : step);
+      setPanelWidth(name, panelWidth(name) + signed);
+      persistPanelWidth(name);
+    });
+  }
+
+  bindResizer(document.getElementById('sidebar-resizer'), 'sidebar', 'right');
+  bindResizer(document.getElementById('inspector-resizer'), 'inspector', 'left');
 
   // 花额是敏感信息：有些人不想让旁边的人一眼看到，给一个记住的开关。
   const costBox = document.querySelector('.cost');
@@ -1954,7 +2310,11 @@
   // 权限只有整轮两档（SRV5 §2）：只读，或把 cwd 当 git 仓库根、在副本里
   // 改文件。这里不读 agent 自己的 permissions：工作台选的是「这一轮」的
   // 覆盖档，和配置里的静态档是两件事。
-  const PERMISSION_LABELS = { read: '只读', workspace: '可改文件（副本）' };
+  // 三档与 dsh 的设置同名：只读 / 工作区可写 / 完全权限。Council 这边多一个
+  // 「用副本」的开关（默认开），因为 -workspace 隔离副本是它自己的安全网：
+  // 权限决定成员能不能写，副本决定写到哪儿。
+  const PERMISSION_LABELS = { read: '只读', workspace: '工作区可写', full: '完全权限' };
+  const PERMISSION_ICONS = { read: '🔒', workspace: '📝', full: '⚠️' };
   const CONTEXT_LIMIT = 20;
   const PRESET_KEY = 'council.presets';
   // 与后端规则对齐：rounds 是 1–5 的整数，budget_usd 不得小于 0.5。
@@ -2150,7 +2510,7 @@
     const icon = document.createElement('span');
     icon.className = 'chip-icon';
     icon.setAttribute('aria-hidden', 'true');
-    icon.textContent = state.permission === 'workspace' ? '📝' : '🔒';
+    icon.textContent = PERMISSION_ICONS[state.permission] || PERMISSION_ICONS.read;
     const label = document.createElement('span');
     label.className = 'chip-text';
     label.textContent = PERMISSION_LABELS[state.permission] || PERMISSION_LABELS.read;
@@ -2161,9 +2521,7 @@
     permissionChip.appendChild(icon);
     permissionChip.appendChild(label);
     permissionChip.appendChild(caret);
-    permissionChip.title = state.permission === 'workspace'
-      ? '成员在隔离副本里跑，可以改副本里的文件'
-      : '成员只读讨论，不改任何文件';
+    permissionChip.title = permissionHint();
 
     const items = permissionMenu.querySelectorAll('[data-permission]');
     for (const item of items) {
@@ -2171,6 +2529,28 @@
       item.classList.toggle('is-current', current);
       item.setAttribute('aria-checked', current ? 'true' : 'false');
     }
+    // 只读档下「用副本」没有意义：成员本来就不能写。画灰而不是藏起来，
+    // 免得切回可写时找不到开关。
+    if (copyCheck) {
+      const disabled = state.permission === 'read';
+      copyCheck.checked = state.copy;
+      copyCheck.disabled = disabled;
+      if (copyCheck.parentElement) copyCheck.parentElement.classList.toggle('is-disabled', disabled);
+    }
+  }
+
+  function permissionHint() {
+    if (state.permission === 'full') {
+      return state.copy
+        ? '完全权限：成员在隔离副本里跑，副本之外仍可读写'
+        : '完全权限：成员不受目录限制，可读写本机任意路径';
+    }
+    if (state.permission === 'workspace') {
+      return state.copy
+        ? '成员在隔离副本里跑，可以改副本里的文件'
+        : '成员直接改原目录里的文件';
+    }
+    return '成员只读讨论，不改任何文件';
   }
 
   // ---- 本轮参数（轮数 / 汇总成员 / 预算） ----
@@ -2523,7 +2903,14 @@
     title.textContent = '成员';
     membersPopover.appendChild(title);
 
-    const available = state.agents.filter((agent) => !state.selectedAgents.includes(agent.id));
+    // Claude 导入的子代理不在这一轮的可选名单里：它们是 .claude/agents 下的
+    // 定义，不是本机模型。只有它本来就是这个会话的成员时才保留，否则老会话
+    // 里已经在发言的导入成员会突然选不到。
+    const members = new Set(((state.detail && state.detail.members) || [])
+      .map((member) => member && member.agent_id));
+    const available = state.agents.filter((agent) => agent &&
+      !state.selectedAgents.includes(agent.id) &&
+      (agent.source !== 'claude' || members.has(agent.id)));
     if (available.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'menu-empty';
@@ -2652,6 +3039,7 @@
       members: state.selectedAgents.slice(),
       cwd: state.cwd,
       permission: state.permission,
+      copy: state.copy,
       rounds: state.rounds,
       summary: state.summary,
       budget_usd: state.budgetUSD,
@@ -2664,14 +3052,26 @@
     showToast(existing >= 0 ? '预设已更新：' + name : '预设已保存：' + name);
   }
 
+  // 套用预设也走一次完全权限的确认：预设里存着 full 时，套用它和在下拉里
+  // 手选 full 是同一件事，不该因为入口不同就少一道门。
   function applyPreset(preset) {
+    if (preset && preset.permission === 'full' && state.permission !== 'full') {
+      state.pendingFull = () => applyPresetNow(preset);
+      openFullConfirm();
+      return;
+    }
+    applyPresetNow(preset);
+  }
+
+  function applyPresetNow(preset) {
     const known = new Set(state.agents.map((agent) => agent.id));
     const runnable = new Set(state.agents.filter(agentRunnable).map((agent) => agent.id));
     // 预设可以套用一批成员；设置页新增的那些能显示但不能选，这里同样不
     // 让一条旧预设把它们偷偷塞回这一轮名单。
     state.selectedAgents = preset.members.filter((id) => runnable.has(id));
     state.cwd = preset.cwd;
-    state.permission = preset.permission === 'workspace' ? 'workspace' : 'read';
+    state.permission = PERMISSION_LABELS[preset.permission] ? preset.permission : 'read';
+    state.copy = preset.copy !== false;
     const rounds = normalizeRounds(preset.rounds);
     let summary = normalizeSummary(preset.summary);
     const budget = normalizeBudget(preset.budget_usd);
@@ -2813,22 +3213,133 @@
   }
 
   // ---- 事件绑定 ----
-  cwdChip.addEventListener('click', () => {
+  // 工作目录选择器开成一个遮罩弹窗，而不是贴着 chip 的浮层：浮层长在
+  // 编辑器底下，目录一多就被窗口下沿切掉，「选择此文件夹」根本露不出来。
+  cwdChip.addEventListener('click', openCwdPicker);
+
+  function openCwdPicker() {
+    cwdModal.hidden = false;
+    cwdChip.setAttribute('aria-expanded', 'true');
     cwdInput.value = state.cwd;
-    const wasOpen = !cwdPopover.hidden;
-    togglePopover(cwdPopover, cwdChip);
-    if (!wasOpen) {
+    cwdManual.hidden = true;
+    loadCwdDir(state.cwd);
+  }
+
+  function closeCwdPicker() {
+    cwdModal.hidden = true;
+    cwdChip.setAttribute('aria-expanded', 'false');
+  }
+
+  // ---- 工作目录选择器 ----
+  // 后端 /api/fs/dirs 只列子目录，不读文件；这里只管把点击换成路径。
+  // 手打输入框保留在下面：网络共享、刚建好还没刷出来的目录，仍然可以打字。
+  function cwdEntryButton(entry, onClick) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'cwd-row';
+    item.setAttribute('role', 'option');
+    const icon = document.createElement('span');
+    icon.className = 'cwd-row-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = '📁';
+    const name = document.createElement('span');
+    name.className = 'cwd-row-name';
+    name.textContent = entry.name;
+    const go = document.createElement('span');
+    go.className = 'cwd-row-go';
+    go.setAttribute('aria-hidden', 'true');
+    go.textContent = '›';
+    item.appendChild(icon);
+    item.appendChild(name);
+    item.appendChild(go);
+    item.title = entry.path;
+    item.addEventListener('click', onClick);
+    return item;
+  }
+
+  async function loadCwdDir(path) {
+    cwdList.replaceChildren();
+    const loading = document.createElement('div');
+    loading.className = 'cwd-empty';
+    loading.textContent = '正在读取…';
+    cwdList.appendChild(loading);
+    try {
+      const data = await api('/api/fs/dirs?path=' + encodeURIComponent(path || ''));
+      state.browse = data;
+      renderCwdPicker();
+    } catch (err) {
+      cwdList.replaceChildren();
+      const failed = document.createElement('div');
+      failed.className = 'cwd-empty';
+      failed.textContent = err.message;
+      cwdList.appendChild(failed);
+    }
+  }
+
+  function renderCwdPicker() {
+    const browse = state.browse;
+    if (!browse) return;
+    cwdBrowsePath.textContent = browse.path || '';
+    cwdUp.disabled = !browse.parent;
+
+    // 根列表只在开屏给一次：盘符之间没有「上一级」，靠这一排切换。
+    cwdRoots.replaceChildren();
+    const roots = Array.isArray(browse.roots) ? browse.roots : [];
+    cwdRoots.hidden = roots.length === 0;
+    for (const root of roots) {
+      cwdRoots.appendChild(cwdEntryButton(root, () => loadCwdDir(root.path)));
+    }
+
+    cwdList.replaceChildren();
+    const entries = Array.isArray(browse.entries) ? browse.entries : [];
+    if (entries.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'cwd-empty';
+      empty.textContent = '这个目录下没有子目录';
+      cwdList.appendChild(empty);
+      return;
+    }
+    for (const entry of entries) {
+      cwdList.appendChild(cwdEntryButton(entry, () => loadCwdDir(entry.path)));
+    }
+  }
+
+  if (cwdUp) {
+    cwdUp.addEventListener('click', () => {
+      if (state.browse && state.browse.parent) loadCwdDir(state.browse.parent);
+    });
+  }
+  cwdChoose.addEventListener('click', () => {
+    if (!state.browse || !state.browse.path) return;
+    state.cwd = state.browse.path;
+    clearAskError();
+    closeCwdPicker();
+    renderComposer();
+  });
+  cwdCancel.addEventListener('click', closeCwdPicker);
+  cwdModal.addEventListener('click', (event) => {
+    if (event.target === cwdModal) closeCwdPicker();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !cwdModal.hidden) {
+      event.preventDefault();
+      closeCwdPicker();
+    }
+  });
+  cwdManualToggle.addEventListener('click', () => {
+    cwdManual.hidden = !cwdManual.hidden;
+    if (!cwdManual.hidden) {
       cwdInput.focus();
       cwdInput.select();
     }
   });
 
   function applyCwd() {
-    // 这里不校验路径：前端拿不到服务器的文件系统，合法性由 /api/ask 的
-    // 400 兜底；过早判死会把「目录稍后才创建」这种情况挡在浏览器里。
+    // 手打路径不在这里校验：前端拿不到服务器的文件系统，合法性由
+    // /api/ask 的 400 兜底；过早判死会把「目录稍后才创建」挡在浏览器里。
     state.cwd = cwdInput.value.trim();
     clearAskError();
-    closePopover();
+    closeCwdPicker();
     renderComposer();
   }
 
@@ -2848,10 +3359,53 @@
     if (!(target instanceof Element)) return;
     const item = target.closest('[data-permission]');
     if (!item) return;
-    state.permission = item.dataset.permission === 'workspace' ? 'workspace' : 'read';
-    closePopover();
+    const value = PERMISSION_LABELS[item.dataset.permission] ? item.dataset.permission : 'read';
+    // 完全权限会让成员跳出工作目录，选它必须先过一道确认；取消就保持原档。
+    if (value === 'full' && state.permission !== 'full') {
+      openFullConfirm();
+      return;
+    }
+    // 不在这里关菜单：下面那行「用副本」还要点，关掉就得再开一次。
+    state.permission = value;
     renderComposer();
   });
+
+  // ---- 完全权限的二次确认 ----
+  function openFullConfirm() {
+    fullConfirm.hidden = false;
+    fullCancel.focus();
+  }
+
+  function closeFullConfirm() {
+    fullConfirm.hidden = true;
+    state.pendingFull = null;
+  }
+
+  fullOk.addEventListener('click', () => {
+    state.permission = 'full';
+    const pending = state.pendingFull;
+    state.pendingFull = null;
+    fullConfirm.hidden = true;
+    closePopover();
+    renderComposer();
+    if (pending) pending();
+  });
+  fullCancel.addEventListener('click', closeFullConfirm);
+  fullConfirm.addEventListener('click', (event) => {
+    if (event.target === fullConfirm) closeFullConfirm();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !fullConfirm.hidden) {
+      event.preventDefault();
+      closeFullConfirm();
+    }
+  });
+  if (copyCheck) {
+    copyCheck.addEventListener('change', () => {
+      state.copy = copyCheck.checked;
+      renderPermissionChip();
+    });
+  }
 
   paramChip.addEventListener('click', () => {
     const wasOpen = !paramPopover.hidden;
@@ -2887,10 +3441,8 @@
         openPopover(membersPopover, addButton);
         break;
       case 'cwd':
-        cwdInput.value = state.cwd;
-        openPopover(cwdPopover, cwdChip);
-        cwdInput.focus();
-        cwdInput.select();
+        closePopover();
+        openCwdPicker();
         break;
       case 'context':
         updateContextCount();
@@ -3202,7 +3754,11 @@
       // cwd / workspace / context 是 SRV5 的三个新字段；cwd 传空串时
       // 后端回落到 serve 的启动目录，与 options.cwd 是同一个值。
       cwd: state.cwd,
-      workspace: state.permission === 'workspace',
+      // permission 是这一轮的整轮权限覆盖（read / workspace / full）；
+      // workspace 仍是「用隔离副本」那个开关，两者正交：权限决定能不能写，
+      // 副本决定写到哪儿。只读档下副本没有意义，后端也不建。
+      permission: state.permission,
+      workspace: state.permission !== 'read' && state.copy,
       context: state.contexts.slice(),
       budget_usd: state.budgetUSD,
     };
@@ -4121,9 +4677,17 @@
     if (memberAdd.hidden && openPanel && openPanel.panel === memberAddMenu) closePopover();
   }
 
-  // renderMemberAddMenu 只列「这个会话里从来没有过」的 agent：已经活跃的
-  // 不用再加；已经退出的走行内「重新加入」，那是同一条 AddParticipant
-  // 语义的另一个入口，不应该在添加菜单里重复出现两次。
+  // renderMemberAddMenu 分两段：
+  //
+  //   1. 配置里的模型——这个会话里从来没有过的那些。已经活跃的不用再加；
+  //      已经退出的走行内「重新加入」，那是同一条 AddParticipant 语义的
+  //      另一个入口，不在菜单里重复出现；
+  //   2. 本机识别——一个按需触发的入口，跑一次零花费的模型识别，把
+  //      claude / codex / grok / agy 当前可用的模型（含经 本地转发服务 转发的
+  //      custom/ 行）列出来，点一行就写进配置并加入会话。
+  //
+  // Claude 导入的子代理（source = "claude"）不在这张菜单里：它们是
+  // .claude/agents 下的定义，不是本机模型，混进来只会把真正的模型挤下去。
   function renderMemberAddMenu() {
     memberAddMenu.replaceChildren();
     const title = document.createElement('div');
@@ -4135,24 +4699,119 @@
     for (const member of (state.detail && state.detail.members) || []) {
       if (member && typeof member.agent_id === 'string') current.add(member.agent_id);
     }
-    const available = state.agents.filter((agent) => agent && !current.has(agent.id));
-    if (available.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'menu-empty';
-      empty.textContent = state.optionsLoaded
-        ? '配置里的成员都已经在这个会话里'
-        : '还没有读到配置里的成员';
-      memberAddMenu.appendChild(empty);
-      return;
+    const available = state.agents.filter((agent) =>
+      agent && agent.source !== 'claude' && !current.has(agent.id));
+    if (available.length > 0) {
+      memberAddMenu.appendChild(menuSection('配置里的模型'));
+      for (const agent of available) {
+        memberAddMenu.appendChild(menuAction(memberLabel(agent), () => addMember(agent.id)));
+      }
+    } else if (state.optionsLoaded) {
+      memberAddMenu.appendChild(menuHint('配置里的模型都已经在这个会话里'));
+    } else {
+      memberAddMenu.appendChild(menuHint('还没有读到配置里的成员'));
     }
-    for (const agent of available) {
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.className = 'menu-item';
-      item.setAttribute('role', 'menuitem');
-      item.textContent = memberLabel(agent);
-      item.addEventListener('click', () => addMember(agent.id));
-      memberAddMenu.appendChild(item);
+
+    memberAddMenu.appendChild(menuSection('本机识别'));
+    const discover = document.createElement('button');
+    discover.type = 'button';
+    discover.className = 'menu-item';
+    discover.setAttribute('role', 'menuitem');
+    discover.textContent = state.discovering ? '识别中…（几秒）' : '识别本机模型（不花钱）';
+    discover.disabled = state.discovering;
+    discover.addEventListener('click', () => discoverModels());
+    memberAddMenu.appendChild(discover);
+
+    if (state.discovered) renderDiscoveredModels();
+  }
+
+  function menuSection(text) {
+    const section = document.createElement('div');
+    section.className = 'menu-section';
+    section.textContent = text;
+    return section;
+  }
+
+  function menuHint(text) {
+    const hint = document.createElement('div');
+    hint.className = 'menu-empty';
+    hint.textContent = text;
+    return hint;
+  }
+
+  function menuAction(text, onClick) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'menu-item';
+    item.setAttribute('role', 'menuitem');
+    item.textContent = text;
+    item.addEventListener('click', onClick);
+    return item;
+  }
+
+  // renderDiscoveredModels 画识别结果：一行一个模型，已经在配置里的画灰并
+  // 说明是哪个成员；识别失败的那几家单独一行说明，别让整张表看起来像空的。
+  function renderDiscoveredModels() {
+    const models = ((state.discovered && state.discovered.models) || [])
+      .filter((m) => m && m.model);
+    const failed = ((state.discovered && state.discovered.providers) || [])
+      .filter((p) => p && p.error);
+    if (models.length === 0) {
+      memberAddMenu.appendChild(menuHint('这一轮没有识别到模型'));
+    } else {
+      memberAddMenu.appendChild(menuSection('识别到的模型'));
+      for (const m of models) {
+        const parts = [m.name || m.model, m.provider];
+        if (m.custom) parts.push('本地转发服务');
+        const item = menuAction(parts.join(' · '), () => addModelMember(m));
+        if (m.in_config) {
+          item.disabled = true;
+          item.title = '配置里已经有 ' + (m.agent_id || '同一个模型');
+        }
+        memberAddMenu.appendChild(item);
+      }
+    }
+    for (const p of failed) {
+      memberAddMenu.appendChild(menuHint(p.id + '：' + p.error));
+    }
+  }
+
+  async function discoverModels() {
+    if (state.discovering) return;
+    state.discovering = true;
+    renderMemberAddMenu();
+    try {
+      state.discovered = await api('/api/models');
+    } catch (err) {
+      state.discovered = null;
+      showError(err);
+    }
+    state.discovering = false;
+    renderMemberAddMenu();
+  }
+
+  // addModelMember 走 from-model 端点：后端负责写配置（带备份）、把它交给
+  // Runner 并加入会话。成功后刷新一次选项，让新成员进入下一轮的可选名单。
+  async function addModelMember(model) {
+    if (!state.writable || state.currentId === null) return;
+    const id = state.currentId;
+    closePopover();
+    try {
+      const result = await postJSON(
+        '/api/conversations/' + encodeURIComponent(id) + '/members/from-model',
+        {
+          provider: model.provider,
+          model: model.model,
+          effort: model.default_effort || '',
+          agent_id: model.suggested_id || '',
+        });
+      if (state.currentId !== id) return;
+      applyMembers(result);
+      showToast('已加入成员 ' + (model.name || model.model));
+      state.discovered = null;
+      await loadOptions();
+    } catch (err) {
+      showError(err);
     }
   }
 

@@ -833,6 +833,9 @@ type job struct {
 	// finishOnce 让 finish 幂等：正常收尾与 panic 兜底可能都想结束同一个
 	// job，重复 close(done) 会 panic，而兜底逻辑自己不能再把进程带崩。
 	finishOnce sync.Once
+	// permission 是这一轮的整轮权限覆盖（read / workspace / full）。
+	// 空串表示按成员自己的配置跑；非空时由 roundCfg 克隆一份配置再执行。
+	permission string
 }
 
 func newJob(id string) *job {
@@ -953,6 +956,10 @@ type askRequest struct {
 	// Workspace 为 true 时把 Cwd 当 git 仓库根，走既有的 -workspace
 	// 隔离副本路径。为 true 而 Cwd 不是仓库根在请求阶段就回 400。
 	Workspace bool `json:"workspace"`
+	// Permission 是这一轮的整轮权限档：read / workspace / full，空串表示
+	// 不覆盖、按每个成员自己配置里的 permissions 跑。非空时只覆盖参加这一
+	// 轮的成员（含汇总成员），不改配置文件。
+	Permission string `json:"permission"`
 	// Context 是"相关资料"的路径清单，只拼进 prompt 的一段前置说明，
 	// 不读文件内容、不扩权限。最多 20 条、每条不超过 512 字节，
 	// 每一条必须是绝对路径。
@@ -1102,6 +1109,13 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	switch req.Permission {
+	case "", "read", "workspace", "full":
+	default:
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("permission 只能是 read / workspace / full（留空＝按成员自己的配置），收到 %q", req.Permission))
+		return
+	}
 	// 先校验再建任务：未知成员、非法预算、round 模式缺汇总，这些在
 	// headless.Run 里也是同一套判据，但在这里挡住可以给调用方一个
 	// 干净的 400，不必开一个必然失败的后台任务再让 SSE 去报 error。
@@ -1140,6 +1154,7 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	j := newJob(id)
+	j.permission = strings.TrimSpace(req.Permission)
 	// 每个 job 一颗自己的取消按钮，父 ctx 是进程级的 jobCtx。
 	// 先建好再进 goroutine：POST /api/jobs/{id}/cancel 可能在 202 返回的
 	// 同一毫秒到达，此刻 j.cancel 必须已经非 nil。
@@ -1342,6 +1357,50 @@ func (s *Server) applyAskScopes(ctx context.Context, req askRequest, opts *headl
 	return nil
 }
 
+// roundCfg 按这一轮选的权限档覆盖参与成员的 permissions，返回一份克隆的
+// 配置交给 headless。
+//
+// 为什么是克隆而不是改原配置：Runner 与设置页共用启动时那一份，原地改会让
+// 权限跨轮残留；而这一轮的覆盖只该活在这一轮里。克隆只复制 Agents 这张表
+// （值类型，复制即独立），Teams / Summary / Providers 原样共享，只读使用。
+//
+// 参与这一轮的成员与汇总成员都要覆盖：汇总成员读的是同一批发言，漏掉它
+// 会让「只读」这一轮里冒出一个有写权限的成员。
+//
+// 空 permission 原样返回启动配置，不克隆——没有覆盖时行为必须与以前逐字节
+// 相同，否则一次升级会悄悄改变所有人现有的轮次。
+func roundCfg(cfg *config.Config, members []string, summary, permission string) *config.Config {
+	if cfg == nil || permission == "" {
+		return cfg
+	}
+	clone := *cfg
+	clone.Agents = make(map[string]config.AgentConfig, len(cfg.Agents))
+	for id, ac := range cfg.Agents {
+		clone.Agents[id] = ac
+	}
+	override := func(id string) {
+		ac, ok := clone.Agents[id]
+		if !ok {
+			return
+		}
+		ac.Permissions = config.Permission(permission)
+		clone.Agents[id] = ac
+	}
+	for _, id := range members {
+		override(id)
+	}
+	switch summary {
+	case "":
+		// 留给 headless 取配置里的默认汇总成员；那条默认值也得覆盖。
+		override(cfg.Summary.Agent)
+	case "default", "none":
+		// default 与空串同义；none 表示这一轮没有汇总成员。
+	default:
+		override(summary)
+	}
+	return &clone
+}
+
 // resolveAskCwd 校验并规范化 cwd。空串取 serve 的启动目录；非空必须是
 // 绝对路径、存在的目录。只读端点不需要它，所以不放进 headless.Validate：
 // 那个函数被 CLI 共用，不该认识 HTTP 层的默认值。
@@ -1442,7 +1501,7 @@ func (s *Server) runAskJob(j *job, opts headless.Options) {
 	var buf bytes.Buffer
 
 	deps := headless.Deps{
-		Cfg:        s.runCfg(),
+		Cfg:        roundCfg(s.runCfg(), opts.Members, opts.Summary, j.permission),
 		Svc:        s.write.Svc,
 		Rn:         s.write.Rn,
 		DataDir:    s.write.DataDir,
