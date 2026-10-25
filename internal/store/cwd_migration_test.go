@@ -251,7 +251,7 @@ func TestCwdMigrationV5ToV6(t *testing.T) {
 		}
 	})
 
-	t.Run("cwd 在 team_id 之后、deleted_at 之前，且 NOT NULL DEFAULT ''", func(t *testing.T) {
+	t.Run("cwd 在 team_id 之后、deleted_at/archived_at 之前，且 NOT NULL DEFAULT ''", func(t *testing.T) {
 		rows, err := raw.Query(`SELECT name, type, "notnull", dflt_value FROM pragma_table_info('conversations') ORDER BY cid`)
 		if err != nil {
 			t.Fatalf("读 pragma_table_info('conversations') 失败: %v", err)
@@ -280,11 +280,12 @@ func TestCwdMigrationV5ToV6(t *testing.T) {
 		if err := rows.Err(); err != nil {
 			t.Fatalf("遍历 pragma_table_info 失败: %v", err)
 		}
-		// v7 把 deleted_at 加在 cwd 之后（ALTER 只能加在列尾），
-		// 所以 cwd 不再是最末列；这条断言仍要钉住它在 ALTER 序列里的位置。
-		wantNames := []string{"id", "title", "created_at", "team_id", "cwd", "deleted_at"}
+		// v7 把 deleted_at 加在 cwd 之后、v8 再把 archived_at 加在 deleted_at
+		// 之后（ALTER 只能加在列尾），所以 cwd 不再是最末列；这条断言仍要
+		// 钉住它在 ALTER 序列里的位置。
+		wantNames := []string{"id", "title", "created_at", "team_id", "cwd", "deleted_at", "archived_at"}
 		if !reflect.DeepEqual(names, wantNames) {
-			t.Errorf("conversations 列序 = %v，期望 %v（cwd 由 v6 加在 team_id 之后，deleted_at 由 v7 加在列尾）", names, wantNames)
+			t.Errorf("conversations 列序 = %v，期望 %v（cwd 由 v6 加在 team_id 之后，deleted_at/archived_at 依次由 v7/v8 追加）", names, wantNames)
 		}
 		if !sawCwd {
 			t.Fatal("pragma_table_info 里没有 cwd 列")
@@ -465,12 +466,12 @@ func TestCwdMigrationFreshDatabaseIsLatest(t *testing.T) {
 		t.Errorf("MAX(version) = %d，期望 %d（migrations 里最后一版的 version）", gotVer, wantVer)
 	}
 
-	// v7 起 conversations 的列尾是 deleted_at（ALTER 追加），cwd 仍是 v6
-	// 加在 team_id 之后的那一列。末列断言跟着最新迁移走，同时保留 cwd 的
-	// 类型与 NOT NULL 检查。
+	// v8 起 conversations 的列尾是 archived_at（ALTER 追加），它前面是
+	// v7 的 deleted_at，cwd 仍是 v6 加在 team_id 之后的那一列。末列断言
+	// 跟着最新迁移走，同时保留 cwd、deleted_at 与 archived_at 的类型/可空检查。
 	last := tstScanText(t, raw, `SELECT name FROM pragma_table_info('conversations') ORDER BY cid DESC LIMIT 1`)
-	if last != "deleted_at" {
-		t.Errorf("conversations 末列 = %q，期望 deleted_at", last)
+	if last != "archived_at" {
+		t.Errorf("conversations 末列 = %q，期望 archived_at", last)
 	}
 	deletedType := tstScanText(t, raw, `SELECT type FROM pragma_table_info('conversations') WHERE name = 'deleted_at'`)
 	if deletedType != "TEXT" {
@@ -479,6 +480,14 @@ func TestCwdMigrationFreshDatabaseIsLatest(t *testing.T) {
 	deletedNotNull := tstScanInt(t, raw, `SELECT "notnull" FROM pragma_table_info('conversations') WHERE name = 'deleted_at'`)
 	if deletedNotNull != 0 {
 		t.Errorf("deleted_at notnull = %d，期望 0（可空，NULL 表示没删）", deletedNotNull)
+	}
+	archivedType := tstScanText(t, raw, `SELECT type FROM pragma_table_info('conversations') WHERE name = 'archived_at'`)
+	if archivedType != "TEXT" {
+		t.Errorf("archived_at type = %q，期望 TEXT", archivedType)
+	}
+	archivedNotNull := tstScanInt(t, raw, `SELECT "notnull" FROM pragma_table_info('conversations') WHERE name = 'archived_at'`)
+	if archivedNotNull != 0 {
+		t.Errorf("archived_at notnull = %d，期望 0（可空，NULL 表示没归档）", archivedNotNull)
 	}
 	typ := tstScanText(t, raw, `SELECT type FROM pragma_table_info('conversations') WHERE name = 'cwd'`)
 	if typ != "TEXT" {

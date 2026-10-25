@@ -223,6 +223,106 @@ func (t *Tx) softDeleteConversation(ctx context.Context, convID string) error {
 	return nil
 }
 
+// ---- 归档 / 取消归档会话 ----
+
+// archiveTx 是 ArchiveConversation / UnarchiveConversation 在 WriteTx 里
+// 需要的最小事务能力。与 renameTx / softDeleteTx 同一个理由：这两个方法
+// 只有 serve 的两个端点调用，放进 conversation.Tx 会逼 turn / repl 里每个
+// 假 Store+Tx 都补一个它们永远不会调用的方法。
+type archiveTx interface {
+	setConversationArchived(ctx context.Context, convID string, archived bool) error
+}
+
+// ArchiveConversation 把一场会话归档：只写 archived_at，不动 title、cwd、
+// team_id、deleted_at，也不动消息、成员、用量与执行状态。归档只改变
+// 「主列表里还出不出现」；Conversation、Messages、TurnUsages 与 /api/ask
+// 续接一概照旧，所以已归档的会话仍然能打开、能追问。
+//
+// 幂等：同一场会话归档第二次不报错、也不改写第一次的时间戳。行根本不存在、
+// 或已经被软删，才返回包了 ErrConversationNotFound 的错误：已删的会话对外
+// 不存在，不能让它经归档这条路重新露出来。
+func (s *Store) ArchiveConversation(ctx context.Context, convID string) error {
+	err := s.WriteTx(ctx, func(ctx context.Context, tx conversation.Tx) error {
+		impl, ok := tx.(archiveTx)
+		if !ok {
+			return fmt.Errorf("事务实现 %T 不支持归档会话", tx)
+		}
+		return impl.setConversationArchived(ctx, convID, true)
+	})
+	if err != nil {
+		return fmt.Errorf("archive conversation %s: %w", convID, err)
+	}
+	return nil
+}
+
+// UnarchiveConversation 取消归档：把 archived_at 写回 NULL，其余列一条不动。
+// 幂等：本来就没归档的会话返回 nil，不写库。不存在或已软删的会话返回
+// 包了 ErrConversationNotFound 的错误，理由同 ArchiveConversation。
+func (s *Store) UnarchiveConversation(ctx context.Context, convID string) error {
+	err := s.WriteTx(ctx, func(ctx context.Context, tx conversation.Tx) error {
+		impl, ok := tx.(archiveTx)
+		if !ok {
+			return fmt.Errorf("事务实现 %T 不支持取消归档会话", tx)
+		}
+		return impl.setConversationArchived(ctx, convID, false)
+	})
+	if err != nil {
+		return fmt.Errorf("unarchive conversation %s: %w", convID, err)
+	}
+	return nil
+}
+
+// setConversationArchived 是归档与取消归档共用的写事务内动作。
+//
+// 先读 deleted_at 与 archived_at 再 UPDATE，而不是直接 UPDATE ... WHERE
+// archived_at IS NULL 看 RowsAffected：那样无法区分「行不存在」「已删」与
+// 「本来就归档了」三件事。前两件必须是 ErrConversationNotFound，第三件是
+// 幂等成功；只有先读一次主键才能把这三者分开。
+//
+// 已删的会话先于归档判定：deleted_at 非 NULL 时无论 archived 是哪一档
+// 都按不存在处理。即便库里残留着 deleted_at 与 archived_at 同时非 NULL 的
+// 行（先归档后删除会造出来），取消归档也不能把它复活——删除的优先级更高。
+func (t *Tx) setConversationArchived(ctx context.Context, convID string, archived bool) error {
+	var deletedAt, archivedAt sql.NullString
+	err := t.tx.QueryRowContext(ctx,
+		`SELECT deleted_at, archived_at FROM conversations WHERE id = ?`, convID,
+	).Scan(&deletedAt, &archivedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("conversation %s: %w", convID, conversation.ErrConversationNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("check conversation %s: %w", convID, err)
+	}
+	if deletedAt.Valid {
+		return fmt.Errorf("conversation %s: %w", convID, conversation.ErrConversationNotFound)
+	}
+	if archived {
+		if archivedAt.Valid {
+			// 已经归档：不改写时间戳（它回答的是「第一次归档是什么时候」），
+			// 也不把重试当成错误。
+			return nil
+		}
+		if _, err := t.tx.ExecContext(ctx,
+			`UPDATE conversations SET archived_at = ? WHERE id = ? AND archived_at IS NULL AND deleted_at IS NULL`,
+			formatTime(time.Now().UTC()), convID,
+		); err != nil {
+			return fmt.Errorf("update conversation archived_at %s: %w", convID, err)
+		}
+		return nil
+	}
+	if !archivedAt.Valid {
+		// 本来就没归档：幂等成功，不写库。
+		return nil
+	}
+	if _, err := t.tx.ExecContext(ctx,
+		`UPDATE conversations SET archived_at = NULL WHERE id = ? AND deleted_at IS NULL`,
+		convID,
+	); err != nil {
+		return fmt.Errorf("clear conversation archived_at %s: %w", convID, err)
+	}
+	return nil
+}
+
 // AppendMessage 追加一条消息。ID、Seq、CreatedAt 由 store 填写，调用方传入的这三个字段一律忽略。
 func (t *Tx) AppendMessage(ctx context.Context, m conversation.Message) (conversation.Message, error) {
 	if !m.Kind.Valid() {

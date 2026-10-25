@@ -22,7 +22,8 @@ type Store interface {
 	// Conversation 按 id 取会话。不存在时返回包了 ErrConversationNotFound 的错误。
 	// 已软删的会话同样按不存在处理。
 	Conversation(ctx context.Context, id string) (Conversation, error)
-	// Conversations 列出全部未软删的会话，按创建时间倒序。
+	// Conversations 列出全部未软删、未归档的会话，按创建时间倒序。
+	// 已归档的会话不在主列表里；它们仍能经 Conversation 打开与续接。
 	Conversations(ctx context.Context) ([]Conversation, error)
 	// Participants 列出某会话的成员。includeInactive 为 false 时只返回活跃成员。
 	Participants(ctx context.Context, convID string, includeInactive bool) ([]Participant, error)

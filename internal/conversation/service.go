@@ -508,7 +508,7 @@ func (s *Service) History(ctx context.Context, convID string, afterSeq int64, li
 // 这三个方法刻意不做「会话是否存在」的校验：读路径每次多查一次会话纯属浪费，
 // 不存在的会话自然会读出空结果。要判存在与否，调用方自己去查。
 
-// Conversations 列出全部会话，顺序由 store 保证稳定（created_at 倒序）。
+// Conversations 列出全部未归档会话，顺序由 store 保证稳定（created_at 倒序）。
 func (s *Service) Conversations(ctx context.Context) ([]Conversation, error) {
 	return s.store.Conversations(ctx)
 }

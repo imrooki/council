@@ -101,6 +101,11 @@ type Conversation struct {
 	// 空串表示没绑（老会话，或取不到启动目录）。
 	// DDL 是 NOT NULL DEFAULT ''，空串就是「没绑」这一个含义，不用指针。
 	Cwd string
+	// Archived 说明这场会话已经被归档：它只是从会话列表里收起来，
+	// 详情、消息、用量与续接一概照旧（归档不阻止继续对话）。
+	// 库里存的是 conversations.archived_at（可空时间戳），这里收成 bool：
+	// 调用方只关心「是不是归档了」，第一次归档的时刻没有对外含义。
+	Archived bool
 }
 
 // Participant 是会话里的一个成员。participant 不等于 provider：

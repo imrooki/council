@@ -217,6 +217,9 @@ type conversationSummary struct {
 	LastActivity time.Time `json:"last_activity"`
 	LastSeq      int64     `json:"last_seq"`
 	MessageCount int       `json:"message_count"`
+	// Archived 说明这一行属于「已归档」视图。前端据此在标题旁标灰字，
+	// 也据此决定 ⋯ 菜单里画「归档」还是「取消归档」。
+	Archived bool `json:"archived"`
 }
 
 type memberJSON struct {
@@ -241,9 +244,16 @@ type conversationDetail struct {
 	LastSeq      int64        `json:"last_seq"`
 	MessageCount int          `json:"message_count"`
 	Members      []memberJSON `json:"members"`
+	// Archived 与列表里的同名字段同口径：详情照常返回已归档会话，
+	// 但把「它已经归档」这件事说清楚。
+	Archived bool `json:"archived"`
 }
 
-// handleConversations 返回全部会话的摘要，按最后活动倒序。
+// handleConversations 返回会话摘要，按最后活动倒序。
+//
+// 默认只看未归档的会话；?archived=1 只看已归档的。两个视图互斥，
+// 与前端左侧的切换一一对应。archived=0 与不传等价，别的值一律 400：
+// 一个拼错的视图参数静默退回默认列表，会让人以为归档的会话丢了。
 //
 // 成员数只数活跃成员，与 /resume 的口径一致（repl/resume.go）：软删除的成员
 // 仍留在 participants 里，把它算进「当前成员」会让 /leave 之后人数不掉。
@@ -254,8 +264,18 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 	if !requireGET(w, r) {
 		return
 	}
+	archived, err := parseArchivedQuery(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	ctx := r.Context()
-	convs, err := s.store.Conversations(ctx)
+	var convs []conversation.Conversation
+	if archived {
+		convs, err = s.store.ArchivedConversations(ctx)
+	} else {
+		convs, err = s.store.Conversations(ctx)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "读取会话列表失败: "+err.Error())
 		return
@@ -291,6 +311,7 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			LastActivity: lastActivity,
 			LastSeq:      lastSeq,
 			MessageCount: len(msgs),
+			Archived:     conv.Archived,
 		})
 	}
 
@@ -333,6 +354,11 @@ func (s *Server) handleConversationPath(w http.ResponseWriter, r *http.Request) 
 		case "delete":
 			// 同上：删除是写操作，只读模式必须先回 405 而不是「没有这个接口」。
 			s.handleConversationDelete(w, r, segments[0])
+		case "archive":
+			// 归档 / 取消归档也是写操作，只读模式的 405 在 handler 内部。
+			s.handleConversationArchive(w, r, segments[0], true)
+		case "unarchive":
+			s.handleConversationArchive(w, r, segments[0], false)
 		case "members":
 			// GUI4：加人。只读模式的 405 在 handler 内部，路由不做模式分叉。
 			s.handleConversationMemberAdd(w, r, segments[0])
@@ -407,6 +433,7 @@ func (s *Server) handleConversationDetail(w http.ResponseWriter, r *http.Request
 		LastSeq:      lastSeq,
 		MessageCount: len(msgs),
 		Members:      members,
+		Archived:     conv.Archived,
 	})
 }
 
@@ -497,6 +524,21 @@ func parseMessagesQuery(r *http.Request) (int64, int, error) {
 		limit = n
 	}
 	return after, limit, nil
+}
+
+// parseArchivedQuery 解析 GET /api/conversations 的视图参数。
+// 不传 = 未归档（默认视图）；只认 0 / 1 两个值，别的一律 400。
+// 不接受 true / yes 之类的同义词：这个参数是前端两个固定视图的选择器，
+// 不是开关，多一套写法只会让「为什么列表是空的」多一种查法。
+func parseArchivedQuery(r *http.Request) (bool, error) {
+	values, ok := r.URL.Query()["archived"]
+	if !ok {
+		return false, nil
+	}
+	if len(values) != 1 || (values[0] != "0" && values[0] != "1") {
+		return false, fmt.Errorf("archived 只能是 0 或 1，实际是 %q", values)
+	}
+	return values[0] == "1", nil
 }
 
 type agentUsageJSON struct {

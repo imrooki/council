@@ -249,17 +249,17 @@ func TestSchemaV7MigrationV6ToV7(t *testing.T) {
 		}
 	})
 
-	t.Run("deleted_at 是 conversations 的最后一列且可空、无默认值", func(t *testing.T) {
+	t.Run("deleted_at 与 archived_at 依次是 conversations 的列尾且可空、无默认值", func(t *testing.T) {
 		rows, err := raw.Query(`SELECT name, type, "notnull", dflt_value FROM pragma_table_info('conversations') ORDER BY cid`)
 		if err != nil {
 			t.Fatalf("读 pragma_table_info('conversations') 失败: %v", err)
 		}
 		defer rows.Close()
 		var names []string
-		var sawDeleted bool
-		var deletedType string
-		var deletedNotNull int64
-		var deletedDefault any
+		var sawDeleted, sawArchived bool
+		var deletedType, archivedType string
+		var deletedNotNull, archivedNotNull int64
+		var deletedDefault, archivedDefault any
 		for rows.Next() {
 			var name, typ string
 			var notnull int64
@@ -274,13 +274,21 @@ func TestSchemaV7MigrationV6ToV7(t *testing.T) {
 				deletedNotNull = notnull
 				deletedDefault = dflt
 			}
+			if name == "archived_at" {
+				sawArchived = true
+				archivedType = typ
+				archivedNotNull = notnull
+				archivedDefault = dflt
+			}
 		}
 		if err := rows.Err(); err != nil {
 			t.Fatalf("遍历 pragma_table_info 失败: %v", err)
 		}
-		wantNames := []string{"id", "title", "created_at", "team_id", "cwd", "deleted_at"}
+		// v7 把 deleted_at 加在列尾；v8 再把 archived_at 加在它之后。
+		// 这条用例从 v6 一路升到当前版本，所以列序要跟到最新一版。
+		wantNames := []string{"id", "title", "created_at", "team_id", "cwd", "deleted_at", "archived_at"}
 		if !reflect.DeepEqual(names, wantNames) {
-			t.Errorf("conversations 列序 = %v，期望 %v（ALTER 把 deleted_at 加在最后一列）", names, wantNames)
+			t.Errorf("conversations 列序 = %v，期望 %v（ALTER 依次追加 deleted_at、archived_at）", names, wantNames)
 		}
 		if !sawDeleted {
 			t.Fatal("pragma_table_info 里没有 deleted_at 列")
@@ -294,11 +302,26 @@ func TestSchemaV7MigrationV6ToV7(t *testing.T) {
 		if deletedDefault != nil {
 			t.Errorf("deleted_at dflt_value = %#v，期望 NULL（不要给没删的旧行编一个默认时间）", deletedDefault)
 		}
+		if !sawArchived {
+			t.Fatal("pragma_table_info 里没有 archived_at 列")
+		}
+		if archivedType != "TEXT" {
+			t.Errorf("archived_at type = %q，期望 TEXT", archivedType)
+		}
+		if archivedNotNull != 0 {
+			t.Errorf("archived_at notnull = %d，期望 0（NULL 表示没归档）", archivedNotNull)
+		}
+		if archivedDefault != nil {
+			t.Errorf("archived_at dflt_value = %#v，期望 NULL（不要给没归档的旧行编一个默认时间）", archivedDefault)
+		}
 	})
 
-	t.Run("老会话的 deleted_at 全是 NULL", func(t *testing.T) {
+	t.Run("老会话的 deleted_at 与 archived_at 全是 NULL", func(t *testing.T) {
 		if got := tstScanInt(t, raw, `SELECT COUNT(*) FROM conversations WHERE deleted_at IS NOT NULL`); got != 0 {
 			t.Errorf("迁移后有 %d 行 deleted_at 非 NULL，期望 0", got)
+		}
+		if got := tstScanInt(t, raw, `SELECT COUNT(*) FROM conversations WHERE archived_at IS NOT NULL`); got != 0 {
+			t.Errorf("迁移后有 %d 行 archived_at 非 NULL，期望 0", got)
 		}
 		if got := tstScanInt(t, raw, `SELECT COUNT(*) FROM conversations`); got != int64(beforeCounts["conversations"]) {
 			t.Errorf("conversations 行数 = %d，期望 %d", got, beforeCounts["conversations"])

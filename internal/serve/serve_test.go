@@ -229,8 +229,11 @@ func TestServerConversationsOrderAndShape(t *testing.T) {
 	}
 	for i, row := range list {
 		requireKeys(t, "conversation", row,
-			"created_at", "cwd", "id", "last_activity", "last_seq", "members",
+			"archived", "created_at", "cwd", "id", "last_activity", "last_seq", "members",
 			"message_count", "team_id", "title")
+		if row["archived"] != false {
+			t.Errorf("未归档会话的 archived = %v，期望 false", row["archived"])
+		}
 		if i == 0 {
 			if row["members"] != float64(1) {
 				t.Errorf("第一条会话的 members = %v，期望 1（只数活跃成员）", row["members"])
@@ -273,8 +276,11 @@ func TestServerConversationDetail(t *testing.T) {
 	var got map[string]any
 	getJSON(t, env.http.URL+"/api/conversations/"+conv.ID, http.StatusOK, &got)
 	requireKeys(t, "conversation detail", got,
-		"created_at", "cwd", "id", "last_activity", "last_seq", "members",
+		"archived", "created_at", "cwd", "id", "last_activity", "last_seq", "members",
 		"message_count", "team_id", "title")
+	if got["archived"] != false {
+		t.Errorf("未归档会话详情的 archived = %v，期望 false", got["archived"])
+	}
 	members, ok := got["members"].([]any)
 	if !ok {
 		t.Fatalf("members = %T，期望数组", got["members"])

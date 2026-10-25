@@ -34,6 +34,7 @@ var migrations = []migration{
 	{version: 5, stmts: v5DDL, shape: v5Shape},
 	{version: 6, stmts: v6DDL, shape: v6Shape},
 	{version: 7, stmts: v7DDL, shape: v7Shape},
+	{version: 8, stmts: v8DDL, shape: v8Shape},
 }
 
 // v1DDL 一次建齐 schema_migrations 与六张业务表。
@@ -516,6 +517,44 @@ func buildV7Shape() map[string][]columnShape {
 	}
 	shape["conversations"] = append(shape["conversations"], columnShape{
 		name: "deleted_at", typ: "TEXT", notnull: false,
+	})
+	return shape
+}
+
+// v8DDL 给 conversations 加 archived_at：可空时间戳，NULL 表示没归档。
+// 与 v7 的 deleted_at 是同一体例，不是同一种可见性：
+//   - 归档只从会话列表里收起，详情、消息、用量与 /api/ask 续接一律照旧；
+//   - 软删除是「对外不存在」，所有带 convID 的读入口都把它挡在外面。
+//
+// 所以这一列只有列表查询会过滤（read.go 的 Conversations 与
+// ArchivedConversations），visibleConv 绝不能跟着加 archived_at IS NULL：
+// 那会让一场已归档的会话打不开，而本片的需求正好相反——归档不阻止继续对话。
+//
+// 列定义故意不带 NOT NULL / DEFAULT：NULL 是「没归档」的唯一表示，
+// 不带 DEFAULT 才能让迁移前的每一行自然读成 NULL，不需要 UPDATE 补值。
+// 与 v7 同一条理由，不建索引：本地库的会话列表规模是全表扫描。
+var v8DDL = []string{
+	`ALTER TABLE conversations ADD COLUMN archived_at TEXT`,
+}
+
+// v8Shape 必须从 v7 深拷贝：新的 map，并且每张表一份新的列切片。
+// v8Shape = v7Shape 是裸别名，两份变量指向同一张 map，往 conversations
+// 末尾 append 会把 v7Shape 一起改掉 —— 那一版的历史库从此对不上，
+// 而迁移本身照跑、Open 照样成功，只有拿着 v7 旧库的人会炸。
+//
+// archived_at 的 notnull 必须是 false：DDL 没写 NOT NULL，pragma_table_info
+// 对可空列返回 notnull=0。加在切片末尾，因为 ALTER 把新列加在表的最后一列。
+var v8Shape = buildV8Shape()
+
+func buildV8Shape() map[string][]columnShape {
+	shape := make(map[string][]columnShape, len(v7Shape))
+	for table, cols := range v7Shape {
+		copied := make([]columnShape, len(cols))
+		copy(copied, cols)
+		shape[table] = copied
+	}
+	shape["conversations"] = append(shape["conversations"], columnShape{
+		name: "archived_at", typ: "TEXT", notnull: false,
 	})
 	return shape
 }

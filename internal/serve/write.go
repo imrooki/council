@@ -792,6 +792,82 @@ func (s *Server) handleConversationDelete(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, deleteConversationResponse{ID: id, Deleted: true})
 }
 
+// ---- POST /api/conversations/{id}/archive 与 /unarchive ----
+
+// archiveConversationResponse 是归档与取消归档共用的响应。
+// archived 是**这次请求之后**的状态，前端据此决定提示文案与下一次菜单动作；
+// 只回这两个字段，理由与删除响应相同：前端要的是「哪一场、现在什么状态」。
+type archiveConversationResponse struct {
+	ID       string `json:"id"`
+	Archived bool   `json:"archived"`
+}
+
+// handleConversationArchive 处理归档（archived=true）与取消归档。
+//
+// 门控顺序与 rename / delete 逐条对齐：
+//  1. s.write == nil → 405（只读模式没有任何写能力，先于方法判断）；
+//  2. 非 POST → 405 + Allow；
+//  3. checkWriteRequest：Content-Type 必须是 application/json（415），
+//     Origin / Sec-Fetch-Site 必须同源（403）；
+//  4. 看不见的会话 → 404。Conversation 只把「已软删」读成不存在，
+//     已归档的会话照常可见：重复归档因此走幂等 200，而不是 404。
+//  5. Archive/Unarchive 在写事务里完成；走到这一步却报 not found
+//     只可能是并发删除，同样按 404 回。
+//
+// 不读请求体：这两个端点都没有参数。只要过了 Content-Type 与同源两道闸，
+// 空 body 与 {} 都合法。
+func (s *Server) handleConversationArchive(w http.ResponseWriter, r *http.Request, id string, archived bool) {
+	verb := "归档"
+	if !archived {
+		verb = "取消归档"
+	}
+	if s.write == nil {
+		w.Header().Set("Allow", http.MethodPost)
+		writeError(w, http.StatusMethodNotAllowed,
+			"只读模式没有"+verb+"接口：用 council serve -rw 启动才能"+verb+"会话")
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeError(w, http.StatusMethodNotAllowed, "只支持 POST")
+		return
+	}
+	if err := checkWriteRequest(r); err != nil {
+		status := http.StatusForbidden
+		var guardErr *writeGuardError
+		if errors.As(err, &guardErr) {
+			status = guardErr.status
+		}
+		writeError(w, status, err.Error())
+		return
+	}
+
+	if _, err := s.store.Conversation(r.Context(), id); err != nil {
+		if errors.Is(err, conversation.ErrConversationNotFound) {
+			writeError(w, http.StatusNotFound, "会话不存在: "+id)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "读取会话失败: "+err.Error())
+		return
+	}
+
+	var err error
+	if archived {
+		err = s.store.ArchiveConversation(r.Context(), id)
+	} else {
+		err = s.store.UnarchiveConversation(r.Context(), id)
+	}
+	if err != nil {
+		if errors.Is(err, conversation.ErrConversationNotFound) {
+			writeError(w, http.StatusNotFound, "会话不存在: "+id)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, verb+"会话失败: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, archiveConversationResponse{ID: id, Archived: archived})
+}
+
 // ---- 任务表 ----
 
 // jobEvent 是 SSE 上的一帧。Name 就是 event: 后面的名字，Data 会被编码成

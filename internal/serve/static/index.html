@@ -164,6 +164,32 @@
     transition: background .12s ease, color .12s ease;
   }
   #refresh-conversations:hover { background: var(--surface-2); color: var(--ink); }
+  /* 「已归档 N」是左侧列表的视图切换，不是过滤器：它只换列表的数据源，
+     当前打某个开着的会话与消息区一概不动（归档不阻止继续对话）。 */
+  #toggle-archived {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 2px;
+    padding: 3px 8px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font: inherit;
+    font-size: 11.5px;
+    line-height: 1.4;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  #toggle-archived:hover { background: var(--surface-2); color: var(--ink); }
+  #toggle-archived[aria-pressed="true"] {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  #archived-count { font-variant-numeric: tabular-nums; }
   /* 搜索框常驻在列表上方：它是过滤，不是一次性的查找，滚动列表时也不该跟着走。 */
   .side-search {
     display: flex;
@@ -232,13 +258,31 @@
     border-radius: 3px;
     background: var(--brand);
   }
+  .conversation .title-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
   .conversation .title {
+    min-width: 0;
     font-size: 13px;
     font-weight: 550;
     color: var(--ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  /* 已归档会话的标题旁那枚灰字。只在归档视图里出现；不抢标题的省略号空间。 */
+  .conversation .archived-tag {
+    flex: none;
+    padding: 0 5px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 500;
+    line-height: 1.6;
+    color: var(--muted-2);
   }
   .conversation .meta { font-size: 11.5px; color: var(--muted-2); }
 
@@ -1413,6 +1457,10 @@
               role="separator" aria-orientation="vertical" aria-label="调整会话列表宽度" tabindex="0"></button>
       <div class="side-head">
         <h2>会话</h2>
+        <button id="toggle-archived" type="button" aria-pressed="false"
+                title="只看已归档的会话；正在看的会话与消息不会被清空">
+          已归档 <span id="archived-count">0</span>
+        </button>
         <button id="refresh-conversations" type="button" title="重新读一次会话列表" aria-label="刷新会话列表">
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <path d="M12.6 6.2A5 5 0 1 0 13 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -1805,7 +1853,13 @@
   const PAGE_LIMIT = 1000;
 
   const state = {
+    // 两个视图各一份列表：conversations 是未归档，archivedConversations 是
+    // 已归档。两者只由 /api/conversations（带不带 archived=1）填充；
+    // viewArchived 决定左侧现在画哪一份。归档只换视图数据，不动 currentId
+    // 与消息区——已归档的会话仍然能打开、能追问。
     conversations: [],
+    archivedConversations: [],
+    viewArchived: false,
     currentId: null,
     // 左侧搜索框的词（原样保存，过滤时再 trim + toLowerCase）。纯前端：
     // 列表本来就已经整份在内存里，一次按键不该打一次接口。
@@ -1901,6 +1955,8 @@
   const conversationsEmpty = document.getElementById('conversations-empty');
   const conversationSearch = document.getElementById('conversation-search');
   const conversationCount = document.getElementById('conversation-count');
+  const archivedToggle = document.getElementById('toggle-archived');
+  const archivedCount = document.getElementById('archived-count');
   const messageList = document.getElementById('message-list');
   const messagesEmpty = document.getElementById('messages-empty');
   const messagesTitle = document.getElementById('messages-title');
@@ -3566,9 +3622,11 @@
       const alreadyShowing = state.currentId === data.conversation_id;
       state.currentId = data.conversation_id;
       state.newTarget = false;
+      // 新会话一定未归档：在「已归档」视图里发起一轮新的议会时，把列表
+      // 切回默认视图，否则刚建好的会话不会出现在左侧。切视图不清消息。
+      if (!alreadyShowing && state.viewArchived) setArchivedView(false);
       renderConversationList();
-      api('/api/conversations').then((list) => {
-        state.conversations = list;
+      loadConversationLists().then(() => {
         renderConversationList();
         if (state.currentId !== data.conversation_id) return;
         if (alreadyShowing) {
@@ -3926,7 +3984,7 @@
     // 轮询到新消息时顺手更新左侧当前会话那一行，不必为了条数与最后活动
     // 再拉一次整个会话列表。初始加载不更新：那份列表本来就是刚读的。
     if (!initial) {
-      const conversation = state.conversations.find((item) => item.id === state.currentId);
+      const conversation = findConversation(state.currentId);
       if (conversation) {
         // 不能一律 += appended：done 之后先 refreshConversations 把服务端
         // 的准确条数写回来，紧接着的增量拉取会把「服务端已经算过、但本地
@@ -3952,7 +4010,7 @@
   // 这个 id 时退到已加载的 detail，都没有才显示「(无标题)」，与列表
   // 里空标题的画法一致。
   function conversationTitle(id) {
-    const conversation = state.conversations.find((item) => item.id === id);
+    const conversation = findConversation(id);
     if (conversation && conversation.title) return conversation.title;
     if (state.detail && state.detail.id === id && state.detail.title) return state.detail.title;
     return '(无标题)';
@@ -3972,13 +4030,29 @@
 
   // ---- 左侧列表：搜索过滤、每项的「⋯」菜单与原地改名 ----
 
+  // viewConversations 是当前视图的数据源。两个视图不合并成一份带标记的
+  // 数组：接口本身就把「默认」与 archived=1 分成两次查询，各拿一份最省心。
+  function viewConversations() {
+    return state.viewArchived ? state.archivedConversations : state.conversations;
+  }
+
+  // findConversation 在两份列表里找一场会话。当前选中的会话可能已经归档：
+  // 在默认视图里它不在 state.conversations 中，但标题、条数与追问目标仍要
+  // 能读到它，所以查标题一类的逻辑都走这里，不直接翻当前视图。
+  function findConversation(id) {
+    return state.conversations.find((conversation) => conversation.id === id)
+      || state.archivedConversations.find((conversation) => conversation.id === id)
+      || null;
+  }
+
   // 按标题过滤。纯前端、大小写不敏感：中文本没有大小写，同一个
-  // toLowerCase 对中英文都成立；列表本来就在 state.conversations 里，
-  // 不为一次按键再打一次 /api/conversations。
+  // toLowerCase 对中英文都成立；列表本来就在内存里，不为一次按键
+  // 再打一次 /api/conversations。搜索在两种视图下都只看当前视图。
   function visibleConversations() {
+    const conversations = viewConversations();
     const query = state.search.trim().toLowerCase();
-    if (query === '') return state.conversations;
-    return state.conversations.filter((conversation) =>
+    if (query === '') return conversations;
+    return conversations.filter((conversation) =>
       String(conversation.title || '').toLowerCase().includes(query));
   }
 
@@ -4043,10 +4117,23 @@
     button.className = 'conversation' + (conversation.id === state.currentId ? ' active' : '');
     button.dataset.conversationId = conversation.id;
 
+    const titleLine = document.createElement('span');
+    titleLine.className = 'title-line';
+
     const title = document.createElement('span');
     title.className = 'title';
     title.textContent = conversation.title || '(无标题)';
-    button.appendChild(title);
+    titleLine.appendChild(title);
+
+    // 已归档的会话在标题旁标一枚灰字。样式与正常列表完全一致，只多这一枚，
+    // 因为「归档」是可见性状态，不是另一种会话。
+    if (conversation.archived) {
+      const tag = document.createElement('span');
+      tag.className = 'archived-tag';
+      tag.textContent = '已归档';
+      titleLine.appendChild(tag);
+    }
+    button.appendChild(titleLine);
 
     const meta = document.createElement('span');
     meta.className = 'meta';
@@ -4092,7 +4179,21 @@
     });
     menu.appendChild(rename);
 
-    // 删除与重命名同一层，不藏二级菜单：一行只有两个动作时多一层只是多一次点击。
+    // 归档只把会话从主列表收起来，不删除、不阻止继续对话；因此不需要
+    // 二次确认，菜单文案直接反映点下去会发生什么。
+    const archive = document.createElement('button');
+    archive.type = 'button';
+    archive.className = 'menu-item';
+    archive.setAttribute('role', 'menuitem');
+    archive.textContent = conversation.archived ? '取消归档' : '归档';
+    archive.addEventListener('click', (event) => {
+      event.stopPropagation();
+      closeConversationMenu();
+      toggleArchive(conversation);
+    });
+    menu.appendChild(archive);
+
+    // 删除与重命名同一层，不藏二级菜单：会话级动作都平铺在一层，少一次点击。
     // 只读模式根本不会走到这里（renderConversationRow 不画这个菜单），
     // 所以菜单项本身不用再判 state.writable；openDeleteConfirm 里仍留了一道门，
     // 防的是将来别处直接调用它。
@@ -4147,8 +4248,8 @@
       && document.activeElement.classList.contains('rename-input');
 
     // 会话从列表里消失（例如刚被删除）就退出改名，不留下一个永远提交
-    // 不了的草稿。
-    if (state.rename && !state.conversations.some((conversation) => conversation.id === state.rename.id)) {
+    // 不了的草稿。归档不在此列：归档视图里改名的会话还在另一份列表里。
+    if (state.rename && !findConversation(state.rename.id)) {
       state.rename = null;
     }
 
@@ -4158,16 +4259,23 @@
       conversationList.appendChild(renderConversationRow(conversation));
     }
 
-    const total = state.conversations.length;
+    const total = viewConversations().length;
     conversationCount.hidden = total === 0;
     conversationCount.textContent = total === 0 ? '' : (visible.length + ' / ' + total);
     conversationCount.title = total === 0 ? '' : '匹配 ' + visible.length + ' 场 / 共 ' + total + ' 场';
 
     if (visible.length === 0) {
       if (total === 0) {
-        conversationsEmpty.textContent = state.writable
-          ? '还没有会话，问一句就会新建'
-          : '还没有会话，先在终端里跑一次 council';
+        if (state.viewArchived) {
+          conversationsEmpty.textContent = '还没有归档的会话';
+        } else if (state.archivedConversations.length > 0) {
+          conversationsEmpty.textContent = '没有未归档的会话，点上方「已归档 ' +
+            state.archivedConversations.length + '」查看';
+        } else {
+          conversationsEmpty.textContent = state.writable
+            ? '还没有会话，问一句就会新建'
+            : '还没有会话，先在终端里跑一次 council';
+        }
       } else {
         conversationsEmpty.textContent = '没有匹配的会话';
       }
@@ -4176,8 +4284,19 @@
       conversationsEmpty.hidden = true;
     }
 
+    renderArchivedToggle();
     if (state.rename && renameFocused) focusRenameInput(false);
     renderAskTarget();
+  }
+
+  // renderArchivedToggle 画「已归档 N」这枚视图切换。N 是全部已归档会话数，
+  // 不受搜索过滤影响；搜索只影响列表里的 visible/total 计数。
+  function renderArchivedToggle() {
+    archivedCount.textContent = String(state.archivedConversations.length);
+    archivedToggle.setAttribute('aria-pressed', state.viewArchived ? 'true' : 'false');
+    archivedToggle.title = state.viewArchived
+      ? '回到未归档的会话'
+      : '只看已归档的会话；正在看的会话与消息不会被清空';
   }
 
   function focusRenameInput(selectAll) {
@@ -4246,7 +4365,7 @@
       // 请求在飞的时候用户可能已经按 Esc 或换了另一行；只清掉还属于
       // 这一次的编辑状态，别把别人的草稿一并抹掉。
       if (state.rename && state.rename.id === id) state.rename = null;
-      const conversation = state.conversations.find((item) => item.id === id);
+      const conversation = findConversation(id);
       if (conversation) conversation.title = result.title;
       if (state.detail && state.detail.id === id) state.detail.title = result.title;
       // 标题栏（会话头）与列表是两份 DOM，都得同步；只改列表会让当前
@@ -4315,6 +4434,8 @@
   // 会话变成了别人家」，而任务书要的是消息区停在空状态。
   function forgetConversation(id) {
     state.conversations = state.conversations.filter((conversation) => conversation.id !== id);
+    state.archivedConversations = state.archivedConversations
+      .filter((conversation) => conversation.id !== id);
     if (state.rename && state.rename.id === id) state.rename = null;
     if (state.currentId === id) {
       stopPolling();
@@ -4375,6 +4496,49 @@
     if (returnFocus && returnFocus.isConnected) returnFocus.focus();
     else conversationSearch.focus();
     showToast('已删除「' + title + '」');
+  }
+
+  // ---- 归档 / 取消归档 ----
+  //
+  // 归档只改「这一行属不属于主列表」。提交成功后重新拉两份列表，但**不动**
+  // 当前选择与消息区：正在看的那场会话即便从当前视图里消失，也还能继续追问
+  // （/api/ask 的 conversation 参数不过滤归档）。切到「已归档」视图只是
+  // 换列表数据源，同样不清消息。
+  async function toggleArchive(conversation) {
+    if (!state.writable) {
+      showToast('只读模式不能归档：用 council serve -rw 启动');
+      return;
+    }
+    const id = conversation.id;
+    const title = conversation.title || '(无标题)';
+    const targetArchived = !conversation.archived;
+    try {
+      await postJSON('/api/conversations/' + encodeURIComponent(id) +
+        (targetArchived ? '/archive' : '/unarchive'), {});
+    } catch (err) {
+      showToast((targetArchived ? '归档失败：' : '取消归档失败：') + err.message);
+      return;
+    }
+    try {
+      await loadConversationLists();
+    } catch (err) {
+      showError(err);
+      return;
+    }
+    renderConversationList();
+    showToast(targetArchived ? '已归档「' + title + '」' : '已取消归档「' + title + '」');
+  }
+
+  // setArchivedView 切左侧视图。只换数据源，不碰 currentId / lastSeq / 消息区：
+  // 当前会话不在新视图里时，用户看到的正文保持原样。
+  function setArchivedView(next) {
+    const want = !!next;
+    if (state.viewArchived === want) return;
+    state.viewArchived = want;
+    state.rename = null;
+    closeConversationMenu();
+    renderArchivedToggle();
+    renderConversationList();
   }
 
   function renderCost(usage) {
@@ -5507,6 +5671,7 @@
     state.detail = null;
     state.rename = null;
     state.conversations = [];
+    state.archivedConversations = [];
     renderConversationList();
     messageList.replaceChildren();
     messagesTitle.textContent = '消息';
@@ -5635,20 +5800,37 @@
     schedulePoll();
   }
 
+  // loadConversationLists 一次拉两份列表：未归档与已归档。「已归档 N」
+  // 即使在默认视图里也要显示正确的 N，所以两份都得读。两次查询互不依赖，
+  // 并行发出；任何一份失败都让整次刷新失败，不把半边数据当完整列表画出来。
+  async function loadConversationLists() {
+    const [active, archived] = await Promise.all([
+      api('/api/conversations'),
+      api('/api/conversations?archived=1'),
+    ]);
+    state.conversations = active;
+    state.archivedConversations = archived;
+    return { active, archived };
+  }
+
+  // refreshConversations 刷新左侧列表。
+  //
+  // 关键规则：currentId 存在时**不因为「它不在当前视图里」就改选第一条**。
+  // 已归档的会话会被默认列表排除，若照旧自动改选，用户刚归档完正在看的
+  // 内容就会被换成另一场会话。只有「本来就没有选中」（首次加载）才自动选
+  // 当前视图的第一条；用户点过「改为新建」之后同样不选。
   async function refreshConversations() {
     try {
-      const list = await api('/api/conversations');
-      state.conversations = list;
+      const lists = await loadConversationLists();
       renderConversationList();
-      if (list.length === 0) {
+      if (lists.active.length === 0 && lists.archived.length === 0) {
         resetToEmptyLibrary();
         return;
       }
-      if (!state.currentId) {
-        // 用户刚点了「改为新建」时保持没选中；否则首次加载自动选最近一条。
-        if (!state.newTarget) await selectConversation(list[0].id);
-      } else if (!list.some((conversation) => conversation.id === state.currentId)) {
-        await selectConversation(list[0].id);
+      const shown = viewConversations();
+      if (!state.currentId && !state.newTarget && shown.length > 0) {
+        await selectConversation(shown[0].id);
+        return;
       }
       clearError();
     } catch (err) {
@@ -5709,6 +5891,12 @@
 
   document.getElementById('refresh-conversations').addEventListener('click', () => {
     refreshConversations();
+  });
+
+  // 「已归档 N」切换：只换左侧列表的数据源。当前会话若不在新视图里，
+  // 消息区保持原样——归档过的会话仍然能被打开、被追问。
+  archivedToggle.addEventListener('click', () => {
+    setArchivedView(!state.viewArchived);
   });
 
   // 搜索是纯前端过滤：输入即生效，清空即恢复全部。

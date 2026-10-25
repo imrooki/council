@@ -33,9 +33,12 @@ func visibleConv(table string) string {
 
 // Conversation 按 id 取一场会话。不存在时返回包装了 ErrConversationNotFound 的错误。
 // 已软删的会话按不存在处理：对外是 404，不能只返回一场空标题的会话。
+//
+// 已归档的会话照常返回，Archived 为 true。归档是「从列表收起」，不是
+// 「不存在」：它必须还能被打开、被续接（归档不阻止继续对话）。
 func (s *Store) Conversation(ctx context.Context, id string) (conversation.Conversation, error) {
 	row := s.read.QueryRowContext(ctx,
-		`SELECT id, title, created_at, team_id, cwd FROM conversations WHERE id = ? AND deleted_at IS NULL`, id,
+		`SELECT id, title, created_at, team_id, cwd, archived_at FROM conversations WHERE id = ? AND deleted_at IS NULL`, id,
 	)
 	c, err := scanConversation(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -47,10 +50,27 @@ func (s *Store) Conversation(ctx context.Context, id string) (conversation.Conve
 	return c, nil
 }
 
-// Conversations 列出全部未删除的会话，按 created_at 倒序、id 升序。空结果是空切片不是 nil。
+// Conversations 列出全部未删除、未归档的会话，按 created_at 倒序、id 升序。
+// 空结果是空切片不是 nil。
+//
+// 这是全包唯一过滤 archived_at 的读路径。详情、消息、成员、用量与
+// 执行状态都不许跟：归档只影响「主列表里还出不出现」，不影响会话本身。
 func (s *Store) Conversations(ctx context.Context) ([]conversation.Conversation, error) {
+	return s.listConversations(ctx, `deleted_at IS NULL AND archived_at IS NULL`)
+}
+
+// ArchivedConversations 列出全部未删除、已归档的会话，排序与 Conversations 相同。
+// 已软删的会话一样不含：删除的优先级高于归档，两种标记都有的会话对外不存在。
+// 空结果是空切片不是 nil。
+func (s *Store) ArchivedConversations(ctx context.Context) ([]conversation.Conversation, error) {
+	return s.listConversations(ctx, `deleted_at IS NULL AND archived_at IS NOT NULL`)
+}
+
+// listConversations 是两个列表查询的唯一实现。where 只由本文件的
+// Conversations / ArchivedConversations 传进来，不接受调用方拼条件。
+func (s *Store) listConversations(ctx context.Context, where string) ([]conversation.Conversation, error) {
 	rows, err := s.read.QueryContext(ctx,
-		`SELECT id, title, created_at, team_id, cwd FROM conversations WHERE deleted_at IS NULL ORDER BY created_at DESC, id ASC`,
+		`SELECT id, title, created_at, team_id, cwd, archived_at FROM conversations WHERE `+where+` ORDER BY created_at DESC, id ASC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
@@ -474,14 +494,23 @@ func int64PtrFromNull(n sql.NullInt64) *int64 {
 
 func scanConversation(sc rowScanner) (conversation.Conversation, error) {
 	var id, title, createdAt, teamID, cwd string
-	if err := sc.Scan(&id, &title, &createdAt, &teamID, &cwd); err != nil {
+	var archivedAt sql.NullString
+	if err := sc.Scan(&id, &title, &createdAt, &teamID, &cwd, &archivedAt); err != nil {
 		return conversation.Conversation{}, err
 	}
 	ts, err := parseTime(createdAt)
 	if err != nil {
 		return conversation.Conversation{}, fmt.Errorf("conversation %s created_at: %w", id, err)
 	}
-	return conversation.Conversation{ID: id, Title: title, CreatedAt: ts, TeamID: teamID, Cwd: cwd}, nil
+	return conversation.Conversation{
+		ID:        id,
+		Title:     title,
+		CreatedAt: ts,
+		TeamID:    teamID,
+		Cwd:       cwd,
+		// NULL 是「没归档」的唯一表示；非 NULL 的具体时刻不对外解释。
+		Archived: archivedAt.Valid,
+	}, nil
 }
 
 func scanParticipant(sc rowScanner) (conversation.Participant, error) {
