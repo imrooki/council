@@ -228,7 +228,7 @@
   .side-scroll { padding: 8px; }
   .conv-scroll { padding: 16px 10px 32px; }
 
-  #conversation-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  #conversation-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
   #conversation-list > li { position: relative; }
   .conversation {
     position: relative;
@@ -247,7 +247,7 @@
     transition: background .12s ease;
   }
   /* 标题右侧让出 ⋯ 的位置，长标题不会从按钮下面露出来。 */
-  #conversation-list > li > .conversation { padding-right: 34px; }
+  .workspace-conversations > li > .conversation { padding-right: 34px; }
   .conversation:hover { background: var(--surface-2); }
   .conversation.active { background: var(--surface-2); }
   .conversation.active::before {
@@ -285,6 +285,149 @@
     color: var(--muted-2);
   }
   .conversation .meta { font-size: 11.5px; color: var(--muted-2); }
+
+  /* ---- 工作区分组（左栏） ----
+     工作区只是列表的一层分组：组标题行本身也是拖拽的放置目标，
+     所以箭头、名字、条数与「重命名 / 删除」都排在同一行里。 */
+  .workspace-group { display: flex; flex-direction: column; gap: 2px; }
+  .workspace-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-height: 28px;
+    padding: 4px 4px 4px 2px;
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    transition: background .12s ease, outline-color .12s ease;
+  }
+  .workspace-head:hover { background: var(--surface-2); }
+  .workspace-head.drop-target {
+    background: var(--accent-soft);
+    outline: 1px dashed var(--accent);
+    outline-offset: -1px;
+  }
+  .workspace-toggle {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted-2);
+    font: inherit;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .workspace-toggle:hover { background: var(--surface); color: var(--ink); }
+  .workspace-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+  .workspace-count {
+    flex: none;
+    font-size: 10.5px;
+    color: var(--muted-2);
+    font-variant-numeric: tabular-nums;
+  }
+  /* 悬停（或键盘走进来）才露出组级动作；平时保持列表干净。 */
+  .workspace-actions {
+    flex: none;
+    display: flex;
+    gap: 1px;
+    opacity: 0;
+    transition: opacity .12s ease;
+  }
+  .workspace-head:hover .workspace-actions,
+  .workspace-head:focus-within .workspace-actions { opacity: 1; }
+  .workspace-action {
+    padding: 2px 5px;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.4;
+    cursor: pointer;
+  }
+  .workspace-action:hover { background: var(--surface); color: var(--ink); }
+  .workspace-action.danger:hover { color: var(--danger); }
+  .workspace-conversations {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .workspace-conversations[hidden] { display: none; }
+  .workspace-conversations > li { position: relative; }
+  .conversation-item.dragging { opacity: .45; }
+  .workspace-input {
+    flex: 1 1 100px;
+    min-width: 0;
+    padding: 3px 6px;
+    border: 1px solid var(--accent);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12px;
+  }
+  .workspace-input:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .workspace-hint,
+  .workspace-error {
+    flex: none;
+    font-size: 10.5px;
+    line-height: 1.5;
+  }
+  .workspace-hint { color: var(--muted-2); }
+  .workspace-error { color: var(--danger); }
+  .workspace-error[hidden] { display: none; }
+  .workspace-create { padding: 2px 4px 4px; }
+  .workspace-create[hidden] { display: none; }
+  #workspace-create-button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  #workspace-create-button:hover {
+    background: var(--surface-2);
+    border-color: var(--accent);
+    color: var(--ink);
+  }
+  .workspace-create-box {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 5px 7px;
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--r-sm);
+  }
 
   /* 每项右侧的「⋯」：会话级动作（重命名、删除）都收在这里，
      列表本身保持「点一下切会话」这一个主操作。 */
@@ -1475,6 +1618,7 @@
       </div>
       <div class="side-scroll">
         <ul id="conversation-list"></ul>
+        <div id="workspace-create" class="workspace-create" hidden></div>
         <p id="conversations-empty" class="empty" hidden>还没有会话，先在终端里跑一次 council</p>
       </div>
     </aside>
@@ -1654,6 +1798,20 @@
       <div class="confirm-actions">
         <button id="delete-cancel" class="btn-small" type="button">取消</button>
         <button id="delete-confirm-button" class="btn-small danger" type="button">删除</button>
+      </div>
+    </div>
+  </div>
+  <!-- 删除工作区的二次确认。与删除会话分开一个对话框：文案必须写明
+       「只解除归属，不删除会话」，两个动作的后果不同，共用一个框容易看错。 -->
+  <div id="workspace-delete-confirm" class="confirm-overlay" role="dialog" aria-modal="true"
+       aria-labelledby="workspace-delete-title" aria-describedby="workspace-delete-text" hidden>
+    <div class="confirm-card">
+      <h2 id="workspace-delete-title">删除工作区</h2>
+      <p id="workspace-delete-text" class="confirm-text"></p>
+      <p id="workspace-delete-error" class="confirm-error" hidden></p>
+      <div class="confirm-actions">
+        <button id="workspace-delete-cancel" class="btn-small" type="button">取消</button>
+        <button id="workspace-delete-confirm-button" class="btn-small danger" type="button">删除</button>
       </div>
     </div>
   </div>
@@ -1852,6 +2010,37 @@
   const POLL_MS = 3000;
   const PAGE_LIMIT = 1000;
 
+  // 工作区折叠状态按视图分开存：未归档与已归档各一个键，切视图不会把
+  // 另一边的折叠状态带过来。值是工作区 id 的 JSON 数组；未分组用空串。
+  const WORKSPACE_COLLAPSE_KEYS = {
+    active: 'council.workspaces.collapsed.active',
+    archived: 'council.workspaces.collapsed.archived',
+  };
+  const MAX_WORKSPACE_NAME_CHARS = 60;
+  const UNGROUPED_WORKSPACE_ID = '';
+
+  function readWorkspaceCollapse(view) {
+    try {
+      const raw = window.localStorage.getItem(WORKSPACE_COLLAPSE_KEYS[view]);
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return new Set();
+      return new Set(parsed.filter((id) => typeof id === 'string'));
+    } catch (err) {
+      // 隐私模式禁 localStorage，或值被手改成非 JSON：按全部展开画。
+      return new Set();
+    }
+  }
+
+  function persistWorkspaceCollapse(view, collapsed) {
+    try {
+      window.localStorage.setItem(WORKSPACE_COLLAPSE_KEYS[view],
+        JSON.stringify(Array.from(collapsed)));
+    } catch (err) {
+      // 存不进去时这次折叠仍在本页内存里生效，只是刷新会丢。
+    }
+  }
+
   const state = {
     // 两个视图各一份列表：conversations 是未归档，archivedConversations 是
     // 已归档。两者只由 /api/conversations（带不带 archived=1）填充；
@@ -1859,6 +2048,12 @@
     // 与消息区——已归档的会话仍然能打开、能追问。
     conversations: [],
     archivedConversations: [],
+    // GET /api/workspaces 的顺序就是「sort_order, name」，前端只拿它当分组名
+    // 与顺序来源；每组的会话数按当前视图现算（见 workspaceGroups）。
+    workspaces: [],
+    // 两个视图各存一份折叠状态（工作区 id 的 Set，未分组是空串）。
+    collapsedActive: readWorkspaceCollapse('active'),
+    collapsedArchived: readWorkspaceCollapse('archived'),
     viewArchived: false,
     currentId: null,
     // 左侧搜索框的词（原样保存，过滤时再 trim + toLowerCase）。纯前端：
@@ -1871,6 +2066,14 @@
     // title 只用于文案，提交时以 id 为准；returnFocus 是关闭后要还回焦点的
     // 「⋯」按钮（那一行可能已经因为删除而不在了，关闭时会再判一次）。
     deleteConfirm: null,
+    // 工作区的新建 / 改名 / 删除。workspaceCreate 与 workspaceRename
+    // 同时最多只有一个非 null；workspaceDelete 是与会话删除分开的确认框。
+    workspaceCreate: null,
+    workspaceRename: null,
+    workspaceDelete: null,
+    // 正在被拖的会话 id。dragstart 时记下，dragover / drop 用它判断
+    // 这次拖动来自列表内部（dragover 阶段读不到 dataTransfer 里的数据）。
+    draggedConversationId: null,
     // 非 null 表示移除成员的确认框开着：{ conversationId, agentID, name,
     // busy, returnFocus }。与 deleteConfirm 分开：两个确认框不会同时开，
     // 但共用一套 Esc / 遮罩关闭习惯，状态各自独立。
@@ -1955,6 +2158,7 @@
   const conversationsEmpty = document.getElementById('conversations-empty');
   const conversationSearch = document.getElementById('conversation-search');
   const conversationCount = document.getElementById('conversation-count');
+  const workspaceCreateBox = document.getElementById('workspace-create');
   const archivedToggle = document.getElementById('toggle-archived');
   const archivedCount = document.getElementById('archived-count');
   const messageList = document.getElementById('message-list');
@@ -2036,6 +2240,11 @@
   const deleteError = document.getElementById('delete-confirm-error');
   const deleteCancel = document.getElementById('delete-cancel');
   const deleteConfirmButton = document.getElementById('delete-confirm-button');
+  const workspaceDeleteOverlay = document.getElementById('workspace-delete-confirm');
+  const workspaceDeleteText = document.getElementById('workspace-delete-text');
+  const workspaceDeleteError = document.getElementById('workspace-delete-error');
+  const workspaceDeleteCancel = document.getElementById('workspace-delete-cancel');
+  const workspaceDeleteConfirmButton = document.getElementById('workspace-delete-confirm-button');
   // 设置页元素（GUI 第 6 片）。全部走 textContent / createElement，
   // 不拼任何 HTML 字符串。
   const openSettingsButton = document.getElementById('open-settings');
@@ -2277,7 +2486,11 @@
         }
       }
       if (!res.ok) {
-        throw new Error((body && body.error) || ('HTTP ' + res.status));
+        // 带上状态码：工作区的重名要靠 409 单独换成用户看得懂的文案，
+        // 其余错误仍原样显示服务端说明。
+        const error = new Error((body && body.error) || ('HTTP ' + res.status));
+        error.status = res.status;
+        throw error;
       }
       return body;
     }));
@@ -2524,6 +2737,19 @@
     if (event.key !== 'Escape' || !state.deleteConfirm) return;
     event.preventDefault();
     closeDeleteConfirm();
+  });
+
+  // 删除工作区的三种退出与删除会话同一套：取消按钮、Esc、点遮罩。
+  // 请求在飞时不关（busy 由 closeWorkspaceDelete / commitWorkspaceDelete 判断）。
+  workspaceDeleteCancel.addEventListener('click', closeWorkspaceDelete);
+  workspaceDeleteConfirmButton.addEventListener('click', commitWorkspaceDelete);
+  workspaceDeleteOverlay.addEventListener('click', (event) => {
+    if (event.target === workspaceDeleteOverlay) closeWorkspaceDelete();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !state.workspaceDelete) return;
+    event.preventDefault();
+    closeWorkspaceDelete();
   });
 
   // 成员管理的入口与移除确认框。添加菜单在每次打开前重画：它会排除
@@ -4056,6 +4282,624 @@
       String(conversation.title || '').toLowerCase().includes(query));
   }
 
+  // ---- 工作区分组 ----
+  //
+  // 列表数据仍是「当前视图」那一份（未归档或已归档），工作区只提供分组名
+  // 与顺序。每组的会话数按当前视图现算，不用 /api/workspaces 的
+  // conversation_count：那个数把已归档算进去，归档视图里会显示不存在的条数。
+
+  function currentCollapsedWorkspaces() {
+    return state.viewArchived ? state.collapsedArchived : state.collapsedActive;
+  }
+
+  function persistCurrentCollapse() {
+    persistWorkspaceCollapse(state.viewArchived ? 'archived' : 'active',
+      currentCollapsedWorkspaces());
+  }
+
+  // workspaceLabel 只用于提示文案与 aria；不存在的 id 退回「未分组」。
+  function workspaceLabel(id) {
+    if (id === UNGROUPED_WORKSPACE_ID) return '未分组';
+    const workspace = state.workspaces.find((item) => item.id === id);
+    return workspace && workspace.name ? workspace.name : '未分组';
+  }
+
+  // 后端已经按 sort_order、name 排过；前端再排一次，顺序不依赖接口实现，
+  // 也让「同名不同组」在两次响应之间不会自己跳。
+  function sortedWorkspaces() {
+    return state.workspaces.slice().sort((left, right) => {
+      const order = (Number(left.sort_order) || 0) - (Number(right.sort_order) || 0);
+      if (order !== 0) return order;
+      const a = String(left.name || '');
+      const b = String(right.name || '');
+      return a < b ? -1 : (a > b ? 1 : 0);
+    });
+  }
+
+  // conversationWorkspaceKey 把归属归一化：空串、未知 id 都落回未分组。
+  // 删组时后端会把会话改成 NULL；未知 id 只可能来自旧响应或手改库，
+  // 不把这种会话藏掉，列表才永远不会丢行。
+  function conversationWorkspaceKey(conversation) {
+    const id = typeof conversation.workspace_id === 'string' ? conversation.workspace_id : '';
+    if (id === '') return UNGROUPED_WORKSPACE_ID;
+    return state.workspaces.some((workspace) => workspace.id === id)
+      ? id
+      : UNGROUPED_WORKSPACE_ID;
+  }
+
+  // workspaceGroups 返回按左栏顺序排好的组：
+  //   [{ id, name, total, conversations }]
+  // conversations 是搜索过滤后的结果（画行、判断「过滤后为空」用），
+  // total 是当前视图里该组的全部会话数（组标题的会话数用）。
+  function workspaceGroups() {
+    const all = viewConversations();
+    const visible = new Set(visibleConversations());
+    const groups = [{
+      id: UNGROUPED_WORKSPACE_ID,
+      name: '未分组',
+      total: 0,
+      conversations: [],
+    }];
+    for (const workspace of sortedWorkspaces()) {
+      groups.push({
+        id: workspace.id,
+        name: workspace.name || '(未命名工作区)',
+        total: 0,
+        conversations: [],
+      });
+    }
+    const byID = new Map(groups.map((group) => [group.id, group]));
+    for (const conversation of all) {
+      const group = byID.get(conversationWorkspaceKey(conversation));
+      if (!group) continue;
+      group.total += 1;
+      if (visible.has(conversation)) group.conversations.push(conversation);
+    }
+    return groups;
+  }
+
+  function renderWorkspaceToggle(group, collapsed) {
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'workspace-toggle';
+    toggle.dataset.workspaceId = group.id;
+    toggle.textContent = collapsed ? '▸' : '▾';
+    toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    const label = (collapsed ? '展开' : '折叠') + '「' + group.name + '」';
+    toggle.setAttribute('aria-label', label);
+    toggle.title = label;
+    toggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleWorkspaceCollapsed(group.id);
+    });
+    return toggle;
+  }
+
+  function toggleWorkspaceCollapsed(id) {
+    const collapsed = currentCollapsedWorkspaces();
+    if (collapsed.has(id)) collapsed.delete(id);
+    else collapsed.add(id);
+    persistCurrentCollapse();
+    renderConversationList();
+    const toggle = findWorkspaceToggle(id);
+    if (toggle) toggle.focus();
+  }
+
+  function findWorkspaceToggle(id) {
+    const toggles = conversationList.querySelectorAll('.workspace-toggle');
+    for (const toggle of toggles) {
+      if (toggle.dataset.workspaceId === id) return toggle;
+    }
+    return null;
+  }
+
+  function workspaceCountText(group) {
+    // 搜索时显示「命中 / 组内总数」，与上方全局的 visible/total 同一口径；
+    // 不搜索时只显示一个数。
+    if (state.search.trim() !== '' && group.conversations.length !== group.total) {
+      return group.conversations.length + ' / ' + group.total;
+    }
+    return String(group.total);
+  }
+
+  function renderWorkspaceActions(group) {
+    const actions = document.createElement('span');
+    actions.className = 'workspace-actions';
+
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'workspace-action';
+    rename.dataset.workspaceAction = 'rename';
+    rename.textContent = '重命名';
+    rename.addEventListener('click', (event) => {
+      event.stopPropagation();
+      beginWorkspaceRename(group);
+    });
+    actions.appendChild(rename);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'workspace-action danger';
+    remove.dataset.workspaceAction = 'delete';
+    remove.textContent = '删除';
+    remove.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openWorkspaceDelete(group, remove);
+    });
+    actions.appendChild(remove);
+    return actions;
+  }
+
+  // hideWorkspaceError 只收起当前输入框旁边那一条错误，不重画整张列表，
+  // 免得用户每敲一个字光标就跳回末尾。
+  function hideWorkspaceError(input) {
+    const box = input.parentElement;
+    if (!box) return;
+    const error = box.querySelector('.workspace-error');
+    if (error) {
+      error.textContent = '';
+      error.hidden = true;
+    }
+  }
+
+  function renderWorkspaceHeader(group) {
+    const head = document.createElement('div');
+    head.className = 'workspace-head';
+    head.dataset.workspaceId = group.id;
+
+    const collapsed = currentCollapsedWorkspaces().has(group.id);
+    head.appendChild(renderWorkspaceToggle(group, collapsed));
+
+    const editing = state.workspaceRename && state.workspaceRename.id === group.id;
+    if (editing) {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'workspace-input';
+      input.value = state.workspaceRename.draft;
+      input.setAttribute('aria-label', '新的工作区名字');
+      input.addEventListener('input', () => {
+        if (!state.workspaceRename) return;
+        state.workspaceRename.draft = input.value;
+        state.workspaceRename.error = '';
+        hideWorkspaceError(input);
+      });
+      input.addEventListener('keydown', (event) => {
+        // 中文输入法用 Enter 选词时也会发 keydown，此时不能当成提交。
+        if (event.isComposing) return;
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          commitWorkspaceRename();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          cancelWorkspaceRename();
+        }
+      });
+      head.appendChild(input);
+
+      if (state.workspaceRename.error) {
+        const error = document.createElement('span');
+        error.className = 'workspace-error';
+        error.textContent = state.workspaceRename.error;
+        head.appendChild(error);
+      }
+      const hint = document.createElement('span');
+      hint.className = 'workspace-hint';
+      hint.textContent = '回车保存 · Esc 取消';
+      head.appendChild(hint);
+    } else {
+      const name = document.createElement('span');
+      name.className = 'workspace-name';
+      name.textContent = group.name;
+      name.title = group.name;
+      // 点名字与点箭头是同一个动作：标题行里除动作按钮之外都能折叠。
+      name.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleWorkspaceCollapsed(group.id);
+      });
+      head.appendChild(name);
+
+      const count = document.createElement('span');
+      count.className = 'workspace-count';
+      count.textContent = workspaceCountText(group);
+      count.title = '当前视图共 ' + group.total + ' 场会话';
+      head.appendChild(count);
+
+      // 未分组不是真实工作区，没有名字可改、也不能删。
+      if (state.writable && group.id !== UNGROUPED_WORKSPACE_ID) {
+        head.appendChild(renderWorkspaceActions(group));
+      }
+    }
+
+    attachWorkspaceDropTarget(head, group);
+    return head;
+  }
+
+  function renderWorkspaceGroup(group) {
+    const item = document.createElement('li');
+    item.className = 'workspace-group';
+    item.dataset.workspaceId = group.id;
+    item.appendChild(renderWorkspaceHeader(group));
+
+    const conversations = document.createElement('ul');
+    conversations.className = 'workspace-conversations';
+    conversations.hidden = currentCollapsedWorkspaces().has(group.id);
+    for (const conversation of group.conversations) {
+      conversations.appendChild(renderConversationRow(conversation));
+    }
+    item.appendChild(conversations);
+    return item;
+  }
+
+  function focusWorkspaceInput(selectAll) {
+    const input = workspaceCreateBox.querySelector('.workspace-input')
+      || conversationList.querySelector('.workspace-input');
+    if (!input) return;
+    input.focus();
+    if (selectAll) input.select();
+    else input.setSelectionRange(input.value.length, input.value.length);
+  }
+
+  // renderWorkspaceCreate 画列表底部的「+ 新建工作区」或它的内联输入框。
+  // 只读模式整块隐藏：没有可画的动作，也不留下一个点了必然 405 的入口。
+  function renderWorkspaceCreate() {
+    workspaceCreateBox.replaceChildren();
+    if (!state.writable) {
+      workspaceCreateBox.hidden = true;
+      return;
+    }
+    workspaceCreateBox.hidden = false;
+    if (!state.workspaceCreate) {
+      const button = document.createElement('button');
+      button.id = 'workspace-create-button';
+      button.type = 'button';
+      button.textContent = '+ 新建工作区';
+      button.addEventListener('click', beginWorkspaceCreate);
+      workspaceCreateBox.appendChild(button);
+      return;
+    }
+
+    const box = document.createElement('div');
+    box.className = 'workspace-create-box';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'workspace-input';
+    input.placeholder = '新工作区的名字';
+    input.setAttribute('aria-label', '新工作区名字');
+    input.value = state.workspaceCreate.draft;
+    input.addEventListener('input', () => {
+      if (!state.workspaceCreate) return;
+      state.workspaceCreate.draft = input.value;
+      state.workspaceCreate.error = '';
+      hideWorkspaceError(input);
+    });
+    input.addEventListener('keydown', (event) => {
+      if (event.isComposing) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        commitWorkspaceCreate();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelWorkspaceCreate();
+      }
+    });
+    box.appendChild(input);
+
+    if (state.workspaceCreate.error) {
+      const error = document.createElement('span');
+      error.className = 'workspace-error';
+      error.textContent = state.workspaceCreate.error;
+      box.appendChild(error);
+    }
+    const hint = document.createElement('span');
+    hint.className = 'workspace-hint';
+    hint.textContent = '回车新建 · Esc 取消';
+    box.appendChild(hint);
+    workspaceCreateBox.appendChild(box);
+  }
+
+  function beginWorkspaceCreate() {
+    if (!state.writable) return;
+    closeConversationMenu();
+    closePopover();
+    state.rename = null;
+    state.workspaceRename = null;
+    state.workspaceCreate = { draft: '', error: '' };
+    renderConversationList();
+    focusWorkspaceInput(true);
+  }
+
+  function cancelWorkspaceCreate() {
+    state.workspaceCreate = null;
+    renderConversationList();
+    const button = document.getElementById('workspace-create-button');
+    if (button) button.focus();
+  }
+
+  function showWorkspaceCreateError(message) {
+    if (!state.workspaceCreate) return;
+    state.workspaceCreate.error = message;
+    renderConversationList();
+    focusWorkspaceInput(false);
+  }
+
+  async function commitWorkspaceCreate() {
+    if (!state.workspaceCreate) return;
+    const name = state.workspaceCreate.draft.trim();
+    if (name === '') {
+      showWorkspaceCreateError('工作区名不能为空');
+      return;
+    }
+    if (Array.from(name).length > MAX_WORKSPACE_NAME_CHARS) {
+      showWorkspaceCreateError('工作区名最长 ' + MAX_WORKSPACE_NAME_CHARS + ' 个字符');
+      return;
+    }
+
+    let created = null;
+    try {
+      created = await postJSON('/api/workspaces', { name });
+    } catch (err) {
+      if (!state.workspaceCreate) return;
+      showWorkspaceCreateError(err.status === 409 ? '名字已被占用' : err.message);
+      return;
+    }
+    state.workspaceCreate = null;
+    try {
+      await loadWorkspaces();
+    } catch (err) {
+      showError(err);
+    }
+    renderConversationList();
+    showToast('已新建工作区「' + ((created && created.name) || name) + '」');
+  }
+
+  function beginWorkspaceRename(group) {
+    if (!state.writable) {
+      showToast('只读模式不能重命名工作区：用 council serve -rw 启动');
+      return;
+    }
+    closeConversationMenu();
+    closePopover();
+    state.rename = null;
+    state.workspaceCreate = null;
+    state.workspaceRename = { id: group.id, draft: group.name, error: '' };
+    renderConversationList();
+    focusWorkspaceInput(true);
+  }
+
+  function cancelWorkspaceRename() {
+    const id = state.workspaceRename ? state.workspaceRename.id : '';
+    state.workspaceRename = null;
+    renderConversationList();
+    const toggle = findWorkspaceToggle(id);
+    if (toggle) toggle.focus();
+    else conversationSearch.focus();
+  }
+
+  function showWorkspaceRenameError(message) {
+    if (!state.workspaceRename) return;
+    state.workspaceRename.error = message;
+    renderConversationList();
+    focusWorkspaceInput(false);
+  }
+
+  async function commitWorkspaceRename() {
+    const editing = state.workspaceRename;
+    if (!editing) return;
+    const id = editing.id;
+    const name = editing.draft.trim();
+    if (name === '') {
+      showWorkspaceRenameError('工作区名不能为空');
+      return;
+    }
+    if (Array.from(name).length > MAX_WORKSPACE_NAME_CHARS) {
+      showWorkspaceRenameError('工作区名最长 ' + MAX_WORKSPACE_NAME_CHARS + ' 个字符');
+      return;
+    }
+
+    let result = null;
+    try {
+      result = await postJSON('/api/workspaces/' + encodeURIComponent(id) + '/rename', { name });
+    } catch (err) {
+      if (!state.workspaceRename || state.workspaceRename.id !== id) return;
+      // 409 的正文已经写明名字被占用；这里仍换成一句短提示，避免窄栏里
+      // 塞进服务端的整句说明，同时保持编辑态让用户直接改。
+      showWorkspaceRenameError(err.status === 409 ? '名字已被占用' : err.message);
+      return;
+    }
+    if (state.workspaceRename && state.workspaceRename.id === id) state.workspaceRename = null;
+    try {
+      await loadWorkspaces();
+    } catch (err) {
+      showError(err);
+    }
+    renderConversationList();
+    showToast('已重命名为「' + ((result && result.name) || name) + '」');
+  }
+
+  function openWorkspaceDelete(group, trigger) {
+    if (!state.writable) {
+      showToast('只读模式不能删除工作区：用 council serve -rw 启动');
+      return;
+    }
+    closeConversationMenu();
+    closePopover();
+    state.workspaceDelete = {
+      id: group.id,
+      name: group.name,
+      busy: false,
+      returnFocus: trigger || null,
+    };
+    // 这句话是删除工作区的全部后果说明：只解除归属，不删会话。
+    workspaceDeleteText.textContent = '确定要删除工作区「' + group.name
+      + '」吗？只解除归属，不删除会话：组里的会话会回到「未分组」。';
+    workspaceDeleteError.hidden = true;
+    workspaceDeleteError.textContent = '';
+    workspaceDeleteCancel.disabled = false;
+    workspaceDeleteConfirmButton.disabled = false;
+    workspaceDeleteOverlay.hidden = false;
+    workspaceDeleteCancel.focus();
+  }
+
+  function closeWorkspaceDelete() {
+    if (!state.workspaceDelete || state.workspaceDelete.busy) return;
+    const returnFocus = state.workspaceDelete.returnFocus;
+    state.workspaceDelete = null;
+    workspaceDeleteOverlay.hidden = true;
+    workspaceDeleteError.hidden = true;
+    workspaceDeleteError.textContent = '';
+    workspaceDeleteCancel.disabled = false;
+    workspaceDeleteConfirmButton.disabled = false;
+    if (returnFocus && returnFocus.isConnected) returnFocus.focus();
+    else conversationSearch.focus();
+  }
+
+  async function commitWorkspaceDelete() {
+    if (!state.workspaceDelete || state.workspaceDelete.busy) return;
+    const id = state.workspaceDelete.id;
+    const name = state.workspaceDelete.name;
+    state.workspaceDelete.busy = true;
+    workspaceDeleteCancel.disabled = true;
+    workspaceDeleteConfirmButton.disabled = true;
+    workspaceDeleteError.hidden = true;
+    workspaceDeleteError.textContent = '';
+
+    try {
+      await postJSON('/api/workspaces/' + encodeURIComponent(id) + '/delete', {});
+    } catch (err) {
+      if (!state.workspaceDelete || state.workspaceDelete.id !== id) return;
+      state.workspaceDelete.busy = false;
+      workspaceDeleteCancel.disabled = false;
+      workspaceDeleteConfirmButton.disabled = false;
+      workspaceDeleteError.textContent = err.message;
+      workspaceDeleteError.hidden = false;
+      workspaceDeleteConfirmButton.focus();
+      return;
+    }
+
+    if (!state.workspaceDelete || state.workspaceDelete.id !== id) return;
+    const returnFocus = state.workspaceDelete.returnFocus;
+    state.workspaceDelete = null;
+    workspaceDeleteOverlay.hidden = true;
+    workspaceDeleteError.hidden = true;
+    workspaceDeleteError.textContent = '';
+    workspaceDeleteCancel.disabled = false;
+    workspaceDeleteConfirmButton.disabled = false;
+
+    // 工作区没了，折叠记录里的旧 id 也一起清掉（两个视图各一份）。
+    if (state.collapsedActive.delete(id)) {
+      persistWorkspaceCollapse('active', state.collapsedActive);
+    }
+    if (state.collapsedArchived.delete(id)) {
+      persistWorkspaceCollapse('archived', state.collapsedArchived);
+    }
+    if (state.workspaceRename && state.workspaceRename.id === id) state.workspaceRename = null;
+    // 先本地摘掉这一组，刷新失败也不会把一个已经删掉的组继续画出来；
+    // 会话不删，刷新之后它们按 workspace_id 回到未分组。
+    state.workspaces = state.workspaces.filter((workspace) => workspace.id !== id);
+    try {
+      await Promise.all([loadConversationLists(), loadWorkspaces()]);
+    } catch (err) {
+      showError(err);
+    }
+    renderConversationList();
+    if (returnFocus && returnFocus.isConnected) returnFocus.focus();
+    else conversationSearch.focus();
+    showToast('已删除工作区「' + name + '」，会话已回到未分组');
+  }
+
+  async function moveConversationToWorkspace(conversation, targetID) {
+    if (conversationWorkspaceKey(conversation) === targetID) return;
+    try {
+      await postJSON('/api/conversations/' + encodeURIComponent(conversation.id) + '/workspace', {
+        // 未分组必须显式发 null；空串在接口里也是「移出」，但 null 是
+        // 契约里写明的形状，别让两种写法混在代码里。
+        workspace_id: targetID === UNGROUPED_WORKSPACE_ID ? null : targetID,
+      });
+    } catch (err) {
+      showToast('移动失败：' + err.message);
+      return;
+    }
+    // 先改本地这份，刷新失败时列表也不会停在旧分组；随后再拉一次真实数据。
+    conversation.workspace_id = targetID === UNGROUPED_WORKSPACE_ID ? '' : targetID;
+    try {
+      await Promise.all([loadConversationLists(), loadWorkspaces()]);
+    } catch (err) {
+      showError(err);
+    }
+    renderConversationList();
+    showToast('已移到「' + workspaceLabel(targetID) + '」');
+  }
+
+  // draggedConversation 从内存状态（首选）或 dataTransfer 里认领这次拖动。
+  // dragover 阶段浏览器不允许读 dataTransfer 里的内容，所以 dragstart 的
+  // 时候把 id 记进 state；drop 时再退到 dataTransfer，兼容从别处合成的拖动。
+  function draggedConversation(event) {
+    let id = state.draggedConversationId;
+    if (!id && event.dataTransfer) {
+      try {
+        id = event.dataTransfer.getData('text/plain');
+      } catch (err) {
+        id = '';
+      }
+    }
+    if (!id) return null;
+    return findConversation(id);
+  }
+
+  function clearWorkspaceDropHighlight() {
+    const heads = conversationList.querySelectorAll('.workspace-head.drop-target');
+    for (const head of heads) head.classList.remove('drop-target');
+  }
+
+  function attachWorkspaceDropTarget(head, group) {
+    if (!state.writable) return;
+    head.addEventListener('dragover', (event) => {
+      if (!draggedConversation(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      head.classList.add('drop-target');
+    });
+    head.addEventListener('dragleave', (event) => {
+      // 指针从标题行移到它里面的按钮时也会触发 dragleave；那不是离开目标。
+      if (event.relatedTarget && head.contains(event.relatedTarget)) return;
+      head.classList.remove('drop-target');
+    });
+    head.addEventListener('drop', (event) => {
+      const conversation = draggedConversation(event);
+      clearWorkspaceDropHighlight();
+      if (!conversation) return;
+      event.preventDefault();
+      event.stopPropagation();
+      moveConversationToWorkspace(conversation, group.id);
+    });
+  }
+
+  function attachConversationDrag(item, conversation) {
+    item.setAttribute('draggable', 'true');
+    item.addEventListener('dragstart', (event) => {
+      if (!state.writable) {
+        event.preventDefault();
+        return;
+      }
+      state.draggedConversationId = conversation.id;
+      item.classList.add('dragging');
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        try {
+          event.dataTransfer.setData('text/plain', conversation.id);
+        } catch (err) {
+          // 少数浏览器在合成事件里不允许写 dataTransfer；state 里仍有 id。
+        }
+      }
+    });
+    item.addEventListener('dragend', () => {
+      state.draggedConversationId = null;
+      item.classList.remove('dragging');
+      clearWorkspaceDropHighlight();
+    });
+  }
+
   function closeConversationMenu() {
     if (!openConversationMenu) return;
     openConversationMenu.menu.hidden = true;
@@ -4231,6 +5075,8 @@
 
   function renderConversationRow(conversation) {
     const item = document.createElement('li');
+    item.className = 'conversation-item';
+    item.dataset.conversationId = conversation.id;
     if (state.rename && state.rename.id === conversation.id) {
       item.appendChild(renderRenameBox());
       return item;
@@ -4238,6 +5084,9 @@
     item.appendChild(renderConversationButton(conversation));
     // 只读模式下没有可做的会话动作：不画一个点了必然 405 的菜单。
     if (state.writable) appendConversationMenu(item, conversation);
+    // 拖拽同样只在写模式画：只读时连 draggable 属性都不出现，
+    // 免得上手一拖才发现只能得到一条 405。
+    if (state.writable) attachConversationDrag(item, conversation);
     return item;
   }
 
@@ -4246,18 +5095,30 @@
     // 一起消失。先记下焦点，重画后把它放回同一个输入框（草稿在 state 里）。
     const renameFocused = document.activeElement !== null
       && document.activeElement.classList.contains('rename-input');
+    const workspaceInputFocused = document.activeElement !== null
+      && document.activeElement.classList.contains('workspace-input');
 
     // 会话从列表里消失（例如刚被删除）就退出改名，不留下一个永远提交
     // 不了的草稿。归档不在此列：归档视图里改名的会话还在另一份列表里。
     if (state.rename && !findConversation(state.rename.id)) {
       state.rename = null;
     }
+    // 工作区被删掉之后，属于它的改名草稿也不该留着。
+    if (state.workspaceRename
+        && !state.workspaces.some((workspace) => workspace.id === state.workspaceRename.id)) {
+      state.workspaceRename = null;
+    }
 
     const visible = visibleConversations();
+    const filtering = state.search.trim() !== '';
     conversationList.replaceChildren();
-    for (const conversation of visible) {
-      conversationList.appendChild(renderConversationRow(conversation));
+    for (const group of workspaceGroups()) {
+      // 搜索时把过滤后没有命中的组整个收起（含未分组）；不搜索时保留
+      // 空组，它既显示 0，也是拖拽的放置目标。
+      if (filtering && group.conversations.length === 0) continue;
+      conversationList.appendChild(renderWorkspaceGroup(group));
     }
+    renderWorkspaceCreate();
 
     const total = viewConversations().length;
     conversationCount.hidden = total === 0;
@@ -4286,6 +5147,9 @@
 
     renderArchivedToggle();
     if (state.rename && renameFocused) focusRenameInput(false);
+    if (workspaceInputFocused && (state.workspaceRename || state.workspaceCreate)) {
+      focusWorkspaceInput(false);
+    }
     renderAskTarget();
   }
 
@@ -4334,6 +5198,9 @@
       return;
     }
     closeConversationMenu();
+    // 会话改名与工作区改名不能同时开：同一个左栏里只留一个输入框。
+    state.workspaceRename = null;
+    state.workspaceCreate = null;
     state.rename = { id: conversation.id, draft: conversation.title || '', error: '' };
     renderConversationList();
     focusRenameInput(true);
@@ -4536,6 +5403,8 @@
     if (state.viewArchived === want) return;
     state.viewArchived = want;
     state.rename = null;
+    state.workspaceRename = null;
+    state.workspaceCreate = null;
     closeConversationMenu();
     renderArchivedToggle();
     renderConversationList();
@@ -5670,6 +6539,8 @@
     state.lastSeq = 0;
     state.detail = null;
     state.rename = null;
+    state.workspaceRename = null;
+    state.workspaceCreate = null;
     state.conversations = [];
     state.archivedConversations = [];
     renderConversationList();
@@ -5700,6 +6571,8 @@
     state.currentId = null;
     state.newTarget = true;
     state.rename = null;
+    state.workspaceRename = null;
+    state.workspaceCreate = null;
     state.lastSeq = 0;
     state.detail = null;
     messageList.replaceChildren();
@@ -5800,6 +6673,14 @@
     schedulePoll();
   }
 
+  // loadWorkspaces 拉左栏的分组表。只读模式也允许：
+  // GET /api/workspaces 是读接口，分组与折叠在两种模式下都要能画。
+  async function loadWorkspaces() {
+    const workspaces = await api('/api/workspaces');
+    state.workspaces = Array.isArray(workspaces) ? workspaces : [];
+    return state.workspaces;
+  }
+
   // loadConversationLists 一次拉两份列表：未归档与已归档。「已归档 N」
   // 即使在默认视图里也要显示正确的 N，所以两份都得读。两次查询互不依赖，
   // 并行发出；任何一份失败都让整次刷新失败，不把半边数据当完整列表画出来。
@@ -5821,7 +6702,10 @@
   // 当前视图的第一条；用户点过「改为新建」之后同样不选。
   async function refreshConversations() {
     try {
-      const lists = await loadConversationLists();
+      const [lists] = await Promise.all([
+        loadConversationLists(),
+        loadWorkspaces(),
+      ]);
       renderConversationList();
       if (lists.active.length === 0 && lists.archived.length === 0) {
         resetToEmptyLibrary();
@@ -5904,6 +6788,8 @@
     // 过滤会重画列表；正在编辑的那一行若被筛掉，输入框就再也回不来，
     // 所以输入搜索词先退出重命名（未提交的草稿不保留），不留死状态。
     state.rename = null;
+    state.workspaceRename = null;
+    state.workspaceCreate = null;
     state.search = conversationSearch.value;
     closeConversationMenu();
     renderConversationList();
@@ -5915,6 +6801,8 @@
     event.preventDefault();
     conversationSearch.value = '';
     state.rename = null;
+    state.workspaceRename = null;
+    state.workspaceCreate = null;
     state.search = '';
     renderConversationList();
   });
