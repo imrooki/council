@@ -50,10 +50,16 @@ type Server struct {
 	// write 非 nil 表示 -rw 写模式已经装配好：有配置、Service 与 Runner，
 	// /api/ask 与 /api/jobs 才会真正工作。只读模式保持 nil，两个端点回 405。
 	write *WriteDeps
-	// cfgMu 保护 write.Cfg。设置页保存成功后会把它换成磁盘上的新配置
-	// （展示用），而 /api/options 与成员管理可能同时在读。RunCfg 不换，
-	// 不需要这把锁（见 WriteDeps.RunCfg 的注释）。
+	// cfgMu 保护 write.Cfg 与 write.RunCfg。设置页保存成功后会换展示配置；
+	// A2 起，只碰可热更字段（mode）的保存还会把同一份配置热换进 RunCfg，
+	// 于是两份指针都要在同一把锁下读写，/api/options、/api/ask 与成员管理
+	// 才能看到一致的一对（见 WriteDeps.RunCfg 与 settings_reload.go）。
 	cfgMu sync.RWMutex
+	// reloadMu 是设置页热换与「新 job 进入任务表」之间的闸。热换要先确认
+	// 此刻没有在跑的轮次，再改 RunCfg / Runner 的配置；handleAsk 在 jobs.add
+	// 之后 job 就已经在表里，两者抢同一把锁，就不可能把新 job 插进
+	// 「检查完没有轮次」与「换配置」之间。
+	reloadMu sync.Mutex
 	// settingsMu 让设置页的两次写盘串行化。两次并发保存各自「读原文 ->
 	// 写临时文件 -> 校验 -> 备份 -> Rename」时，最终文件仍是其中一次的
 	// 完整结果（不会写坏），但两份备份与两次校验交错没有意义：拿到锁

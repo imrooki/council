@@ -75,13 +75,20 @@ type WriteDeps struct {
 	Svc     *conversation.Service
 	Rn      *turn.Runner
 	DataDir string
-	// RunCfg 是启动时交给 Runner 的那一份配置。设置页保存成功后 Cfg 会被
-	// 换成磁盘上的新配置（只用于展示），RunCfg 保持不变：Runner 不重建，
-	// /api/ask 的校验与执行必须继续按启动时的那份来，否则会出现「设置页
-	// 刚加的成员校验通过、Runner 不认识它」的错位。
+	// RunCfg 是 Runner 真正在用的那一份配置，/api/ask 的校验与执行都按它
+	// 来。设置页保存成功后 Cfg 会先换成磁盘上的新配置；随后仅当本次改动
+	// 只碰可热更字段（mode）、且没有轮次在跑时，同一份才会热换进 RunCfg
+	// 与 Runner（A2，见 settings_reload.go）。需要重启的改动只换 Cfg，
+	// RunCfg 保持不变，避免「设置页刚加的成员校验通过、Runner 不认识它」
+	// 的错位。
 	// 为空时 EnableWrite 把它设成 Cfg（同一个指针）；直接构造 WriteDeps 的
 	// 测试不必关心这个字段。
 	RunCfg *config.Config
+	// SetRunnerConfig 是 Runner.SetConfig 的测试注入点。生产装配留空，
+	// settingsHotReload 直接调 Rn.SetConfig（它没有失败出口）；测试把它
+	// 换成一个会报错的函数，验证「热换失败 → 回滚 RunCfg → 500 且文件
+	// 已写入」这条路径。不要用它做别的事。
+	SetRunnerConfig func(*config.Config) error
 	// Layers 是启动时实际合并的配置层（高优先级在前），设置页靠它展示
 	// 层清单、决定写哪一份。生产由 runWritable 填入；直接构造 WriteDeps
 	// 的测试可以留空，设置接口会退化成「ConfigPath 这一份」。
@@ -126,8 +133,9 @@ type WriteDeps struct {
 // 因为「怎么装配」属于 serve.Run 的职责，不属于 HTTP handler。
 func (s *Server) EnableWrite(deps WriteDeps) {
 	if deps.RunCfg == nil {
-		// 同一个指针：之后设置页只会替换 deps.Cfg 这个字段，不会原地改
-		// 这份配置，所以 Runner 手里的那份仍是启动时的内容。
+		// 启动时同一个指针。之后设置页可能替换 deps.Cfg（需要重启的改动）
+		// 或把新配置整体热换进 deps.RunCfg（A2 的可热更字段 mode），但两条
+		// 路都只换指针、绝不原地改这份配置。
 		deps.RunCfg = deps.Cfg
 	}
 	s.write = &deps
@@ -408,9 +416,10 @@ type agentOption struct {
 	// 要按它渲染禁用态，而"配置里没有"与"配置里有但停用"是两种画法。
 	Active bool `json:"active"`
 	// Runnable 表示这个 id 在当前进程的 Runner 配置（WriteDeps.RunCfg）
-	// 里存在。设置页保存后 Cfg 会换成磁盘上的新配置，但 Runner 不重建：
-	// 新加的成员能显示、能被勾选的话，提交 /api/ask 必然 400。前端据此
-	// 把它画成可见但不可选，而不是在用户点「跑一轮」之后才报错。
+	// 里存在。需要重启的设置页保存只换展示配置，Runner 内容不变；A2 的
+	// 可热更字段（mode）保存才会热换 RunCfg。新加的成员在重启前能显示、
+	// 但不可执行——提交 /api/ask 必然 400。前端据此把它画成可见但不可选，
+	// 而不是在用户点「跑一轮」之后才报错。
 	Runnable bool   `json:"runnable"`
 	Source   string `json:"source"`
 }
@@ -437,16 +446,25 @@ func newAgentOption(id string, ac config.AgentConfig, source string, runnable bo
 	}
 }
 
-// runnableAgent 回答「这个 id 在 Runner 启动时拿到的那份配置里存在吗」。
+// runnableAgent 回答「这个 id 在 Runner 当前那份配置里存在吗」。
 //
-// 必须读 RunCfg 而不是 currentCfg：设置页保存只换展示配置，Runner 手里的
-// 指针与内容都不变。RunCfg 为空时一律 false——没有启动配置就没有任何成员
-// 能被 Runner 执行，猜一份只会让前端放行一个必然失败的 id。
+// 必须读 RunCfg 而不是 currentCfg：需要重启的设置页保存只换展示配置，
+// Runner 手里的内容不变；可热更字段（mode）的保存则会热换 RunCfg
+// （A2）。两种情况下这个函数都要和 /api/ask 的校验看到同一个快照，所以
+// 在 cfgMu 下取一次指针。RunCfg 为空时一律 false——没有执行配置就没有
+// 任何成员能被 Runner 执行，猜一份只会让前端放行一个必然失败的 id；这里
+// 也不回落到展示配置，那会把「重启后可用」误报成「现在可跑」。
 func (s *Server) runnableAgent(id string) bool {
-	if s.write == nil || s.write.RunCfg == nil {
+	if s.write == nil {
 		return false
 	}
-	_, ok := s.write.RunCfg.Agents[id]
+	s.cfgMu.RLock()
+	run := s.write.RunCfg
+	s.cfgMu.RUnlock()
+	if run == nil {
+		return false
+	}
+	_, ok := run.Agents[id]
 	return ok
 }
 
@@ -1002,6 +1020,29 @@ func (t *jobTable) remove(id string) {
 	t.mu.Unlock()
 }
 
+// runningCount 数出任务表里尚未结束的 job。结束后 job 还会按 jobTTL
+// 留在表里，所以不能拿 len(t.jobs) 当「有没有轮次在跑」：那会让一次
+// 60 秒内结束过的议会一直挡住设置页热换。
+//
+// 先把指针拷出来再逐个问 finished，不在 t.mu 里拿 j.mu：job.finish
+// 只拿 j.mu，不会反向拿 t.mu，但保持「表锁只保护表」这条边界更不容易
+// 在以后加锁时绕出环。
+func (t *jobTable) runningCount() int {
+	t.mu.Lock()
+	jobs := make([]*job, 0, len(t.jobs))
+	for _, j := range t.jobs {
+		jobs = append(jobs, j)
+	}
+	t.mu.Unlock()
+	running := 0
+	for _, j := range jobs {
+		if !j.isFinished() {
+			running++
+		}
+	}
+	return running
+}
+
 // newJobID 铸一个 64 位十六进制 id。用 crypto/rand 而不是时间/自增：
 // 端口对本机任何进程开放，可猜的 id 等于把别人的议会进度与正文送给
 // 同一台机器上的任何程序。它不做鉴权，但也不主动送路径。
@@ -1199,9 +1240,10 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	// 校验失败时再交给 claudeProviderHint 看一眼：名字确实来自
 	// .claude/agents、只是缺 [providers.claude] 的那几条，要在 400 里
 	// 说清根因，而不是让用户对着「配置里没有这个 agent」去改配置。
-	// 校验用启动时的那一份（RunCfg），不是设置页刚换掉的展示配置：Runner
-	// 不重建，按新配置放行的成员在 Runner 眼里仍然不存在。设置页保存后的
-	// 提示里已经把「重启后生效」写清楚了。
+	// 校验用 Runner 当前那一份（RunCfg），不是设置页刚换掉的展示配置：
+	// 需要重启的改动只换 Cfg，按新配置放行的成员在 Runner 眼里仍然不存在。
+	// 设置页保存后的提示里已经把「重启后生效」写清楚了；A2 的可热更字段
+	// 热换则会连 RunCfg 一起换，校验与执行仍然一致。
 	if err := headless.Validate(opts, s.runCfg()); err != nil {
 		err = s.claudeProviderHint(err, opts.Members)
 		err = s.settingsAddedHint(err, opts)
@@ -1241,7 +1283,12 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		parent = context.Background()
 	}
 	j.ctx, j.cancel = context.WithCancel(parent)
+	// 与设置页热换互斥：reloadMu 覆盖的临界区只有「进任务表」这一小段，
+	// 但 job 一旦进表，热换的 runningJobs 就能看见它并放弃热换。反过来，
+	// 热换先拿到锁时，这个新 job 在热换完成之后才进表，读到的就是新配置。
+	s.reloadMu.Lock()
 	s.jobs.add(j)
+	s.reloadMu.Unlock()
 	// 议会挂 s.jobCtx，不挂请求的 ctx：浏览器关掉页面时 r.Context() 会
 	// 取消，但已经花出去的钱与正在跑的成员不该跟着作废。s.jobCtx 只在
 	// 进程关闭且等满 10 秒仍未收尾时被 cancelJobs 显式取消。
@@ -1314,11 +1361,14 @@ func optionsFromAsk(req askRequest) (headless.Options, error) {
 // 文案刻意不再以「未知成员」开头：用户刚在设置页看到它，再被告知「配置里
 // 没有」只会以为是另一个 bug。
 func (s *Server) settingsAddedHint(err error, opts headless.Options) error {
-	if err == nil || s.write == nil || s.write.RunCfg == nil {
+	if err == nil || s.write == nil {
 		return err
 	}
+	// 一次请求里用同一份 RunCfg 快照：热换可能正把指针换掉，逐次读
+	// 会出现「这个 id 刚才还能跑、下一行又不存在」的撕裂。
+	run := s.runCfg()
 	display := s.currentCfg()
-	if display == nil {
+	if run == nil || display == nil {
 		return err
 	}
 	message := err.Error()
@@ -1330,7 +1380,7 @@ func (s *Server) settingsAddedHint(err error, opts headless.Options) error {
 		if id == "" {
 			return false
 		}
-		if _, runnable := s.write.RunCfg.Agents[id]; runnable {
+		if _, runnable := run.Agents[id]; runnable {
 			return false
 		}
 		if _, displayed := display.Agents[id]; !displayed {

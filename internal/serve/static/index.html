@@ -1518,6 +1518,25 @@
     word-break: break-all;
   }
   .settings-result[hidden] { display: none; }
+  /* A2：保存结果按 reloaded 分两色。热加载成功是中性/成功色；需要重启是
+     警告色——用户不应该把「已写入」误读成「已生效」。 */
+  .settings-result.is-hot { background: var(--accent-soft); border-color: var(--accent); }
+  .settings-result.is-restart { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  /* 保存前预览里的生效判定。比普通说明更醒目：这是用户决定「现在保存」
+     之前唯一一次知道「要不要重启」的机会。 */
+  .settings-reload-hint {
+    margin: 10px 0;
+    padding: 8px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.6;
+    word-break: break-all;
+  }
+  .settings-reload-hint[hidden] { display: none; }
+  .settings-reload-hint.is-hot { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .settings-reload-hint.is-restart { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
   .settings-error {
     margin: 12px 0 0;
     padding: 9px 12px;
@@ -2030,6 +2049,7 @@
     <div class="confirm-card settings-preview-card">
       <h2 id="settings-preview-title">确认写入配置</h2>
       <p id="settings-preview-target" class="settings-preview-target"></p>
+      <p id="settings-preview-reload" class="settings-reload-hint" role="status" hidden></p>
       <p id="settings-preview-backup" class="settings-form-hint"></p>
       <table id="settings-preview-diff" class="settings-diff" hidden>
         <thead><tr><th>字段</th><th>旧值</th><th>新值</th></tr></thead>
@@ -2334,6 +2354,7 @@
   const settingsPreview = document.getElementById('settings-preview');
   const settingsPreviewTitle = document.getElementById('settings-preview-title');
   const settingsPreviewTarget = document.getElementById('settings-preview-target');
+  const settingsPreviewReload = document.getElementById('settings-preview-reload');
   const settingsPreviewBackup = document.getElementById('settings-preview-backup');
   const settingsPreviewDiff = document.getElementById('settings-preview-diff');
   const settingsPreviewDiffBody = document.getElementById('settings-preview-diff-body');
@@ -6363,6 +6384,72 @@
 
   const SETTINGS_SOURCES = { config: 'config', claude: 'claude' };
   const SETTINGS_EDIT_FIELDS = ['display_name', 'provider', 'model', 'effort', 'permissions', 'mode'];
+  // A2：字段分级表由服务端 /api/settings 的 reload 给出；这里的副本只在
+  // 服务端没给（旧响应 / 直接构造的测试响应）时兜底，字段名必须与
+  // internal/serve/settings_reload.go 保持一致。
+  const SETTINGS_RELOAD_FALLBACK = {
+    hot_fields: ['mode'],
+    restart_fields: ['display_name', 'role', 'provider', 'model', 'effort', 'prompt', 'permissions'],
+  };
+  const SETTINGS_RELOAD_LABELS = {
+    display_name: '名称或角色变了',
+    role: '名称或角色变了',
+    provider: 'provider 变了',
+    model: 'model 变了',
+    effort: 'effort 变了',
+    prompt: 'prompt 变了',
+    permissions: 'permissions 变了',
+  };
+
+  function settingsReloadPolicy() {
+    const policy = state.settings && state.settings.reload;
+    // 关键区别：服务端明确给了 []（例如热更字段全部移进身份指纹之后）
+    // 必须当成「没有可热更字段」，不能因为 length===0 就退回内置兜底表。
+    // 只有字段整个缺席（旧响应）才用兜底。
+    const hot = policy && Array.isArray(policy.hot_fields) ? policy.hot_fields : null;
+    const restart = policy && Array.isArray(policy.restart_fields) ? policy.restart_fields : null;
+    return {
+      hot_fields: hot !== null ? hot : SETTINGS_RELOAD_FALLBACK.hot_fields,
+      restart_fields: restart !== null ? restart : SETTINGS_RELOAD_FALLBACK.restart_fields,
+    };
+  }
+
+  // settingsPreviewVerdict 是保存前预览用的分级判定。它只拿表单旧值与
+  // 新值比，不重新实现服务端的配置合并；服务端还会按 RunCfg（启动时的
+  // 执行配置）再判一次，两边不一致时以服务端响应为准。
+  function settingsPreviewVerdict(preview) {
+    if (!preview) return { reloaded: true, reasons: [] };
+    if (preview.kind === 'delete') {
+      return { reloaded: false, reasons: ['删除了成员 ' + preview.id] };
+    }
+    if (!preview.editing) {
+      // 新增成员走设置页这条路一律要重启；「从模型添加」是另一条热路径，
+      // 不经过这个预览框。
+      return { reloaded: false, reasons: ['新增成员 ' + preview.id] };
+    }
+    const policy = settingsReloadPolicy();
+    const reasons = [];
+    const addReason = (field) => {
+      const label = SETTINGS_RELOAD_LABELS[field] || field + ' 变了';
+      if (!reasons.includes(label)) reasons.push(label);
+    };
+    // 上一次「改了 display_name / model 但没重启」留下的待重启字段
+    // 也算数：服务端按 RunCfg 判定，这一次只改可热更的 mode 仍然不能
+    // 热换。
+    const current = settingsAgentByID(preview.id);
+    if (current) {
+      if (current.runnable === false) {
+        reasons.push('新增成员 ' + preview.id);
+      }
+      for (const field of current.pending_restart_fields || []) addReason(field);
+    }
+    for (const change of preview.changes) {
+      if (change.old === change.new) continue;
+      if (!policy.restart_fields.includes(change.field)) continue;
+      addReason(change.field);
+    }
+    return { reloaded: reasons.length === 0, reasons };
+  }
 
   function settingsAgentByID(agentID) {
     const settings = state.settings;
@@ -6662,7 +6749,14 @@
         new: String(payload[field] || ''),
       });
     }
-    state.settingsPreview = { kind: 'save', id: payload.agent_id, payload, changes, busy: false };
+    state.settingsPreview = {
+      kind: 'save',
+      id: payload.agent_id,
+      editing: state.settingsForm.editing,
+      payload,
+      changes,
+      busy: false,
+    };
     openSettingsPreview();
   }
 
@@ -6691,6 +6785,14 @@
       : '将写入 ' + target + ' 的 [agents.' + preview.id + '] 段；文件里的其它段、注释与行尾保持原样。';
     settingsPreviewBackup.textContent =
       '写入前会先把原文备份成 <配置文件名>.bak-<YYYYMMDD-HHmmss>，备份路径在成功提示里显示。';
+
+    // A2：保存前就把「立即生效 / 需要重启」摆在确认按钮上面。
+    const verdict = settingsPreviewVerdict(preview);
+    settingsPreviewReload.textContent = verdict.reloaded
+      ? '保存后立即生效（只改了不影响身份指纹的字段，不需要重启 serve）。'
+      : '本次改动需要重启 serve 后生效：' + (verdict.reasons.join('、') || '配置变更');
+    settingsPreviewReload.className = 'settings-reload-hint ' + (verdict.reloaded ? 'is-hot' : 'is-restart');
+    settingsPreviewReload.hidden = false;
 
     settingsPreviewDiffBody.replaceChildren();
     settingsPreviewDiff.hidden = isDelete || preview.changes.length === 0;
@@ -6767,6 +6869,24 @@
       if (result && result.write_target) {
         lines.push((isDelete ? '已从 ' : '已写入 ') + result.write_target);
       }
+      // A2：结果区第一行按 reloaded 明说「已经生效」还是「还差一次重启」。
+      // 只在文件真的改过时显示（没有生成备份＝内容逐字节没变），否则
+      // 一次「什么都没改」的保存会被说成需要重启。
+      const changed = Boolean(result && result.backup_path);
+      if (changed) {
+        const reasons = result && Array.isArray(result.restart_reasons)
+          ? result.restart_reasons.filter(Boolean)
+          : [];
+        if (result.reloaded) {
+          lines.push('已热加载：本次改动立即生效，无需重启 serve。');
+        } else if (reasons.length > 0) {
+          lines.push('需要重启 serve 后生效：' + reasons.join('、') + '。');
+        } else {
+          // 文件字节变了但运行配置没变（例如补了一行等于默认值的 mode）。
+          // 服务端既没热换也不要求重启，这里不能套用「需要重启」的文案。
+          lines.push('运行配置没有变化，无需重启 serve。');
+        }
+      }
       if (result && result.note) {
         lines.push(result.note);
       }
@@ -6774,7 +6894,10 @@
       state.settingsPreview = null;
       state.settingsForm = null;
       settingsPreview.hidden = true;
+      settingsPreviewReload.hidden = true;
       settingsFormOverlay.hidden = true;
+      settingsResult.className = 'settings-result '
+        + (result && result.reloaded ? 'is-hot' : 'is-restart');
       setSettingsResult(state.settingsResult);
       await loadSettings();
       // 工作台的成员列表也要立刻反映新配置：/api/options 读的是同一份

@@ -8,8 +8,13 @@ package serve
 //   - 写之前先备份原文，路径回给前端显示；
 //   - 写之前先把新内容当「临时最高层」合并 + Validate 一遍，失败回 400
 //     且目标文件一个字节没动（config.WriteAgentSection 负责）；
-//   - 写完只替换 s.write.Cfg（展示用），RunCfg 与 Runner 不重建：新配置
-//     要下次重启 serve 才真正生效。前端据此显示「重启后生效」。
+//   - 写完先替换 s.write.Cfg（展示用）。A2 起再分级：只碰 mode 且没有
+//     轮次在跑时，把同一份配置热换进 RunCfg 与 Runner，响应
+//     reloaded=true；碰到 display_name / role / provider / model / effort /
+//     prompt / permissions、或新增 / 删除成员时，仍然要下次重启 serve 才
+//     真正生效，响应 reloaded=false 并在 restart_reasons 里点名原因
+//     （display_name / role 会进身份指纹，分级表与热换实现在
+//     settings_reload.go）。
 //
 // providers 与 teams 在本片只读：provider 的 command 指向登录过的 CLI，
 // 改错等于把成员换成另一个账户或另一个程序，风险比改一个模型名高一个
@@ -34,8 +39,9 @@ import (
 // 不是一个 agent 定义，没必要读完再拒。
 const maxSettingsBody = 16 << 10
 
-// settingsReloadNote 是保存成功后必须原样出现在界面上的那句话。它说明
-// 两件事：配置已经写进磁盘；正在跑的 Runner 没有重建。
+// settingsReloadNote 是「必须重启」时 note 的后半句。它说明两件事：
+// 配置已经写进磁盘；正在跑的 Runner 没有被热换。
+// 成功热换的 note 是 settingsHotReloadNote，两句话不能混用。
 const settingsReloadNote = "新配置在下次重启 council serve 后生效：Runner 不会重建，当前进程与正在跑的议会仍用启动时的那份配置"
 
 // settingsLayerJSON 是 GET /api/settings 里的一层配置。
@@ -72,6 +78,14 @@ type settingsAgentJSON struct {
 	// 或删除：写进配置文件会让它静默盖住 .claude 里的定义，删也删不掉
 	// 那边的事实源。
 	Source string `json:"source"`
+	// Runnable 与 /api/options 同义：这个 id 在 Runner 当前的 RunCfg 里
+	// 存在吗。设置页新增、但还没重启的成员是 false——保存它的任何字段
+	// 都仍然需要重启，预览不能把它说成热更。
+	Runnable bool `json:"runnable"`
+	// PendingRestartFields 列出「展示配置里已经改了、RunCfg 还没换」的
+	// 必须重启字段（例如 ["model"]）。保存前预览把这一份算进去，避免
+	// 上一次待重启的改动被预览漏掉。
+	PendingRestartFields []string `json:"pending_restart_fields,omitempty"`
 }
 
 // settingsTeamJSON 是只读的 team 展示。
@@ -94,6 +108,9 @@ type settingsResponse struct {
 	DataDir      string                 `json:"data_dir"`
 	ConfigPath   string                 `json:"config_path"`
 	Providers    []settingsProviderJSON `json:"providers"`
+	// Reload 是 A2 的字段分级表。前端保存前的预览靠它判断「立即生效」
+	// 还是「需要重启」，不在 JS 里另抄一份字段名单。
+	Reload settingsReloadJSON `json:"reload"`
 }
 
 // settingsAgentRequest 是 POST /api/settings/agents 的请求体。
@@ -113,13 +130,18 @@ type settingsAgentRequest struct {
 
 // settingsWriteResponse 是保存 / 删除成功的响应。
 //
-// reloaded 恒为 false：它回答的是「Runner 重建了吗」，而不是「磁盘上的
-// 配置变了吗」。前端必须把 note 显示出来，否则用户会以为改动已经生效。
+// reloaded 回答的是「Runner 已经换成本次写盘的新配置了吗」，而不是
+// 「磁盘上的配置变了吗」。A2 之前它恒为 false；现在只有可热更字段
+// （当前只有 mode）、无轮次在跑、且 SetConfig 成功时才为 true。
+//
+// restart_reasons 只在 reloaded=false 且确实有改动时出现：它逐条点名
+// 为什么必须重启（例如 "model 变了"），前端结果区原样显示。
 type settingsWriteResponse struct {
-	BackupPath  string `json:"backup_path"`
-	WriteTarget string `json:"write_target"`
-	Reloaded    bool   `json:"reloaded"`
-	Note        string `json:"note"`
+	BackupPath     string   `json:"backup_path"`
+	WriteTarget    string   `json:"write_target"`
+	Reloaded       bool     `json:"reloaded"`
+	RestartReasons []string `json:"restart_reasons,omitempty"`
+	Note           string   `json:"note"`
 }
 
 // currentCfg 返回展示用的合并配置。设置页保存之后这份指针会被换成磁盘上
@@ -134,9 +156,11 @@ func (s *Server) currentCfg() *config.Config {
 	return s.write.Cfg
 }
 
-// runCfg 返回启动时交给 Runner 的那一份配置。它永远不变：Runner 持有同一
-// 个指针直到进程退出，/api/ask 的校验与执行必须按它来，否则会出现
-// 「设置页刚加的成员校验通过、Runner 不认识它」的错位。
+// runCfg 返回 Runner 当前真正在用的那一份配置。启动之后它只在两种情况下
+// 变化：A2 的可热更字段（mode）热换把它换成磁盘上的新配置；「从模型添加」
+// 那条既有热路径也会换它。需要重启的设置页改动不碰它——/api/ask 的校验与
+// 执行必须和 Runner 看同一份，否则会出现「设置页刚加的成员校验通过、
+// Runner 不认识它」的错位。
 func (s *Server) runCfg() *config.Config {
 	if s.write == nil {
 		return nil
@@ -227,6 +251,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		Providers:   []settingsProviderJSON{},
 		ConfigPath:  s.write.ConfigPath,
 		DataDir:     s.write.DataDir,
+		Reload:      settingsReloadPolicy(),
 	}
 	for _, layer := range layers {
 		exists := false
@@ -250,16 +275,22 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		if resp.DataDir == "" {
 			resp.DataDir = cfg.DataDir
 		}
+		// 一次请求只取一次 RunCfg：热换可能正把指针换掉，逐行读会让
+		// runnable / pending 字段与 agent 行对不上。
+		run := s.runCfg()
 		for _, opt := range s.displayAgentOptions(cfg) {
+			runnable, pending := settingsPendingRestart(run, cfg, opt.ID)
 			resp.Agents = append(resp.Agents, settingsAgentJSON{
-				ID:          opt.ID,
-				DisplayName: opt.DisplayName,
-				Provider:    opt.Provider,
-				Model:       opt.Model,
-				Effort:      opt.Effort,
-				Permissions: opt.Permission,
-				Mode:        opt.Mode,
-				Source:      opt.Source,
+				ID:                   opt.ID,
+				DisplayName:          opt.DisplayName,
+				Provider:             opt.Provider,
+				Model:                opt.Model,
+				Effort:               opt.Effort,
+				Permissions:          opt.Permission,
+				Mode:                 opt.Mode,
+				Source:               opt.Source,
+				Runnable:             runnable,
+				PendingRestartFields: pending,
 			})
 		}
 
@@ -382,19 +413,67 @@ func (s *Server) handleSettingsAgentSave(w http.ResponseWriter, r *http.Request)
 		s.writeSettingsError(w, err)
 		return
 	}
-	if res.Changed {
-		s.adoptReloadedConfig(res.Config)
-	}
-	note := settingsReloadNote
 	if !res.Changed {
-		note = "配置没有变化：文件未改动，也没有生成备份。" + settingsReloadNote
+		// 文件逐字节没变：没有可热的改动，也没有可回滚的东西。
+		// reloaded 仍是 false——这次请求根本没有换过 Runner。
+		writeJSON(w, http.StatusOK, settingsWriteResponse{
+			BackupPath:  res.BackupPath,
+			WriteTarget: res.WriteTarget,
+			Note:        "配置没有变化：文件未改动，也没有生成备份。" + settingsReloadNote,
+		})
+		return
 	}
-	writeJSON(w, http.StatusOK, settingsWriteResponse{
+
+	// RunCfg 必须在 adopt 之前取：adopt 只换展示配置，但这里拍下的是
+	// 「Runner 此刻真正在用的那一份」，分级判定拿它当基准。
+	oldRun := s.runCfg()
+	s.adoptReloadedConfig(res.Config)
+
+	reasons := settingsRestartReasons(oldRun, res.Config, id)
+	if len(reasons) == 0 && !settingsHotChanged(oldRun, res.Config, id) {
+		// 文件字节变了，但合并后的运行配置与 RunCfg 逐字段相同（例如给
+		// 本来就用默认 mode 的段补上一行显式 mode）。没有可热的改动，
+		// 也不该假装热加载过；settingsHotFieldNames 为空时所有真实改动
+		// 都已经在 reasons 里，只剩这一种纯格式变化会走到这里。
+		writeJSON(w, http.StatusOK, settingsWriteResponse{
+			BackupPath:  res.BackupPath,
+			WriteTarget: res.WriteTarget,
+			Note:        settingsRuntimeUnchangedNote,
+		})
+		return
+	}
+	if len(reasons) == 0 {
+		// 本次只碰了可热更字段。热换本身还要过「没有轮次在跑」这道闸；
+		// 有 job 在跑时退化成需要重启，绝不打断进行中的议会。
+		if reloadErr := s.settingsHotReload(res.Config); reloadErr != nil {
+			switch {
+			case errors.Is(reloadErr, errSettingsJobsRunning),
+				errors.Is(reloadErr, errSettingsNoRunner):
+				reasons = append(reasons, reloadErr.Error())
+			default:
+				// 文件与展示配置都已经换了，回滚它们会制造「磁盘上写着 A、
+				// 界面显示 B」的更坏状态。RunCfg 已在 settingsHotReload
+				// 里回滚，这里只把事实说清楚。
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf(
+					"配置已写入 %s（备份：%s），但热加载失败，已回滚到旧的 Runner 配置；重启 council serve 后新配置可生效：%v",
+					res.WriteTarget, res.BackupPath, reloadErr))
+				return
+			}
+		}
+	}
+
+	resp := settingsWriteResponse{
 		BackupPath:  res.BackupPath,
 		WriteTarget: res.WriteTarget,
-		Reloaded:    false,
-		Note:        note,
-	})
+	}
+	if len(reasons) == 0 {
+		resp.Reloaded = true
+		resp.Note = settingsHotReloadNote
+	} else {
+		resp.RestartReasons = reasons
+		resp.Note = settingsRestartNote(reasons)
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleSettingsAgentDelete 从写目标里删掉一个 agent 的段。
@@ -448,24 +527,33 @@ func (s *Server) handleSettingsAgentDelete(w http.ResponseWriter, r *http.Reques
 		s.writeSettingsError(w, err)
 		return
 	}
-	if res.Changed {
-		s.adoptReloadedConfig(res.Config)
-	}
-	note := settingsReloadNote
 	if !res.Changed {
-		note = "配置没有变化：文件未改动，也没有生成备份。" + settingsReloadNote
-	} else if res.Config != nil {
+		writeJSON(w, http.StatusOK, settingsWriteResponse{
+			BackupPath:  res.BackupPath,
+			WriteTarget: res.WriteTarget,
+			Note:        "配置没有变化：文件未改动，也没有生成备份。" + settingsReloadNote,
+		})
+		return
+	}
+	s.adoptReloadedConfig(res.Config)
+
+	// A2：新增 / 删除成员一律不热换。删除尤其不能热换——已经发出的会话、
+	// 汇总配置和 team 引用都按旧名单建立，换掉 Runner 的成员表不会让那些
+	// 事实一起消失，只会让下一次 ask 的报错变成一句无法解释的「未知成员」。
+	reasons := []string{"删除了成员 " + id}
+	note := settingsRestartNote(reasons)
+	if res.Config != nil {
 		// 目标层删掉了，但低优先级层可能也有同名定义：合并之后这个成员
 		// 仍然可见。不说这一句，用户会以为删除没生效。
 		if _, still := res.Config.Agents[id]; still {
-			note = "已从 " + res.WriteTarget + " 删除这一段，但低优先级配置层里仍有同名定义，合并后它仍然可见。" + settingsReloadNote
+			note = "已从 " + res.WriteTarget + " 删除这一段，但低优先级配置层里仍有同名定义，合并后它仍然可见。" + settingsRestartNote(reasons)
 		}
 	}
 	writeJSON(w, http.StatusOK, settingsWriteResponse{
-		BackupPath:  res.BackupPath,
-		WriteTarget: res.WriteTarget,
-		Reloaded:    false,
-		Note:        note,
+		BackupPath:     res.BackupPath,
+		WriteTarget:    res.WriteTarget,
+		RestartReasons: reasons,
+		Note:           note,
 	})
 }
 
