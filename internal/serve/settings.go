@@ -111,6 +111,13 @@ type settingsResponse struct {
 	// Reload 是 A2 的字段分级表。前端保存前的预览靠它判断「立即生效」
 	// 还是「需要重启」，不在 JS 里另抄一份字段名单。
 	Reload settingsReloadJSON `json:"reload"`
+	// Language 是配置里的原值（zh / en / auto），供设置页的下拉显示；
+	// LanguageEffective 是本次进程实际生效的语言，用于「实际生效：…」；
+	// LanguageFlag 只在启动时显式给了 -lang zh/en 时非空：那种情况下
+	// 配置里的选择不会立刻改变界面，界面要把这个事实说出来。
+	Language          string `json:"language"`
+	LanguageEffective string `json:"language_effective"`
+	LanguageFlag      string `json:"language_flag,omitempty"`
 }
 
 // settingsAgentRequest 是 POST /api/settings/agents 的请求体。
@@ -245,13 +252,16 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := settingsResponse{
-		WriteTarget: layers[0].Path,
-		Agents:      []settingsAgentJSON{},
-		Teams:       []settingsTeamJSON{},
-		Providers:   []settingsProviderJSON{},
-		ConfigPath:  s.write.ConfigPath,
-		DataDir:     s.write.DataDir,
-		Reload:      settingsReloadPolicy(),
+		WriteTarget:       layers[0].Path,
+		Agents:            []settingsAgentJSON{},
+		Teams:             []settingsTeamJSON{},
+		Providers:         []settingsProviderJSON{},
+		ConfigPath:        s.write.ConfigPath,
+		DataDir:           s.write.DataDir,
+		Reload:            settingsReloadPolicy(),
+		Language:          config.LanguageAuto,
+		LanguageEffective: string(s.Language()),
+		LanguageFlag:      s.LanguageFlag(),
 	}
 	for _, layer := range layers {
 		exists := false
@@ -272,6 +282,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	cfg := s.currentCfg()
 	if cfg != nil {
 		resp.SummaryAgent = cfg.Summary.Agent
+		resp.Language = config.LanguageValue(cfg.Language)
 		if resp.DataDir == "" {
 			resp.DataDir = cfg.DataDir
 		}
@@ -474,6 +485,73 @@ func (s *Server) handleSettingsAgentSave(w http.ResponseWriter, r *http.Request)
 		resp.Note = settingsRestartNote(reasons)
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// settingsLanguageRequest 是 POST /api/settings/language 的请求体。
+// 只接受 zh / en / auto（config 包的 Validate 兜底，非法值会带着「文件
+// 未改动」的 400 回来）。
+type settingsLanguageRequest struct {
+	Language string `json:"language"`
+}
+
+// handleSettingsLanguageSave 把界面语言写进配置，并立即换掉本次进程的
+// 文案表。language 不是 agent 字段、不进身份指纹，所以它不需要重启，
+// 也不走 A2 的 agent 字段分级表：那张表只比较 agents 段。
+//
+// 写盘仍然走 config.WriteLanguage（= WriteAgentSection 的同一套临时文件 +
+// 合并校验 + 备份 + Rename）：只写 layers[0]，其它段一个字节不动。
+func (s *Server) handleSettingsLanguageSave(w http.ResponseWriter, r *http.Request) {
+	if !s.settingsWriteGate(w, r) {
+		return
+	}
+	var req settingsLanguageRequest
+	if !decodeSettingsBody(w, r, &req) {
+		return
+	}
+	// 空值不会经过下拉到达这里；把它当成「把配置重置成 auto」太隐蔽了，
+	// 明确回 400，让调用方自己写 auto。
+	if strings.TrimSpace(req.Language) == "" {
+		writeError(w, http.StatusBadRequest, "language 不能为空（可选 zh / en / auto）")
+		return
+	}
+	// 与 agent 保存共用一把锁：两次并发写盘不该各自基于一份旧内容算目标。
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	layers, err := s.settingsLayers()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if s.currentCfg() == nil {
+		writeError(w, http.StatusInternalServerError, "写模式没有加载配置，无法保存语言")
+		return
+	}
+
+	res, err := config.WriteLanguage(layers, req.Language)
+	if err != nil {
+		s.writeSettingsError(w, err)
+		return
+	}
+	if !res.Changed {
+		writeJSON(w, http.StatusOK, settingsWriteResponse{
+			BackupPath:  res.BackupPath,
+			WriteTarget: res.WriteTarget,
+			Note:        "语言没有变化：文件未改动，也没有生成备份。",
+		})
+		return
+	}
+
+	// 展示配置换成磁盘上的新内容；Runner 不碰。Language 只影响 /api/i18n，
+	// 换掉 Cfg 只是为了让设置页与下一轮 agent 保存看到同一份事实。
+	s.adoptReloadedConfig(res.Config)
+	// 启动时显式的 -lang 仍然优先：保存配置不能悄悄推翻命令行。
+	s.SetLanguage(s.LanguageFlag(), res.Config.Language)
+	writeJSON(w, http.StatusOK, settingsWriteResponse{
+		BackupPath:  res.BackupPath,
+		WriteTarget: res.WriteTarget,
+		Reloaded:    true,
+		Note:        "语言已保存并立即生效：界面文案已切换，无需重启 council serve",
+	})
 }
 
 // handleSettingsAgentDelete 从写目标里删掉一个 agent 的段。

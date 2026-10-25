@@ -229,10 +229,12 @@ func TestGui7RenameSoftDeletedConversationNotFound(t *testing.T) {
 func TestGui7IndexSummaryReadPermissionAnchors(t *testing.T) {
 	html := string(indexHTML)
 	for _, want := range []string{
-		`const UNRUNNABLE_HINT = '设置页新增，重启 council serve 后可用'`,
+		`function unrunnableHint()`,
+		`t('ui.members.unrunnableHint', '设置页新增，重启 council serve 后可用')`,
 		`agent.permission === SUMMARY_PERMISSION`,
-		`const SUMMARY_NONE_READ = '（没有 read 权限的成员可用）'`,
-		`empty.textContent = SUMMARY_NONE_READ`,
+		`function summaryNoneRead()`,
+		`t('ui.composer.summaryNoRead', '（没有 read 权限的成员可用）')`,
+		`empty.textContent = summaryNoneRead()`,
 		`paramApply.disabled = candidates.length === 0`,
 		`summaryProblemMessage(values.summary)`,
 		`summaryProblemMessage(summary)`,

@@ -24,7 +24,7 @@ func TestSrv11IndexSkillsChipMarkup(t *testing.T) {
 		// 数量为 0 时 chip 不出现：默认 hidden，渲染时按 length 置位。
 		`skillsWrap.hidden = total === 0`,
 		// chip 文案就是「技能 N」，N 来自 /api/options.skills 的长度。
-		`label.textContent = '技能 ' + total`,
+		`t('ui.composer.skillsChip', '技能 {n}', { n: total })`,
 		// 副行是 description，没有就退到 id。
 		`skill.description || skill.id`,
 		// 数据来源只有 /api/options。

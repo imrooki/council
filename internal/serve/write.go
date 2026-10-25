@@ -275,6 +275,7 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 
 	srv := NewServer(st, version, modelsFromConfig(cfg))
 	srv.Verbose = opts.Verbose
+	srv.SetLanguage(opts.Lang, cfg.Language)
 	srv.EnableWrite(WriteDeps{
 		Cfg:                         cfg,
 		Svc:                         svc,

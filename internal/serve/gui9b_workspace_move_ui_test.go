@@ -15,12 +15,13 @@ func TestGui9bIndexWorkspaceMoveMarkup(t *testing.T) {
 		`['up', '↑', 'Alt+↑'],`,
 		`['down', '↓', 'Alt+↓'],`,
 		`move.dataset.workspaceAction = direction;`,
-		`move.title = (direction === 'up' ? '上移' : '下移') + '（' + shortcut + '）';`,
+		`t('ui.sidebar.workspaceMoveUpTitle', '上移（{shortcut}）', { shortcut: shortcut })`,
 		// 端点与 moved:false 语义。
 		`'/api/workspaces/' + encodeURIComponent(group.id) + '/move'`,
 		`direction: direction === 'up' ? 'up' : 'down',`,
 		`if (!moved || moved.moved !== true) {`,
-		`'」已经在最' + (direction === 'up' ? '上' : '下') + '面'`,
+		`t('ui.sidebar.workspaceTop', '「{name}」已经在最上面', { name: group.name })`,
+		`t('ui.sidebar.workspaceBottom', '「{name}」已经在最下面', { name: group.name })`,
 		// 组标题可聚焦 + Alt+方向键。
 		`attachWorkspaceMoveKeys(head, group)`,
 		`head.tabIndex = 0`,

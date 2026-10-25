@@ -8,6 +8,7 @@ func Default() *Config {
 		// StoreThought 的自然零值是 false，与设计默认值相反（见 schema.go 的
 		// 注释），Default() 不经过 Load 的预置逻辑，必须在这里显式写 true。
 		StoreThought: true,
+		Language:     LanguageAuto,
 		Providers: map[string]ProviderConfig{
 			"claude": {Command: "claude"},
 		},
@@ -60,6 +61,10 @@ func DefaultTOML() string {
 #
 # store_thought: 是否把 provider 的 thought/思维链摘要存进消息记录。默认 true。
 # store_thought = true
+#
+# language: 界面语言，zh / en / auto。默认 auto：依次看环境变量 COUNCIL_LANG、
+# 本键、系统区域；都不是英文/中文时回落到中文。
+# language = 'auto'
 #
 # [providers.<id>]: council 去哪找这家工具。id 是 claude、grok、agy、codex 之一，
 # command 写可执行文件的绝对路径，或 PATH 上的名字。

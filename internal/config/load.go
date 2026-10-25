@@ -188,6 +188,13 @@ func tomlTagName(f reflect.StructField) string {
 }
 
 func applyDefaults(cfg *Config) {
+	// 语言是唯一一个「空串 = 跟随系统」的顶层字段。这里只做归一化，
+	// 合法性与取值（zh / en / auto）留给 Validate；非法值不能被默认值
+	// 悄悄吃掉，否则用户写错一个字母会得到一种界面语言却没有任何提示。
+	cfg.Language = strings.ToLower(strings.TrimSpace(cfg.Language))
+	if cfg.Language == "" {
+		cfg.Language = LanguageAuto
+	}
 	for id, agent := range cfg.Agents {
 		if agent.Permissions == "" {
 			agent.Permissions = PermissionRead

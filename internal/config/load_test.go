@@ -74,6 +74,7 @@ func TestLoadValidFile(t *testing.T) {
 		// 这里只是让 TestLoadValidFile 的整体 DeepEqual 不因为漏了这一个
 		// 字段而红。
 		StoreThought: true,
+		Language:     "auto",
 		Providers: map[string]ProviderConfig{
 			"claude": {Command: "claude"},
 			"grok":   {Command: `C:\tools\grok.exe`},

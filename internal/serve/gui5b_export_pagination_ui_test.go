@@ -37,8 +37,8 @@ func TestGui5bIndexExportPaginationMarkup(t *testing.T) {
 		// 导出的入口换成收集器，不再是一页 after=0。
 		`collectExportMessages(encoded),`,
 		// 导出件顶部写「已截断」；界面提示同口径。
-		`'> **已截断**：导出的消息达到 ' + limit +`,
-		`'（消息超过 ' + limit + ' 条上限，已截断）'`,
+		`t('ui.export.truncated'`,
+		`t('ui.export.toastTruncated', '已导出 {label}（消息超过 {limit} 条上限，已截断）'`,
 		// JSON 也带截断标记与上限。
 		`truncated: !!(options && options.truncated),`,
 		`message_limit: Number(page && page.limit) || EXPORT_TOTAL_LIMIT,`,
@@ -48,8 +48,8 @@ func TestGui5bIndexExportPaginationMarkup(t *testing.T) {
 		`data-export="md-dialogue">仅对话（不含系统事件）`,
 		// 仅对话：过滤 kind === "system"，账表照旧；文件名加 -对话。
 		`message.kind !== 'system'`,
-		`'- 范围：仅对话（不含系统事件）'`,
-		`'-对话.' + extension`,
+		`t('ui.export.scope', '- 范围：仅对话（不含系统事件）')`,
+		`t('ui.export.dialogueSuffix', '-对话') + '.' + extension`,
 		`dialogue ? 'dialogue' : ''`,
 		`const dialogueOnly = !!(options && options.dialogue);`,
 		`if (dialogueOnly) {`,
@@ -82,7 +82,7 @@ func TestGui5bIndexExportPaginationMarkup(t *testing.T) {
 		t.Errorf("buildMarkdown 没有按 kind !== 'system' 过滤仅对话消息")
 	}
 	if !strings.Contains(block, "exportAccountRows(entries)") ||
-		!strings.Contains(block, "## 账") {
+		!strings.Contains(block, "t('ui.export.accountHeading', '账')") {
 		t.Errorf("buildMarkdown 的账表不应被仅对话过滤掉")
 	}
 

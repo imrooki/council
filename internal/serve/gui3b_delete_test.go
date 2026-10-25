@@ -339,7 +339,7 @@ func TestGui3bIndexDeleteMarkup(t *testing.T) {
 	html := string(indexHTML)
 	for _, want := range []string{
 		// 菜单项与它调用的入口。
-		`remove.textContent = '删除'`,
+		`remove.textContent = t('ui.conversation.delete', '删除')`,
 		`openDeleteConfirm(conversation, more)`,
 		// 只读模式不画会话菜单（与重命名同一个门）。
 		`if (state.writable) appendConversationMenu(item, conversation)`,

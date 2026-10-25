@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 )
 
 // idPattern 是 provider / agent / team 三张表共用的 id 规则。
@@ -151,6 +152,12 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// 空串按 auto 处理：直接构造的 Config 不会经过 applyDefaults，既有
+	// 调用方（测试与内部装配）看不出这个新字段的存在是合理的。
+	if !validLanguage(c.Language) {
+		add("language", fmt.Sprintf("不支持的语言 %q（可选 zh / en / auto）", c.Language))
+	}
+
 	if c.DataDir != "" && !filepath.IsAbs(c.DataDir) {
 		add("data_dir", fmt.Sprintf("must be an absolute path: %q", c.DataDir))
 	}
@@ -173,6 +180,17 @@ func validPermission(p Permission) bool {
 func validMode(m Mode) bool {
 	switch m {
 	case ModeDiscussion, ModeWorker, ModeDiscussionAndWorker, ModeJudge, ModeManager:
+		return true
+	default:
+		return false
+	}
+}
+
+// validLanguage 接受空串（= auto，见 Validate 的注释）与三个合法取值。
+// 大小写不敏感：手写配置里写 ZH 不该被拒绝，Load 会把它归一成小写。
+func validLanguage(language string) bool {
+	switch strings.ToLower(strings.TrimSpace(language)) {
+	case "", LanguageAuto, LanguageZh, LanguageEn:
 		return true
 	default:
 		return false

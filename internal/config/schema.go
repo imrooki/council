@@ -17,6 +17,14 @@ const (
 	EnvDataDir = "COUNCIL_DATA_DIR"
 )
 
+// 界面语言的合法取值。与 internal/i18n 的语言常量同值，但本包不 import
+// i18n：配置解析层只认识字符串，语言解析属于界面层。
+const (
+	LanguageAuto = "auto"
+	LanguageZh   = "zh"
+	LanguageEn   = "en"
+)
+
 // Permission 是 agent 的权限档。
 type Permission string
 
@@ -61,10 +69,15 @@ type Config struct {
 	//
 	// validate.go 不校验它，与 RulesFile 同待遇：这是一个开关，不是一个
 	// 需要跨引用或格式校验的值。
-	StoreThought bool                      `toml:"store_thought"`
-	Providers    map[string]ProviderConfig `toml:"providers"`
-	Agents       map[string]AgentConfig    `toml:"agents"`
-	Teams        map[string]TeamConfig     `toml:"teams"`
+	StoreThought bool `toml:"store_thought"`
+	// Language 是界面语言：zh / en / auto。默认 auto（跟随系统区域）。
+	// 它不是 agent 字段、不进身份指纹，只影响界面文案；Web 设置页可以在
+	// 运行期改它并立刻生效（见 internal/serve/settings.go 的语言端点）。
+	// 空串按 auto 处理：直接构造的 Config（测试 / 旧调用方）没有这个字段。
+	Language  string                    `toml:"language"`
+	Providers map[string]ProviderConfig `toml:"providers"`
+	Agents    map[string]AgentConfig    `toml:"agents"`
+	Teams     map[string]TeamConfig     `toml:"teams"`
 	// Summary 是 [summary] 表，#45 第二节。
 	// 要写成表而不是顶层键：TOML 的顶层键必须写在所有表之前，
 	// 维护者 要能把这张表追加到文件末尾。

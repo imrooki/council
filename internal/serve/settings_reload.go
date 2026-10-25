@@ -11,7 +11,10 @@ package serve
 //     会话的身份指纹变化。turn 包的
 //     TestPlanRoundModeChangeMovesMemberButNotFingerprint 已经钉住这一点；
 //   - 必须重启：display_name、role、provider、model、effort、prompt、
-//     permissions。前两项看着只是展示，实际会进 turn/render.go 的
+//     permissions。language 不在本表里：它是顶层键、有自己的
+//     /api/settings/language 端点，保存后立即换 /api/i18n 的文案表，
+//     既不进 Runner 配置也不进身份指纹。
+//     前两项看着只是展示，实际会进 turn/render.go 的
 //     renderIdentityCore（"You are <DisplayName> ..." 与 Role 正文），
 //     再进 IdentityFingerprint。Runner 里已经有 in-process provider 会话时，
 //     热换这两项会让下一轮直接撞 ErrIdentityDrift，成员突然不能说话；
@@ -106,7 +109,7 @@ func settingsRestartReasons(runCfg, next *config.Config, id string) []string {
 	}
 
 	if !reflect.DeepEqual(configWithoutAgents(runCfg), configWithoutAgents(next)) {
-		reasons = append(reasons, "配置的其它部分（providers / teams / summary / data_dir）变了")
+		reasons = append(reasons, "配置的其它部分（providers / teams / summary / data_dir / language）变了")
 	}
 
 	// id 集合取并集并排序，让同一份差异每次得到同样顺序的原因列表。

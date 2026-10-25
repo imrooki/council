@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"council/internal/conversation"
+	"council/internal/i18n"
 	"council/internal/provider"
 	"council/internal/store"
 )
@@ -85,6 +86,13 @@ type Server struct {
 	// 不加它时 HTTP Shutdown 只等连接，没 SSE 读者的 job 会继续用已经
 	// 被 st.Close() 关掉的 Service/Runner，那一轮就静默丢了。
 	jobsWG sync.WaitGroup
+
+	// lang / langFlag 是看板界面语言与启动时的显式 -lang。启动后由
+	// serve.Run 的 SetLanguage 填；设置页保存 language 成功时会再解析一次。
+	// 它们只影响 /api/i18n 与设置页文案，不进 Runner 配置与身份指纹。
+	langMu   sync.RWMutex
+	lang     i18n.Lang
+	langFlag string
 }
 
 // NewServer 构造看板 handler。models 会被复制一份，调用方之后改自己的 map
@@ -94,7 +102,15 @@ func NewServer(st *store.Store, version string, models map[string]string) *Serve
 	for id, model := range models {
 		copied[id] = model
 	}
-	return &Server{store: st, version: version, models: copied}
+	return &Server{
+		store:   st,
+		version: version,
+		models:  copied,
+		// 生产路径紧接着会调用 SetLanguage（serve.Run 拿到了配置里的
+		// language）。直接构造 Server 的测试与未来别的调用方得到一个
+		// 确定的默认值，而不是随开发机环境变量漂移。
+		lang: i18n.Default,
+	}
 }
 
 // Handler 返回完整的 HTTP 路由。
@@ -105,6 +121,8 @@ func NewServer(st *store.Store, version string, models map[string]string) *Serve
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.handleHealth)
+	// 界面文案表：只读模式也必须有，因为语言是界面层的事实，不依赖 -rw。
+	mux.HandleFunc("/api/i18n", s.handleI18n)
 	mux.HandleFunc("/api/conversations", s.handleConversations)
 	mux.HandleFunc("/api/conversations/", s.handleConversationPath)
 	// 写模式的入口在只读模式下也登记：任务书要求非 -rw 时它们回 405 并说明
@@ -125,6 +143,8 @@ func (s *Server) Handler() http.Handler {
 	// 门：只读模式下都由 handler 里的 s.write == nil 回 405，路由本身
 	// 不按模式分叉。
 	mux.HandleFunc("/api/settings", s.handleSettings)
+	// 语言是顶层键、不进身份指纹：它有自己的写端点，保存后立即生效。
+	mux.HandleFunc("/api/settings/language", s.handleSettingsLanguageSave)
 	mux.HandleFunc("/api/settings/agents", s.handleSettingsAgentSave)
 	mux.HandleFunc("/api/settings/agents/", s.handleSettingsAgentPath)
 	// 工作区（纯分组，GUI 第 9 片）：/api/workspaces 是 GET 列表 + POST 新建，

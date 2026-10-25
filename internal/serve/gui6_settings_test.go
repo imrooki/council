@@ -885,11 +885,11 @@ func TestGui6IndexSettingsMarkup(t *testing.T) {
 		`'/api/settings/agents/' + encodeURIComponent(preview.id) + '/delete'`,
 		`await postJSON(url, isDelete ? {} : preview.payload)`,
 		// 预览文案：目标路径、写前备份、字段新旧对比。
-		`'将写入 ' + target + ' 的 [agents.' + preview.id + '] 段`,
-		`'写入前会先把原文备份成 <配置文件名>.bak-<YYYYMMDD-HHmmss>`,
+		`t('ui.settings.previewWriteTarget',`,
+		`t('ui.settings.previewBackup'`,
 		`change.old !== change.new`,
 		// 成功提示：备份路径 + 服务端 note（含「重启后生效」）。
-		`'备份：' + result.backup_path`,
+		`t('ui.settings.saveBackup', '备份：{path}', { path: result.backup_path })`,
 		`lines.push(result.note)`,
 		// 只读模式隐藏入口；claude 来源的成员只读。
 		`openSettingsButton.hidden = !state.writable`,

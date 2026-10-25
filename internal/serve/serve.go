@@ -43,7 +43,11 @@ type Options struct {
 	// 默认 false，行为与原来逐字节一致。
 	App        bool
 	ConfigPath string
-	Verbose    bool
+	// Lang 是 -lang 的原值：zh / en / auto。只交给 i18n.Resolve，解析时
+	// 还要与环境变量、配置里的 language 排优先级，所以这里保留字符串，
+	// 不在 Parse 阶段就定成具体语言。
+	Lang    string
+	Verbose bool
 	// RW 为 true 时走写模式：store.Open 拿 council.lock、跑迁移，并注册
 	// POST /api/ask 与任务 SSE。默认 false，行为与 SRV1 的只读看板逐字节一致。
 	RW bool
@@ -87,6 +91,8 @@ func newFlagSet(opts *Options) *flag.FlagSet {
 		"用 Edge/Chrome 的应用窗口打开看板，没有地址栏与标签页（仅 Windows；找不到浏览器或启动失败时退回 -open 的行为）")
 	fs.StringVar(&opts.ConfigPath, "config", "",
 		"配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml")
+	fs.StringVar(&opts.Lang, "lang", "auto",
+		"界面语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）")
 	fs.BoolVar(&opts.Verbose, "verbose", false,
 		"每个请求打一行到 stderr")
 	fs.BoolVar(&opts.RW, "rw", false,
@@ -178,10 +184,11 @@ func Run(ctx context.Context, opts Options, version string) error {
 		return runWritable(ctx, opts, version, out, errOut)
 	}
 
-	dataDir, models, notices, err := resolveDataDir(opts.ConfigPath)
+	resolved, err := resolveDataDirFull(opts.ConfigPath)
 	if err != nil {
 		return err
 	}
+	dataDir, models, notices := resolved.dataDir, resolved.models, resolved.notices
 	// 合并提示只在详细档打印。只读模式同样可能读到「项目层写了 data_dir
 	// 被忽略」，不说出来用户会以为看板打开了项目指定的库。
 	if opts.Verbose {
@@ -200,6 +207,7 @@ func Run(ctx context.Context, opts Options, version string) error {
 
 	srv := NewServer(st, version, models)
 	srv.Verbose = opts.Verbose
+	srv.SetLanguage(opts.Lang, resolved.language)
 
 	return listenAndServe(ctx, opts.Addr, srv.Handler(),
 		browserOptions{App: opts.App, Open: opts.Open, DataDir: dataDir},
@@ -227,6 +235,11 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, brow
 
 	url := listenURL(ln.Addr())
 	fmt.Fprintf(out, "council serve: %s\n", url)
+	// -app 的 profile 只增不减，启动时顺手清一次（B5）。放在打开窗口之前：
+	// 清理与浏览器往 profile 里写新文件不会互相干扰。两种模式都走这一个
+	// 调用点，不存在「只读清了、-rw 忘了清」的分叉。目录不存在时它什么都不做，
+	// -app 之外因此没有可观察的副作用。
+	cleanUIOProfileAtStartup(browse.DataDir, errOut)
 	// 放在监听成功之后：端口都占不上时，没有任何理由先去碰浏览器。
 	openDashboard(url, browse, errOut)
 
@@ -294,40 +307,64 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, brow
 // notices 与 app.Run / serve -rw 同源，只给 Verbose 档；只读模式不打印它们
 // 也不会少读一份配置，打印出来只是让人知道项目里那个 data_dir 为什么没生效。
 func resolveDataDir(configPath string) (string, map[string]string, []string, error) {
+	resolved, err := resolveDataDirFull(configPath)
+	return resolved.dataDir, resolved.models, resolved.notices, err
+}
+
+// resolvedServeConfig 是只读看板启动时从配置里取出的全部事实。language 是
+// 配置里的原值（zh / en / auto / 空串），最终语言由 Server.SetLanguage
+// 交给 i18n.Resolve 求，不在这一层猜。
+type resolvedServeConfig struct {
+	dataDir  string
+	models   map[string]string
+	notices  []string
+	language string
+}
+
+// resolveDataDirFull 是 resolveDataDir 的实现。保留 resolveDataDir 那个
+// 四返回值签名，是为了不动既有测试与调用方；新代码用这个结构体版本，
+// 多一个 language 字段不必把参数列表继续拉长。
+func resolveDataDirFull(configPath string) (resolvedServeConfig, error) {
 	layers, err := config.ResolveConfigLayers(configPath)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("无法确定配置文件位置: %w", err)
+		return resolvedServeConfig{}, fmt.Errorf("无法确定配置文件位置: %w", err)
 	}
 	// ResolveConfigLayers 保证至少一条（一份都不存在时是全局位置的占位层）。
 	primary := layers[0].Path
 
 	if _, statErr := os.Stat(primary); statErr != nil {
 		if !errors.Is(statErr, fs.ErrNotExist) {
-			return "", nil, nil, fmt.Errorf("查看配置文件 %s: %w", primary, statErr)
+			return resolvedServeConfig{}, fmt.Errorf("查看配置文件 %s: %w", primary, statErr)
 		}
 		if configPath != "" || os.Getenv(config.EnvConfigPath) != "" {
-			return "", nil, nil, fmt.Errorf("配置文件不存在: %s", primary)
+			return resolvedServeConfig{}, fmt.Errorf("配置文件不存在: %s", primary)
 		}
 		dataDir, err := config.ResolveDataDir("")
 		if err != nil {
-			return "", nil, nil, fmt.Errorf("解析数据目录失败: %w", err)
+			return resolvedServeConfig{}, fmt.Errorf("解析数据目录失败: %w", err)
 		}
-		return dataDir, nil, nil, nil
+		// 一份配置都没有：没有 language 可读，Resolve 会看环境变量与系统区域。
+		return resolvedServeConfig{dataDir: dataDir}, nil
 	}
 
 	merged, err := config.LoadMerged(layers)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("加载配置失败 (%s): %w", primary, err)
+		return resolvedServeConfig{}, fmt.Errorf("加载配置失败 (%s): %w", primary, err)
 	}
 	dataDir, err := config.ResolveDataDir(merged.Config.DataDir)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("解析数据目录失败: %w", err)
+		return resolvedServeConfig{}, fmt.Errorf("解析数据目录失败: %w", err)
 	}
 	models := make(map[string]string, len(merged.Config.Agents))
 	for id, ac := range merged.Config.Agents {
 		models[id] = ac.Model
 	}
-	return dataDir, models, merged.Notices, nil
+	return resolvedServeConfig{
+		dataDir:  dataDir,
+		models:   models,
+		notices:  merged.Notices,
+		language: merged.Config.Language,
+	}, nil
 }
 
 // listenURL 把监听器的实际地址拼成浏览器能打开的 URL。

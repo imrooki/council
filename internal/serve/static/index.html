@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -1596,6 +1596,23 @@
   }
   .settings-row-label.mono { font-size: 14px; }
   .settings-row-value.is-warn { color: var(--warn); }
+  /* 语言选择：与其它设置行右对齐，宽度只够放下「跟随系统 / 中文 / English」。 */
+  .settings-select {
+    flex: none;
+    min-width: 148px;
+    padding: 7px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12.5px;
+  }
+  .settings-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
   .settings-layer .layer-tag { color: var(--ink); font-size: 14px; line-height: 20px; }
   .settings-layer .layer-path {
     color: var(--muted-2);
@@ -1836,25 +1853,25 @@
 <div id="schema-lag" class="schema-lag" role="status" hidden>
   <span id="schema-lag-text"></span>
   <button id="schema-lag-close" class="schema-lag-close" type="button"
-          title="关闭这条提示" aria-label="关闭这条提示">×</button>
+          title="关闭这条提示" aria-label="关闭这条提示" data-i18n-title="ui.schema.close" data-i18n-aria-label="ui.schema.close">×</button>
 </div>
 <div id="app">
   <header class="topbar">
-    <button id="toggle-sidebar" type="button" title="收起/展开会话列表" aria-label="收起或展开会话列表">
+    <button id="toggle-sidebar" type="button" title="收起/展开会话列表" aria-label="收起或展开会话列表" data-i18n-title="ui.topbar.collapseSidebar" data-i18n-aria-label="ui.topbar.collapseSidebarAria">
       <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
         <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/>
         <path d="M5.5 2.5v11" fill="none" stroke="currentColor" stroke-width="1.4"/>
       </svg>
     </button>
-    <div class="brand">Council <small>只读看板</small></div>
+    <div class="brand">Council <small data-i18n="ui.app.readonlyDashboard">只读看板</small></div>
     <div id="status" class="status" hidden></div>
-    <button id="toggle-inspector" type="button" title="收起/展开「成员与费用」" aria-label="收起或展开成员与费用">
+    <button id="toggle-inspector" type="button" title="收起/展开「成员与费用」" aria-label="收起或展开成员与费用" data-i18n-title="ui.topbar.collapseInspector" data-i18n-aria-label="ui.topbar.collapseInspectorAria">
       <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
         <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/>
         <path d="M10.5 2.5v11" fill="none" stroke="currentColor" stroke-width="1.4"/>
       </svg>
     </button>
-    <button id="toggle-cost" type="button" title="显示/隐藏花费" aria-label="显示或隐藏花费">
+    <button id="toggle-cost" type="button" title="显示/隐藏花费" aria-label="显示或隐藏花费" data-i18n-title="ui.topbar.toggleCost" data-i18n-aria-label="ui.topbar.toggleCostAria">
       <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
         <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4"/>
         <path d="M9.6 5.9c-.4-.6-1-1-1.9-1-1.1 0-1.7.5-1.7 1.2 0 .8.7 1.1 1.8 1.4 1.3.3 2.1.7 2.1 1.7 0 .9-.8 1.5-2.1 1.5-.9 0-1.6-.3-2-1" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
@@ -1867,27 +1884,27 @@
     <!-- 设置入口（右上角）。只读模式隐藏：设置接口只在 -rw 下可用，
          画一个点了只会报错的按钮没有意义。 -->
     <button id="open-settings" class="settings-button" type="button"
-            title="查看合并后的配置，编辑 agents（需要 council serve -rw）"
+            title="查看合并后的配置，编辑 agents（需要 council serve -rw）" data-i18n-title="ui.topbar.settingsTitle"
             aria-haspopup="dialog" aria-expanded="false" hidden>
       <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
         <circle cx="8" cy="8" r="2.4" fill="none" stroke="currentColor" stroke-width="1.4"/>
         <path d="M8 1.6v1.5M8 12.9v1.5M1.6 8h1.5M12.9 8h1.5M3.5 3.5l1 1M11.5 11.5l1 1M12.5 3.5l-1 1M4.5 11.5l-1 1"
               fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
       </svg>
-      <span>设置</span>
+      <span data-i18n="ui.topbar.settings">设置</span>
     </button>
   </header>
   <main class="workspace">
     <aside class="sidebar">
       <button id="sidebar-resizer" class="resizer resizer-right" type="button"
-              role="separator" aria-orientation="vertical" aria-label="调整会话列表宽度" tabindex="0"></button>
+              role="separator" aria-orientation="vertical" aria-label="调整会话列表宽度" data-i18n-aria-label="ui.sidebar.resizeAria" tabindex="0"></button>
       <div class="side-head">
-        <h2>会话</h2>
+        <h2 data-i18n="ui.sidebar.conversations">会话</h2>
         <button id="toggle-archived" type="button" aria-pressed="false"
-                title="只看已归档的会话；正在看的会话与消息不会被清空">
-          已归档 <span id="archived-count">0</span>
+                title="只看已归档的会话；正在看的会话与消息不会被清空" data-i18n-title="ui.sidebar.archivedTitle">
+          <span data-i18n="ui.sidebar.archived">已归档</span> <span id="archived-count">0</span>
         </button>
-        <button id="refresh-conversations" type="button" title="重新读一次会话列表" aria-label="刷新会话列表">
+        <button id="refresh-conversations" type="button" title="重新读一次会话列表" aria-label="刷新会话列表" data-i18n-title="ui.sidebar.refresh" data-i18n-aria-label="ui.sidebar.refreshAria">
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <path d="M12.6 6.2A5 5 0 1 0 13 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             <path d="M13.4 3.3v3.1H10.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1896,30 +1913,31 @@
       </div>
       <div class="side-search">
         <input id="conversation-search" type="search" autocomplete="off" spellcheck="false"
-               placeholder="搜索标题" aria-label="按标题搜索会话">
+               placeholder="搜索标题" aria-label="按标题搜索会话" data-i18n-placeholder="ui.sidebar.searchPlaceholder" data-i18n-aria-label="ui.sidebar.searchAria">
         <span id="conversation-count" class="side-count" aria-live="polite" hidden></span>
       </div>
       <div class="side-scroll">
         <ul id="conversation-list"></ul>
         <div id="workspace-create" class="workspace-create" hidden></div>
-        <p id="conversations-empty" class="empty" hidden>还没有会话，先在终端里跑一次 council</p>
+        <p id="conversations-empty" class="empty" hidden data-i18n="ui.sidebar.emptyReadonly">还没有会话，先在终端里跑一次 council</p>
       </div>
     </aside>
 
     <section class="conversation">
       <div class="conv-head">
-        <h2 id="messages-title">消息</h2><span id="messages-meta" class="conv-meta"></span>
+        <h2 id="messages-title" data-i18n="ui.messages.title">消息</h2><span id="messages-meta" class="conv-meta"></span>
         <div class="chip-wrap export-wrap">
           <button id="export-button" class="export-button" type="button" aria-haspopup="menu"
-                  aria-expanded="false" title="把当前会话导出成本地文件（读操作，只读模式也能用）" hidden>导出
+                  aria-expanded="false" title="把当前会话导出成本地文件（读操作，只读模式也能用）" data-i18n-title="ui.messages.exportTitle"
+                  data-i18n="ui.messages.export" data-i18n-fallback="导出" hidden><span data-i18n="ui.messages.export">导出</span>
             <span class="chip-caret" aria-hidden="true">▾</span></button>
-          <div id="export-menu" class="popover export-menu" role="menu" aria-label="导出" hidden>
-            <button class="menu-item" type="button" role="menuitem" data-export="md">Markdown（含系统事件）
+          <div id="export-menu" class="popover export-menu" role="menu" aria-label="导出" data-i18n-aria-label="ui.messages.exportMenuAria" hidden>
+            <button class="menu-item" type="button" role="menuitem" data-i18n="ui.messages.exportMarkdown" data-i18n-fallback="Markdown（含系统事件）" data-export="md">Markdown（含系统事件）
               <span class="menu-hint">.md</span></button>
-            <button class="menu-item" type="button" role="menuitem" data-export="json">JSON
+            <button class="menu-item" type="button" role="menuitem" data-i18n="ui.messages.exportJson" data-i18n-fallback="JSON" data-export="json">JSON
               <span class="menu-hint">.json</span></button>
-            <button class="menu-item" type="button" role="menuitem" data-export="md-dialogue">仅对话（不含系统事件）
-              <span class="menu-hint">-对话.md</span></button>
+            <button class="menu-item" type="button" role="menuitem" data-i18n="ui.messages.exportDialogue" data-i18n-fallback="仅对话（不含系统事件）" data-export="md-dialogue">仅对话（不含系统事件）
+              <span class="menu-hint" data-i18n="ui.messages.exportDialogueHint">-对话.md</span></button>
           </div>
         </div>
       </div>
@@ -1931,30 +1949,31 @@
 
     <aside class="inspector">
       <button id="inspector-resizer" class="resizer resizer-left" type="button"
-              role="separator" aria-orientation="vertical" aria-label="调整成员与费用宽度" tabindex="0"></button>
+              role="separator" aria-orientation="vertical" aria-label="调整成员与费用宽度" data-i18n-aria-label="ui.members.resizeAria" tabindex="0"></button>
       <div class="side-head">
-        <h2>成员与费用</h2>
+        <h2 data-i18n="ui.members.title">成员与费用</h2>
         <div class="chip-wrap member-add-wrap">
           <button id="member-add" class="member-add" type="button" aria-haspopup="menu"
-                  aria-expanded="false" title="给当前会话添加成员" hidden>+ 添加成员</button>
-          <div id="member-add-menu" class="popover member-add-menu" role="menu" aria-label="添加成员" hidden></div>
+                  aria-expanded="false" title="给当前会话添加成员" data-i18n-title="ui.members.addTitle"
+                  data-i18n="ui.members.add" data-i18n-fallback="+ 添加成员" hidden>+ 添加成员</button>
+          <div id="member-add-menu" class="popover member-add-menu" role="menu" aria-label="添加成员" data-i18n-aria-label="ui.members.addMenuAria" hidden></div>
         </div>
       </div>
       <div class="side-scroll">
         <table id="members-table">
           <thead>
             <tr>
-              <th>成员</th>
-              <th>轮</th>
+              <th data-i18n="ui.members.colMember">成员</th>
+              <th data-i18n="ui.members.colTurns">轮</th>
               <th>IN</th>
               <th>OUT</th>
-              <th>金额</th>
-              <th id="members-actions-head" class="member-actions" aria-label="操作" hidden></th>
+              <th data-i18n="ui.members.colCost">金额</th>
+              <th id="members-actions-head" class="member-actions" aria-label="操作" data-i18n-aria-label="ui.members.actionsAria" hidden></th>
             </tr>
           </thead>
           <tbody id="members-body"></tbody>
         </table>
-        <p id="members-empty" class="empty" hidden>这个会话还没有成员</p>
+        <p id="members-empty" class="empty" hidden data-i18n="ui.members.empty">这个会话还没有成员</p>
       </div>
     </aside>
   </main>
@@ -1963,83 +1982,83 @@
     <div id="ask-progress" class="ask-progress" hidden></div>
     <div class="ask-error" id="ask-error" hidden></div>
     <div class="composer">
-      <div id="composer-bar" class="composer-bar" role="toolbar" aria-label="工作台工具">
+      <div id="composer-bar" class="composer-bar" role="toolbar" aria-label="工作台工具" data-i18n-aria-label="ui.composer.workspaceToolbar">
         <div class="chip-wrap">
-          <button id="cwd-chip" class="chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="工作目录"></button>
+          <button id="cwd-chip" class="chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="工作目录" data-i18n-title="ui.composer.cwd"></button>
         </div>
         <div class="chip-wrap">
           <button id="permission-chip" class="chip" type="button" aria-haspopup="menu" aria-expanded="false"></button>
-          <div id="permission-menu" class="popover" role="menu" aria-label="权限" hidden>
-            <button class="menu-item" type="button" role="menuitemradio" data-permission="read">只读</button>
-            <button class="menu-item" type="button" role="menuitemradio" data-permission="workspace">工作区可写</button>
-            <button class="menu-item" type="button" role="menuitemradio" data-permission="full">完全权限</button>
-            <div class="menu-note">成员不受工作目录限制，可读写本机任意路径。选中前会再确认一次。</div>
+          <div id="permission-menu" class="popover" role="menu" aria-label="权限" data-i18n-aria-label="ui.composer.permissionAria" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-permission="read" data-i18n="ui.composer.permissionRead">只读</button>
+            <button class="menu-item" type="button" role="menuitemradio" data-permission="workspace" data-i18n="ui.composer.permissionWorkspace">工作区可写</button>
+            <button class="menu-item" type="button" role="menuitemradio" data-permission="full" data-i18n="ui.composer.permissionFull">完全权限</button>
+            <div class="menu-note" data-i18n="ui.composer.permissionNote">成员不受工作目录限制，可读写本机任意路径。选中前会再确认一次。</div>
             <label class="menu-check" for="copy-check">
               <input id="copy-check" type="checkbox" checked>
-              <span>改文件时用副本（不碰原目录）</span>
+              <span data-i18n="ui.composer.copyCheck">改文件时用副本（不碰原目录）</span>
             </label>
           </div>
         </div>
         <div class="chip-wrap">
-          <button id="param-chip" class="chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="本轮参数：轮数、汇总成员与预算">
+          <button id="param-chip" class="chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="本轮参数：轮数、汇总成员与预算" data-i18n-title="ui.composer.paramsTitle">
             <span class="chip-icon" aria-hidden="true">⚙</span>
-            <span class="chip-text">1 轮 · 默认汇总 · $5</span>
+            <span class="chip-text" data-i18n="ui.composer.paramChipPlaceholder">1 轮 · 默认汇总 · $5</span>
             <span class="chip-caret" aria-hidden="true">▾</span>
           </button>
-          <div id="param-popover" class="popover param-popover" role="dialog" aria-label="参数" hidden>
-            <div class="popover-title">本轮参数</div>
+          <div id="param-popover" class="popover param-popover" role="dialog" aria-label="参数" data-i18n-aria-label="ui.composer.paramsAria" hidden>
+            <div class="popover-title" data-i18n="ui.composer.paramsHeader">本轮参数</div>
             <div class="popover-field">
-              <label for="param-rounds">轮数（1–5；大于 1 时按 round 模式跑）</label>
+              <label for="param-rounds" data-i18n="ui.composer.roundsLabel">轮数（1–5；大于 1 时按 round 模式跑）</label>
               <select id="param-rounds">
-                <option value="1">1 轮</option>
-                <option value="2">2 轮</option>
-                <option value="3">3 轮</option>
-                <option value="4">4 轮</option>
-                <option value="5">5 轮</option>
+                <option value="1" data-i18n="ui.composer.round1">1 轮</option>
+                <option value="2" data-i18n="ui.composer.round2">2 轮</option>
+                <option value="3" data-i18n="ui.composer.round3">3 轮</option>
+                <option value="4" data-i18n="ui.composer.round4">4 轮</option>
+                <option value="5" data-i18n="ui.composer.round5">5 轮</option>
               </select>
             </div>
             <div class="popover-field">
-              <label for="param-summary">汇总成员</label>
+              <label for="param-summary" data-i18n="ui.composer.summaryLabel">汇总成员</label>
               <select id="param-summary"></select>
             </div>
             <div class="popover-field">
-              <label for="param-budget">预算上限（USD，最低 0.5）</label>
+              <label for="param-budget" data-i18n="ui.composer.budgetLabel">预算上限（USD，最低 0.5）</label>
               <input id="param-budget" type="number" min="0.5" step="0.01" value="5" autocomplete="off" spellcheck="false">
             </div>
             <div id="param-error" class="param-error" hidden></div>
             <div class="popover-actions">
-              <button id="param-apply" class="btn-small primary" type="button">应用</button>
+              <button id="param-apply" class="btn-small primary" type="button" data-i18n="ui.composer.apply">应用</button>
             </div>
           </div>
         </div>
-        <div id="member-chips" class="chip-list" aria-label="已选成员"></div>
+        <div id="member-chips" class="chip-list" aria-label="已选成员" data-i18n-aria-label="ui.composer.selectedMembersAria"></div>
         <div class="chip-wrap">
-          <button id="add-button" class="chip add" type="button" aria-haspopup="menu" aria-expanded="false" title="添加" aria-label="添加">+</button>
-          <div id="add-menu" class="popover" role="menu" aria-label="添加" hidden>
-            <button class="menu-item" type="button" data-action="members">成员</button>
-            <button class="menu-item" type="button" data-action="cwd">工作目录</button>
-            <button class="menu-item" type="button" data-action="context">文件或目录引用</button>
-            <button class="menu-item" type="button" data-action="presets">预设</button>
+          <button id="add-button" class="chip add" type="button" aria-haspopup="menu" aria-expanded="false" title="添加" aria-label="添加" data-i18n-title="ui.composer.add" data-i18n-aria-label="ui.composer.add">+</button>
+          <div id="add-menu" class="popover" role="menu" aria-label="添加" data-i18n-aria-label="ui.composer.add" hidden>
+            <button class="menu-item" type="button" data-action="members" data-i18n="ui.composer.menuMembers">成员</button>
+            <button class="menu-item" type="button" data-action="cwd" data-i18n="ui.composer.menuCwd">工作目录</button>
+            <button class="menu-item" type="button" data-action="context" data-i18n="ui.composer.menuContext">文件或目录引用</button>
+            <button class="menu-item" type="button" data-action="presets" data-i18n="ui.composer.menuPresets">预设</button>
           </div>
-          <div id="members-popover" class="popover" role="menu" aria-label="成员" hidden></div>
-          <div id="context-popover" class="popover" role="dialog" aria-label="文件或目录引用" hidden>
-            <div class="popover-title">文件或目录引用</div>
+          <div id="members-popover" class="popover" role="menu" aria-label="成员" data-i18n-aria-label="ui.members.pickerTitle" hidden></div>
+          <div id="context-popover" class="popover" role="dialog" aria-label="文件或目录引用" data-i18n-aria-label="ui.composer.contextTitle" hidden>
+            <div class="popover-title" data-i18n="ui.composer.contextTitle">文件或目录引用</div>
             <div class="popover-field">
-              <label for="context-input">绝对路径，回车加入</label>
+              <label for="context-input" data-i18n="ui.composer.contextLabel">绝对路径，回车加入</label>
               <input id="context-input" type="text" autocomplete="off" spellcheck="false" placeholder="D:\repo\main.go">
               <div class="popover-actions">
-                <button id="context-add" class="btn-small primary" type="button">加入</button>
+                <button id="context-add" class="btn-small primary" type="button" data-i18n="ui.composer.contextAdd">加入</button>
               </div>
             </div>
             <div id="context-count" class="menu-empty"></div>
           </div>
-          <div id="preset-popover" class="popover" role="dialog" aria-label="预设" hidden>
-            <div class="popover-title">预设</div>
+          <div id="preset-popover" class="popover" role="dialog" aria-label="预设" data-i18n-aria-label="ui.composer.presetTitle" hidden>
+            <div class="popover-title" data-i18n="ui.composer.presetTitle">预设</div>
             <div class="popover-field">
-              <label for="preset-name">把当前成员、目录、权限存成一个名字</label>
+              <label for="preset-name" data-i18n="ui.composer.presetLabel">把当前成员、目录、权限存成一个名字</label>
               <input id="preset-name" type="text" autocomplete="off" maxlength="60">
               <div class="popover-actions">
-                <button id="preset-save" class="btn-small primary" type="button">保存预设</button>
+                <button id="preset-save" class="btn-small primary" type="button" data-i18n="ui.composer.presetSave">保存预设</button>
               </div>
             </div>
             <div class="popover-divider"></div>
@@ -2048,26 +2067,26 @@
         </div>
         <div id="skills-wrap" class="chip-wrap skills-wrap" hidden>
           <button id="skills-chip" class="chip" type="button" aria-haspopup="dialog" aria-expanded="false"></button>
-          <div id="skills-popover" class="popover skills-popover" role="dialog" aria-label="技能" hidden>
-            <div class="popover-title">技能</div>
+          <div id="skills-popover" class="popover skills-popover" role="dialog" aria-label="技能" data-i18n-aria-label="ui.composer.skills" hidden>
+            <div class="popover-title" data-i18n="ui.composer.skills">技能</div>
             <div id="skills-list"></div>
             <div class="popover-divider"></div>
-            <div class="skills-readonly">只读：Council 不执行 skill</div>
+            <div class="skills-readonly" data-i18n="ui.composer.skillsReadonly">只读：Council 不执行 skill</div>
           </div>
         </div>
         <div id="composer-hint" class="composer-hint" hidden></div>
       </div>
       <div id="context-row" class="context-row" hidden>
-        <span>引用</span>
+        <span data-i18n="ui.composer.contextRow">引用</span>
         <div id="context-tags" class="chip-list"></div>
       </div>
       <div id="ask-target" class="ask-target">
-        <span id="ask-target-text" class="ask-target-text">新建会话</span>
-        <button id="ask-target-new" class="ask-target-new" type="button" hidden>改为新建</button>
+        <span id="ask-target-text" class="ask-target-text" data-i18n="ui.composer.newConversation">新建会话</span>
+        <button id="ask-target-new" class="ask-target-new" type="button" hidden data-i18n="ui.composer.switchNew">改为新建</button>
       </div>
       <div class="ask-row">
-        <textarea id="ask-prompt" rows="2" placeholder="问这一次议会一个问题…"></textarea>
-        <button id="ask-run" type="button" disabled>跑一轮</button>
+        <textarea id="ask-prompt" rows="2" placeholder="问这一次议会一个问题…" data-i18n-placeholder="ui.composer.promptPlaceholder"></textarea>
+        <button id="ask-run" type="button" disabled data-i18n="ui.composer.run">跑一轮</button>
       </div>
     </div>
   </section>
@@ -2077,12 +2096,12 @@
   <div id="delete-confirm" class="confirm-overlay" role="dialog" aria-modal="true"
        aria-labelledby="delete-confirm-title" aria-describedby="delete-confirm-text" hidden>
     <div class="confirm-card">
-      <h2 id="delete-confirm-title">删除会话</h2>
+      <h2 id="delete-confirm-title" data-i18n="ui.conversation.deleteTitle">删除会话</h2>
       <p id="delete-confirm-text" class="confirm-text"></p>
       <p id="delete-confirm-error" class="confirm-error" hidden></p>
       <div class="confirm-actions">
-        <button id="delete-cancel" class="btn-small" type="button">取消</button>
-        <button id="delete-confirm-button" class="btn-small danger" type="button">删除</button>
+        <button id="delete-cancel" class="btn-small" type="button" data-i18n="ui.common.cancel">取消</button>
+        <button id="delete-confirm-button" class="btn-small danger" type="button" data-i18n="ui.common.delete">删除</button>
       </div>
     </div>
   </div>
@@ -2091,12 +2110,12 @@
   <div id="workspace-delete-confirm" class="confirm-overlay" role="dialog" aria-modal="true"
        aria-labelledby="workspace-delete-title" aria-describedby="workspace-delete-text" hidden>
     <div class="confirm-card">
-      <h2 id="workspace-delete-title">删除工作区</h2>
+      <h2 id="workspace-delete-title" data-i18n="ui.sidebar.workspaceDeleteTitle">删除工作区</h2>
       <p id="workspace-delete-text" class="confirm-text"></p>
       <p id="workspace-delete-error" class="confirm-error" hidden></p>
       <div class="confirm-actions">
-        <button id="workspace-delete-cancel" class="btn-small" type="button">取消</button>
-        <button id="workspace-delete-confirm-button" class="btn-small danger" type="button">删除</button>
+        <button id="workspace-delete-cancel" class="btn-small" type="button" data-i18n="ui.common.cancel">取消</button>
+        <button id="workspace-delete-confirm-button" class="btn-small danger" type="button" data-i18n="ui.common.delete">删除</button>
       </div>
     </div>
   </div>
@@ -2105,12 +2124,12 @@
   <div id="member-remove-confirm" class="confirm-overlay" role="dialog" aria-modal="true"
        aria-labelledby="member-remove-title" aria-describedby="member-remove-text" hidden>
     <div class="confirm-card">
-      <h2 id="member-remove-title">移除成员</h2>
+      <h2 id="member-remove-title" data-i18n="ui.members.removeConfirmTitle">移除成员</h2>
       <p id="member-remove-text" class="confirm-text"></p>
       <p id="member-remove-error" class="confirm-error" hidden></p>
       <div class="confirm-actions">
-        <button id="member-remove-cancel" class="btn-small" type="button">取消</button>
-        <button id="member-remove-confirm-button" class="btn-small danger" type="button">移除</button>
+        <button id="member-remove-cancel" class="btn-small" type="button" data-i18n="ui.common.cancel">取消</button>
+        <button id="member-remove-confirm-button" class="btn-small danger" type="button" data-i18n="ui.common.remove">移除</button>
       </div>
     </div>
   </div>
@@ -2120,22 +2139,22 @@
   <div id="cwd-modal" class="confirm-overlay" role="dialog" aria-modal="true"
        aria-labelledby="cwd-modal-title" hidden>
     <div class="confirm-card cwd-card">
-      <h2 id="cwd-modal-title">选择工作目录</h2>
+      <h2 id="cwd-modal-title" data-i18n="ui.composer.cwdPickerTitle">选择工作目录</h2>
       <div class="cwd-bar">
-        <button id="cwd-up" class="cwd-up" type="button" title="上一级" aria-label="上一级">↑</button>
+        <button id="cwd-up" class="cwd-up" type="button" title="上一级" aria-label="上一级" data-i18n-title="ui.composer.cwdUp" data-i18n-aria-label="ui.composer.cwdUp">↑</button>
         <span id="cwd-browse-path" class="cwd-path"></span>
       </div>
       <div id="cwd-roots" class="cwd-roots" hidden></div>
-      <div id="cwd-list" class="cwd-list" role="listbox" aria-label="子目录"></div>
+      <div id="cwd-list" class="cwd-list" role="listbox" aria-label="子目录" data-i18n-aria-label="ui.composer.cwdSubdirsAria"></div>
       <div id="cwd-manual" class="cwd-manual" hidden>
         <input id="cwd-input" type="text" autocomplete="off" spellcheck="false" placeholder="D:\path\to\project">
-        <button id="cwd-apply" class="btn-small" type="button">使用</button>
+        <button id="cwd-apply" class="btn-small" type="button" data-i18n="ui.composer.cwdUse">使用</button>
       </div>
       <div class="cwd-foot">
-        <button id="cwd-manual-toggle" class="cwd-link" type="button">直接输入路径</button>
+        <button id="cwd-manual-toggle" class="cwd-link" type="button" data-i18n="ui.composer.cwdManual">直接输入路径</button>
         <span class="cwd-foot-spacer"></span>
-        <button id="cwd-cancel" class="btn-small" type="button">取消</button>
-        <button id="cwd-choose" class="btn-small primary" type="button">选择此文件夹</button>
+        <button id="cwd-cancel" class="btn-small" type="button" data-i18n="ui.common.cancel">取消</button>
+        <button id="cwd-choose" class="btn-small primary" type="button" data-i18n="ui.composer.cwdChoose">选择此文件夹</button>
       </div>
     </div>
   </div>
@@ -2144,11 +2163,11 @@
   <div id="full-confirm" class="confirm-overlay" role="dialog" aria-modal="true"
        aria-labelledby="full-confirm-title" aria-describedby="full-confirm-text" hidden>
     <div class="confirm-card">
-      <h2 id="full-confirm-title">完全权限</h2>
-      <p id="full-confirm-text" class="confirm-text">这一轮的成员不再受工作目录限制，可以读写本机任意路径。误用时可能改到工作目录之外的文件。确定要这么做吗？</p>
+      <h2 id="full-confirm-title" data-i18n="ui.composer.fullTitle">完全权限</h2>
+      <p id="full-confirm-text" class="confirm-text" data-i18n="ui.composer.fullText">这一轮的成员不再受工作目录限制，可以读写本机任意路径。误用时可能改到工作目录之外的文件。确定要这么做吗？</p>
       <div class="confirm-actions">
-        <button id="full-cancel" class="btn-small" type="button">取消</button>
-        <button id="full-ok" class="btn-small danger" type="button">我明白，使用完全权限</button>
+        <button id="full-cancel" class="btn-small" type="button" data-i18n="ui.common.cancel">取消</button>
+        <button id="full-ok" class="btn-small danger" type="button" data-i18n="ui.composer.fullOk">我明白，使用完全权限</button>
       </div>
     </div>
   </div>
@@ -2159,10 +2178,10 @@
   <div id="settings-overlay" class="settings-overlay" role="dialog" aria-modal="true"
        aria-labelledby="settings-title" hidden>
     <div class="settings-panel">
-      <nav class="settings-nav" aria-label="设置分类">
+      <nav class="settings-nav" aria-label="设置分类" data-i18n-aria-label="ui.settings.navAria">
         <div class="settings-nav-head">
-          <h2 id="settings-title" class="settings-nav-title">设置</h2>
-          <p class="settings-nav-kicker">Council 本地看板</p>
+          <h2 id="settings-title" class="settings-nav-title" data-i18n="ui.settings.title">设置</h2>
+          <p class="settings-nav-kicker" data-i18n="ui.settings.kicker">Council 本地看板</p>
         </div>
         <div class="settings-nav-list">
           <button type="button" class="settings-nav-item" data-settings-section="general"
@@ -2173,14 +2192,14 @@
               <circle cx="10" cy="8" r="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
               <circle cx="5" cy="12" r="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
             </svg>
-            <span class="settings-nav-label">通用</span>
+            <span class="settings-nav-label" data-i18n="ui.settings.navGeneral">通用</span>
           </button>
           <button type="button" class="settings-nav-item" data-settings-section="members">
             <svg class="settings-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="6" cy="5.5" r="2.2" stroke="currentColor" stroke-width="1.4"/>
               <path d="M2.5 13c.5-2.2 1.9-3.3 3.5-3.3s3 1.1 3.5 3.3M10.6 4.5a1.8 1.8 0 1 1 0 3.6M11.2 9.6c1.4.2 2.4 1.2 2.8 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
             </svg>
-            <span class="settings-nav-label">成员</span>
+            <span class="settings-nav-label" data-i18n="ui.settings.navMembers">成员</span>
           </button>
           <button type="button" class="settings-nav-item" data-settings-section="workspaces">
             <svg class="settings-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -2189,30 +2208,30 @@
               <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.4"/>
               <rect x="9" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.4"/>
             </svg>
-            <span class="settings-nav-label">工作区</span>
+            <span class="settings-nav-label" data-i18n="ui.settings.navWorkspaces">工作区</span>
           </button>
           <button type="button" class="settings-nav-item" data-settings-section="providers">
             <svg class="settings-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M5.5 2.5v2M10.5 2.5v2M4 4.5h8v3.2a4 4 0 0 1-8 0V4.5ZM8 11.7v1.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
             </svg>
-            <span class="settings-nav-label">提供方</span>
+            <span class="settings-nav-label" data-i18n="ui.settings.navProviders">提供方</span>
           </button>
           <button type="button" class="settings-nav-item" data-settings-section="about">
             <svg class="settings-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"/>
               <path d="M8 7.2v3.4M8 5.2v.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
             </svg>
-            <span class="settings-nav-label">关于</span>
+            <span class="settings-nav-label" data-i18n="ui.settings.navAbout">关于</span>
           </button>
         </div>
         <div class="settings-nav-foot">
-          <span class="settings-nav-foot-label">配置文件</span>
+          <span class="settings-nav-foot-label" data-i18n="ui.settings.navConfigFile">配置文件</span>
           <span id="settings-sub" class="settings-sub"></span>
         </div>
       </nav>
       <div class="settings-content">
         <div class="settings-content-head">
-          <button id="settings-close" class="settings-close" type="button" aria-label="关闭设置">×</button>
+          <button id="settings-close" class="settings-close" type="button" aria-label="关闭设置" data-i18n-aria-label="ui.settings.close">×</button>
         </div>
         <div id="settings-body" class="settings-body">
           <div id="settings-result" class="settings-result" hidden></div>
@@ -2220,34 +2239,34 @@
 
           <section class="settings-page" data-settings-page="general"
                    aria-labelledby="settings-general-title">
-            <h2 id="settings-general-title" class="settings-page-title">通用</h2>
-            <p class="settings-page-intro">看板读写的位置、配置合并顺序与数据库 schema。这里只展示启动时解析出的事实。</p>
+            <h2 id="settings-general-title" class="settings-page-title" data-i18n="ui.settings.navGeneral">通用</h2>
+            <p class="settings-page-intro" data-i18n="ui.settings.generalIntro">看板读写的位置、配置合并顺序与数据库 schema。这里只展示启动时解析出的事实。</p>
             <section class="settings-group" aria-labelledby="settings-paths-title">
               <div class="settings-group-head">
                 <div>
-                  <h3 id="settings-paths-title" class="settings-group-title">数据与配置</h3>
-                  <p class="settings-group-desc">路径来自本次启动的实际解析结果，不是界面上猜的。</p>
+                  <h3 id="settings-paths-title" class="settings-group-title" data-i18n="ui.settings.pathsTitle">数据与配置</h3>
+                  <p class="settings-group-desc" data-i18n="ui.settings.pathsDesc">路径来自本次启动的实际解析结果，不是界面上猜的。</p>
                 </div>
               </div>
               <ul class="settings-rows">
                 <li class="settings-row">
                   <div class="settings-row-main">
-                    <div class="settings-row-label">数据目录</div>
-                    <div class="settings-row-hint">会话、账本与 spool 所在的本地目录。</div>
+                    <div class="settings-row-label" data-i18n="ui.settings.dataDir">数据目录</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.dataDirHint">会话、账本与 spool 所在的本地目录。</div>
                   </div>
                   <span id="settings-data-dir" class="settings-row-value mono"></span>
                 </li>
                 <li class="settings-row">
                   <div class="settings-row-main">
-                    <div class="settings-row-label">配置文件</div>
-                    <div class="settings-row-hint">保存成员时只改这一份里的相关段，其它段与注释保持原样。</div>
+                    <div class="settings-row-label" data-i18n="ui.settings.configFile">配置文件</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.configFileHint">保存成员时只改这一份里的相关段，其它段与注释保持原样。</div>
                   </div>
                   <span id="settings-config-path" class="settings-row-value mono"></span>
                 </li>
                 <li class="settings-row">
                   <div class="settings-row-main">
-                    <div class="settings-row-label">schema 版本</div>
-                    <div class="settings-row-hint">库版本与程序期望版本；落后时下次写模式启动会升级。</div>
+                    <div class="settings-row-label" data-i18n="ui.settings.schemaVersion">schema 版本</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.schemaVersionHint">库版本与程序期望版本；落后时下次写模式启动会升级。</div>
                   </div>
                   <span id="settings-schema-version" class="settings-row-value mono"></span>
                 </li>
@@ -2256,7 +2275,7 @@
             <section class="settings-group" aria-labelledby="settings-layers-title">
               <div class="settings-group-head">
                 <div>
-                  <h3 id="settings-layers-title" class="settings-group-title">配置层</h3>
+                  <h3 id="settings-layers-title" class="settings-group-title" data-i18n="ui.settings.layersTitle">配置层</h3>
                   <p id="settings-write-target" class="settings-group-desc"></p>
                 </div>
               </div>
@@ -2265,17 +2284,38 @@
             <section class="settings-group" aria-labelledby="settings-defaults-title">
               <div class="settings-group-head">
                 <div>
-                  <h3 id="settings-defaults-title" class="settings-group-title">运行默认</h3>
-                  <p class="settings-group-desc">多轮议会的默认汇总成员；留空表示不汇总。</p>
+                  <h3 id="settings-defaults-title" class="settings-group-title" data-i18n="ui.settings.defaultsTitle">运行默认</h3>
+                  <p class="settings-group-desc" data-i18n="ui.settings.defaultsDesc">多轮议会的默认汇总成员；留空表示不汇总。</p>
                 </div>
               </div>
               <ul class="settings-rows">
                 <li class="settings-row">
                   <div class="settings-row-main">
-                    <div class="settings-row-label">汇总成员</div>
-                    <div class="settings-row-hint">配置里的 summary.agent。</div>
+                    <div class="settings-row-label" data-i18n="ui.settings.summaryAgent">汇总成员</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.summaryHint">配置里的 summary.agent。</div>
                   </div>
                   <span id="settings-summary-agent" class="settings-row-value mono"></span>
+                </li>
+              </ul>
+            </section>
+            <section class="settings-group" aria-labelledby="settings-language-title">
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-language-title" class="settings-group-title" data-i18n="ui.settings.language">语言</h3>
+                  <p class="settings-group-desc" data-i18n="ui.settings.languageHint">界面语言；改完立即切换，不需要重启。</p>
+                </div>
+              </div>
+              <ul class="settings-rows">
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-label" data-i18n="ui.settings.language">语言</div>
+                    <div id="settings-language-note" class="settings-row-hint"></div>
+                  </div>
+                  <select id="settings-language" class="settings-select" autocomplete="off">
+                    <option value="auto" data-i18n="ui.settings.languageAuto">跟随系统</option>
+                    <option value="zh" data-i18n="ui.settings.languageZh">中文</option>
+                    <option value="en">English</option>
+                  </select>
                 </li>
               </ul>
             </section>
@@ -2283,15 +2323,15 @@
 
           <section class="settings-page" data-settings-page="members" hidden
                    aria-labelledby="settings-members-title">
-            <h2 id="settings-members-title" class="settings-page-title">成员</h2>
-            <p class="settings-page-intro">agents 来自配置合并结果；新增、编辑、删除都会写回目标文件，并在写盘前自动备份。</p>
+            <h2 id="settings-members-title" class="settings-page-title" data-i18n="ui.settings.navMembers">成员</h2>
+            <p class="settings-page-intro" data-i18n="ui.settings.membersIntro">agents 来自配置合并结果；新增、编辑、删除都会写回目标文件，并在写盘前自动备份。</p>
             <section class="settings-group" aria-labelledby="settings-agents-title">
               <div class="settings-group-head">
                 <div>
                   <h3 id="settings-agents-title" class="settings-group-title">agents</h3>
-                  <p class="settings-group-desc">claude 来源的成员只读，请直接改 .claude/agents 下的文件。</p>
+                  <p class="settings-group-desc" data-i18n="ui.settings.agentsDesc">claude 来源的成员只读，请直接改 .claude/agents 下的文件。</p>
                 </div>
-                <button id="settings-agent-add" class="btn-small primary" type="button">+ 新增 agent</button>
+                <button id="settings-agent-add" class="btn-small primary" type="button" data-i18n="ui.settings.addAgent">+ 新增 agent</button>
               </div>
               <div class="settings-table-wrap">
                 <table class="settings-table">
@@ -2304,96 +2344,96 @@
                       <th>effort</th>
                       <th>permissions</th>
                       <th>mode</th>
-                      <th>来源</th>
-                      <th aria-label="操作"></th>
+                      <th data-i18n="ui.settings.colSource">来源</th>
+                      <th aria-label="操作" data-i18n-aria-label="ui.settings.colActions"></th>
                     </tr>
                   </thead>
                   <tbody id="settings-agents-body"></tbody>
                 </table>
               </div>
-              <p id="settings-agents-empty" class="settings-empty" hidden>配置里还没有 agent</p>
+              <p id="settings-agents-empty" class="settings-empty" hidden data-i18n="ui.settings.agentsEmpty">配置里还没有 agent</p>
             </section>
             <section class="settings-group" aria-labelledby="settings-teams-title">
               <div class="settings-group-head">
                 <div>
-                  <h3 id="settings-teams-title" class="settings-group-title">teams（只读）</h3>
-                  <p class="settings-group-desc">团队只在配置里定义，设置页不提供改写入口。</p>
+                  <h3 id="settings-teams-title" class="settings-group-title" data-i18n="ui.settings.teamsTitle">teams（只读）</h3>
+                  <p class="settings-group-desc" data-i18n="ui.settings.teamsDesc">团队只在配置里定义，设置页不提供改写入口。</p>
                 </div>
               </div>
               <ul id="settings-teams" class="settings-rows"></ul>
-              <p id="settings-teams-empty" class="settings-empty" hidden>还没有 team</p>
+              <p id="settings-teams-empty" class="settings-empty" hidden data-i18n="ui.settings.teamsEmpty">还没有 team</p>
             </section>
           </section>
 
           <section class="settings-page" data-settings-page="workspaces" hidden
                    aria-labelledby="settings-workspaces-title">
-            <h2 id="settings-workspaces-title" class="settings-page-title">工作区</h2>
-            <p class="settings-page-intro">工作区只把会话分组，不改变会话内容。重命名与删除会回到左侧工作台执行。</p>
+            <h2 id="settings-workspaces-title" class="settings-page-title" data-i18n="ui.settings.navWorkspaces">工作区</h2>
+            <p class="settings-page-intro" data-i18n="ui.settings.workspacesIntro">工作区只把会话分组，不改变会话内容。重命名与删除会回到左侧工作台执行。</p>
             <section class="settings-group" aria-labelledby="settings-workspaces-list-title">
               <div class="settings-group-head">
                 <div>
-                  <h3 id="settings-workspaces-list-title" class="settings-group-title">工作区列表</h3>
-                  <p class="settings-group-desc">删除工作区只解除归属，不删除会话；组里的会话会回到「未分组」。</p>
+                  <h3 id="settings-workspaces-list-title" class="settings-group-title" data-i18n="ui.settings.workspacesListTitle">工作区列表</h3>
+                  <p class="settings-group-desc" data-i18n="ui.settings.workspacesDesc">删除工作区只解除归属，不删除会话；组里的会话会回到「未分组」。</p>
                 </div>
               </div>
               <ul id="settings-workspaces" class="settings-rows"></ul>
-              <p id="settings-workspaces-empty" class="settings-empty" hidden>还没有工作区；在左侧工作台点「+ 新建工作区」。</p>
+              <p id="settings-workspaces-empty" class="settings-empty" hidden data-i18n="ui.settings.workspacesEmpty">还没有工作区；在左侧工作台点「+ 新建工作区」。</p>
             </section>
           </section>
 
           <section class="settings-page" data-settings-page="providers" hidden
                    aria-labelledby="settings-providers-title">
-            <h2 id="settings-providers-title" class="settings-page-title">提供方</h2>
-            <p class="settings-page-intro">providers 来自启动时读入的配置，只读展示。成员运行时仍由各自的 command 启动。</p>
+            <h2 id="settings-providers-title" class="settings-page-title" data-i18n="ui.settings.navProviders">提供方</h2>
+            <p class="settings-page-intro" data-i18n="ui.settings.providersIntro">providers 来自启动时读入的配置，只读展示。成员运行时仍由各自的 command 启动。</p>
             <section class="settings-group" aria-labelledby="settings-providers-list-title">
               <div class="settings-group-head">
                 <div>
-                  <h3 id="settings-providers-list-title" class="settings-group-title">已配置的 provider</h3>
-                  <p class="settings-group-desc">command 是启动成员进程时使用的可执行文件或命令。</p>
+                  <h3 id="settings-providers-list-title" class="settings-group-title" data-i18n="ui.settings.providersListTitle">已配置的 provider</h3>
+                  <p class="settings-group-desc" data-i18n="ui.settings.providersDesc">command 是启动成员进程时使用的可执行文件或命令。</p>
                 </div>
               </div>
               <ul id="settings-providers" class="settings-rows"></ul>
-              <p id="settings-providers-empty" class="settings-empty" hidden>（没有 provider）</p>
+              <p id="settings-providers-empty" class="settings-empty" hidden data-i18n="ui.settings.providersEmpty">（没有 provider）</p>
             </section>
           </section>
 
           <section class="settings-page" data-settings-page="about" hidden
                    aria-labelledby="settings-about-title">
-            <h2 id="settings-about-title" class="settings-page-title">关于</h2>
-            <p class="settings-page-intro">Council 的版本与构建信息来自 /api/health，不在前端写死。</p>
+            <h2 id="settings-about-title" class="settings-page-title" data-i18n="ui.settings.navAbout">关于</h2>
+            <p class="settings-page-intro" data-i18n="ui.settings.aboutIntro">Council 的版本与构建信息来自 /api/health，不在前端写死。</p>
             <section class="settings-group" aria-labelledby="settings-build-title">
               <div class="settings-group-head">
                 <div>
-                  <h3 id="settings-build-title" class="settings-group-title">构建</h3>
-                  <p class="settings-group-desc">界面与后端同源；构建号带 git 短哈希，dirty 表示工作区有未提交改动。</p>
+                  <h3 id="settings-build-title" class="settings-group-title" data-i18n="ui.settings.buildTitle">构建</h3>
+                  <p class="settings-group-desc" data-i18n="ui.settings.buildDesc">界面与后端同源；构建号带 git 短哈希，dirty 表示工作区有未提交改动。</p>
                 </div>
               </div>
               <ul class="settings-rows">
                 <li class="settings-row">
                   <div class="settings-row-main">
-                    <div class="settings-row-label">版本</div>
-                    <div class="settings-row-hint">VERSION 文件里的基础版本。</div>
+                    <div class="settings-row-label" data-i18n="ui.settings.version">版本</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.versionHint">VERSION 文件里的基础版本。</div>
                   </div>
                   <span id="settings-about-version" class="settings-row-value mono"></span>
                 </li>
                 <li class="settings-row">
                   <div class="settings-row-main">
-                    <div class="settings-row-label">构建号</div>
-                    <div class="settings-row-hint">构建时的 git 提交短哈希。</div>
+                    <div class="settings-row-label" data-i18n="ui.settings.build">构建号</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.buildHint">构建时的 git 提交短哈希。</div>
                   </div>
                   <span id="settings-about-build" class="settings-row-value mono"></span>
                 </li>
                 <li class="settings-row">
                   <div class="settings-row-main">
-                    <div class="settings-row-label">运行模式</div>
-                    <div class="settings-row-hint">设置接口只在写模式下存在。</div>
+                    <div class="settings-row-label" data-i18n="ui.settings.mode">运行模式</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.modeHint">设置接口只在写模式下存在。</div>
                   </div>
                   <span id="settings-about-mode" class="settings-row-value"></span>
                 </li>
                 <li class="settings-row">
                   <div class="settings-row-main">
-                    <div class="settings-row-label">数据库 schema</div>
-                    <div class="settings-row-hint">与「通用」里显示的是同一份事实。</div>
+                    <div class="settings-row-label" data-i18n="ui.settings.dbSchema">数据库 schema</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.dbSchemaHint">与「通用」里显示的是同一份事实。</div>
                   </div>
                   <span id="settings-about-schema" class="settings-row-value mono"></span>
                 </li>
@@ -2408,52 +2448,52 @@
   <div id="settings-form-overlay" class="settings-overlay" role="dialog" aria-modal="true"
        aria-labelledby="settings-form-title" hidden>
     <div class="confirm-card settings-form-card">
-      <h2 id="settings-form-title">编辑 agent</h2>
+      <h2 id="settings-form-title" data-i18n="ui.settings.formEditTitle">编辑 agent</h2>
       <div class="settings-form-grid">
         <div class="settings-field">
           <label for="settings-form-id">id
-            <span class="settings-field-hint">小写字母、数字、点号、下划线、连字符</span>
+            <span class="settings-field-hint" data-i18n="ui.settings.formIDHint">小写字母、数字、点号、下划线、连字符</span>
           </label>
           <input id="settings-form-id" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="例如 reviewer">
+                 placeholder="例如 reviewer" data-i18n-placeholder="ui.settings.formIDPlaceholder">
         </div>
         <div class="settings-field">
           <label for="settings-form-display">display_name
-            <span class="settings-field-hint">留空时用 id 显示</span>
+            <span class="settings-field-hint" data-i18n="ui.settings.formDisplayHint">留空时用 id 显示</span>
           </label>
           <input id="settings-form-display" type="text" autocomplete="off" spellcheck="false">
         </div>
         <div class="settings-field">
           <label for="settings-form-provider">provider
-            <span class="settings-field-hint">必须是已配置的 provider</span>
+            <span class="settings-field-hint" data-i18n="ui.settings.formProviderHint">必须是已配置的 provider</span>
           </label>
           <select id="settings-form-provider"></select>
         </div>
         <div class="settings-field">
           <label for="settings-form-model">model
-            <span class="settings-field-hint">必填</span>
+            <span class="settings-field-hint" data-i18n="ui.settings.formModelHint">必填</span>
           </label>
           <input id="settings-form-model" type="text" autocomplete="off" spellcheck="false">
         </div>
         <div class="settings-field">
           <label for="settings-form-effort">effort
-            <span class="settings-field-hint">可留空，由 provider 决定</span>
+            <span class="settings-field-hint" data-i18n="ui.settings.formEffortHint">可留空，由 provider 决定</span>
           </label>
           <input id="settings-form-effort" type="text" autocomplete="off" spellcheck="false">
         </div>
         <div class="settings-field">
           <label for="settings-form-permissions">permissions
-            <span class="settings-field-hint">成员进程能碰哪些文件</span>
+            <span class="settings-field-hint" data-i18n="ui.settings.formPermissionsHint">成员进程能碰哪些文件</span>
           </label>
           <select id="settings-form-permissions">
-            <option value="read">read（只读）</option>
-            <option value="workspace">workspace（可改文件）</option>
-            <option value="full">full（完全权限）</option>
+            <option value="read" data-i18n="ui.settings.formPermissionRead">read（只读）</option>
+            <option value="workspace" data-i18n="ui.settings.formPermissionWorkspace">workspace（可改文件）</option>
+            <option value="full" data-i18n="ui.settings.formPermissionFull">full（完全权限）</option>
           </select>
         </div>
         <div class="settings-field">
           <label for="settings-form-mode">mode
-            <span class="settings-field-hint">参与讨论、执行还是当裁判</span>
+            <span class="settings-field-hint" data-i18n="ui.settings.formModeHint">参与讨论、执行还是当裁判</span>
           </label>
           <select id="settings-form-mode">
             <option value="discussion">discussion</option>
@@ -2467,8 +2507,8 @@
       <p id="settings-form-hint" class="settings-form-hint"></p>
       <p id="settings-form-error" class="confirm-error" hidden></p>
       <div class="confirm-actions">
-        <button id="settings-form-cancel" class="btn-small" type="button">取消</button>
-        <button id="settings-form-save" class="btn-small primary" type="button">预览并保存</button>
+        <button id="settings-form-cancel" class="btn-small" type="button" data-i18n="ui.common.cancel">取消</button>
+        <button id="settings-form-save" class="btn-small primary" type="button" data-i18n="ui.settings.formPreviewSave">预览并保存</button>
       </div>
     </div>
   </div>
@@ -2477,18 +2517,18 @@
   <div id="settings-preview" class="confirm-overlay" role="dialog" aria-modal="true"
        aria-labelledby="settings-preview-title" hidden>
     <div class="confirm-card settings-preview-card">
-      <h2 id="settings-preview-title">确认写入配置</h2>
+      <h2 id="settings-preview-title" data-i18n="ui.settings.previewWriteTitle">确认写入配置</h2>
       <p id="settings-preview-target" class="settings-preview-target"></p>
       <p id="settings-preview-reload" class="settings-reload-hint" role="status" hidden></p>
       <p id="settings-preview-backup" class="settings-form-hint"></p>
       <table id="settings-preview-diff" class="settings-diff" hidden>
-        <thead><tr><th>字段</th><th>旧值</th><th>新值</th></tr></thead>
+        <thead><tr><th data-i18n="ui.settings.diffField">字段</th><th data-i18n="ui.settings.diffOld">旧值</th><th data-i18n="ui.settings.diffNew">新值</th></tr></thead>
         <tbody id="settings-preview-diff-body"></tbody>
       </table>
       <p id="settings-preview-error" class="confirm-error" hidden></p>
       <div class="confirm-actions">
-        <button id="settings-preview-cancel" class="btn-small" type="button">取消</button>
-        <button id="settings-preview-confirm" class="btn-small primary" type="button">确认写入</button>
+        <button id="settings-preview-cancel" class="btn-small" type="button" data-i18n="ui.common.cancel">取消</button>
+        <button id="settings-preview-confirm" class="btn-small primary" type="button" data-i18n="ui.settings.previewConfirm">确认写入</button>
       </div>
     </div>
   </div>
@@ -2503,6 +2543,76 @@
   // setInterval 会叠加出多个在飞请求，慢接口会把看板拖成一串重复渲染。
   const POLL_MS = 3000;
   const PAGE_LIMIT = 1000;
+
+  // ---- 界面语言 ----
+  // 启动时先拉 /api/i18n；失败就保持 HTML 里的中文原文。所有动态文案都用
+  // t(key, fallback) 取：目录里没有这个 key 时回退到调用处写的中文，页面
+  // 不会因为一条漏翻变成 key 满天飞。
+  let MESSAGES = Object.create(null);
+  let LANG = 'zh';
+
+  function t(key, fallback, vars) {
+    let text = MESSAGES[key];
+    if (typeof text !== 'string' || text === '') text = fallback;
+    if (typeof text !== 'string') text = '';
+    if (vars) {
+      text = text.replace(/\{(\w+)\}/g, (match, name) => (
+        Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : match
+      ));
+    }
+    return text;
+  }
+
+  // 静态节点只换它自己的第一个文本节点：菜单项里还留着 .menu-hint、
+  // 「已归档 N」里还留着计数 span，直接写 textContent 会把它们删掉。
+  function setElementText(el, text) {
+    for (const node of el.childNodes) {
+      if (node.nodeType !== Node.TEXT_NODE) continue;
+      const raw = node.nodeValue || '';
+      const lead = (raw.match(/^\s*/) || [''])[0];
+      const trail = (raw.match(/\s*$/) || [''])[0];
+      node.nodeValue = lead + text + trail;
+      return;
+    }
+    el.textContent = text;
+  }
+
+  function applyStaticI18n() {
+    for (const el of document.querySelectorAll('[data-i18n]')) {
+      const fallback = el.hasAttribute('data-i18n-fallback')
+        ? el.getAttribute('data-i18n-fallback')
+        : el.textContent.trim();
+      setElementText(el, t(el.dataset.i18n, fallback));
+    }
+    for (const el of document.querySelectorAll('[data-i18n-title]')) {
+      el.title = t(el.dataset.i18nTitle, el.title);
+    }
+    for (const el of document.querySelectorAll('[data-i18n-placeholder]')) {
+      el.placeholder = t(el.dataset.i18nPlaceholder, el.placeholder);
+    }
+    for (const el of document.querySelectorAll('[data-i18n-aria-label]')) {
+      el.setAttribute('aria-label', t(el.dataset.i18nAriaLabel, el.getAttribute('aria-label') || ''));
+    }
+    document.documentElement.lang = LANG;
+  }
+
+  async function loadI18n() {
+    try {
+      const res = await fetch('/api/i18n', { headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      MESSAGES = data && data.messages && typeof data.messages === 'object'
+        ? data.messages
+        : Object.create(null);
+      LANG = data && data.lang === 'en' ? 'en' : 'zh';
+    } catch (err) {
+      // 接口失败不是启动失败：保留 HTML 里的中文原文，看板照常可用。
+      MESSAGES = Object.create(null);
+      LANG = 'zh';
+    }
+    applyStaticI18n();
+    document.title = t('ui.app.titleReadonly', 'Council 只读看板');
+  }
 
   // 工作区折叠状态按视图分开存：未归档与已归档各一个键，切视图不会把
   // 另一边的折叠状态带过来。值是工作区 id 的 JSON 数组；未分组用空串。
@@ -2768,6 +2878,8 @@
   const settingsTeams = document.getElementById('settings-teams');
   const settingsTeamsEmpty = document.getElementById('settings-teams-empty');
   const settingsSummaryAgent = document.getElementById('settings-summary-agent');
+  const settingsLanguage = document.getElementById('settings-language');
+  const settingsLanguageNote = document.getElementById('settings-language-note');
   const settingsDataDir = document.getElementById('settings-data-dir');
   const settingsConfigPath = document.getElementById('settings-config-path');
   const settingsSchemaVersion = document.getElementById('settings-schema-version');
@@ -2950,7 +3062,8 @@
   // 复制：127.0.0.1 是安全上下文，clipboard 可用；老终端里退回 execCommand。
   function copyText(text) {
     if (!text) return;
-    const done = () => showToast('已复制 ' + Array.from(text).length + ' 个字符');
+    const done = () => showToast(t('ui.messages.copied', '已复制 {n} 个字符',
+      { n: Array.from(text).length }));
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(done, () => legacyCopy(text, done));
       return;
@@ -2978,7 +3091,7 @@
           try {
             body = JSON.parse(text);
           } catch (err) {
-            throw new Error('接口返回的不是 JSON');
+            throw new Error(t('ui.api.notJSON', '接口返回的不是 JSON'));
           }
         }
         if (!res.ok) {
@@ -3002,7 +3115,7 @@
         try {
           body = JSON.parse(text);
         } catch (err) {
-          throw new Error('接口返回的不是 JSON');
+          throw new Error(t('ui.api.notJSON', '接口返回的不是 JSON'));
         }
       }
       if (!res.ok) {
@@ -3017,7 +3130,7 @@
   }
 
   function showError(err) {
-    statusLine.textContent = '连接出错：' + err.message;
+    statusLine.textContent = t('ui.connection.error', '连接出错：{err}', { err: err.message });
     statusLine.hidden = false;
   }
 
@@ -3028,11 +3141,11 @@
 
   function statusText(status) {
     switch (status) {
-      case 'ok': return '成功';
-      case 'partial': return '部分成功';
-      case 'budget_exceeded': return '预算触线';
-      case 'error': return '出错';
-      default: return status || '未知';
+      case 'ok': return t('ui.status.ok', '成功');
+      case 'partial': return t('ui.status.partial', '部分成功');
+      case 'budget_exceeded': return t('ui.status.budget', '预算触线');
+      case 'error': return t('ui.status.error', '出错');
+      default: return status || t('ui.common.unknown', '未知');
     }
   }
 
@@ -3080,8 +3193,15 @@
     if (!state.runMeter) return false;
     const budget = state.runBudget;
     const near = nearBudget(spent, budget);
-    let text = '本轮预算 ' + formatUSDCompact(budget) + ' · 已花 ' + formatUSDCompact(spent);
-    if (near) text += spent >= budget ? ' · 已达上限' : ' · 接近上限';
+    let text = t('ui.composer.budget', '本轮预算 {budget} · 已花 {spent}', {
+      budget: formatUSDCompact(budget),
+      spent: formatUSDCompact(spent),
+    });
+    if (near) {
+      text += spent >= budget
+        ? t('ui.composer.budgetReached', ' · 已达上限')
+        : t('ui.composer.budgetNear', ' · 接近上限');
+    }
     state.runMeter.textContent = text;
     state.runMeter.classList.toggle('is-near-budget', near);
     return near;
@@ -3103,7 +3223,17 @@
   // 「用副本」的开关（默认开），因为 -workspace 隔离副本是它自己的安全网：
   // 权限决定成员能不能写，副本决定写到哪儿。
   const PERMISSION_LABELS = { read: '只读', workspace: '工作区可写', full: '完全权限' };
+  const PERMISSION_KEYS = {
+    read: 'ui.composer.permissionRead',
+    workspace: 'ui.composer.permissionWorkspace',
+    full: 'ui.composer.permissionFull',
+  };
   const PERMISSION_ICONS = { read: '🔒', workspace: '📝', full: '⚠️' };
+
+  function permissionLabel(value) {
+    const key = PERMISSION_LABELS[value] ? value : 'read';
+    return t(PERMISSION_KEYS[key], PERMISSION_LABELS[key]);
+  }
   const CONTEXT_LIMIT = 20;
   const PRESET_KEY = 'council.presets';
   // 与后端规则对齐：rounds 是 1–5 的整数，budget_usd 不得小于 0.5。
@@ -3115,11 +3245,15 @@
   const DEFAULT_BUDGET = 5;
   // 设置页保存后 /api/options 会立刻列出新成员，但 Runner 仍是启动时那一份
   // 配置（/api/options 的 runnable=false）。这类成员可以显示，不能选。
-  const UNRUNNABLE_HINT = '设置页新增，重启 council serve 后可用';
+  function unrunnableHint() {
+    return t('ui.members.unrunnableHint', '设置页新增，重启 council serve 后可用');
+  }
   // 汇总成员必须 read 权限（headless.Validate 的同一条规则）。前端只按
   // /api/options 的 permission 过滤，不复制后端的权限表。
   const SUMMARY_PERMISSION = 'read';
-  const SUMMARY_NONE_READ = '（没有 read 权限的成员可用）';
+  function summaryNoneRead() {
+    return t('ui.composer.summaryNoRead', '（没有 read 权限的成员可用）');
+  }
 
   // agentRunnable 只把明确的 false 当不可运行：/api/options 的旧响应没有这
   // 个字段时保持原来的可选行为，不让一次前端更新把整个成员菜单锁死。
@@ -3133,7 +3267,7 @@
 
   function summaryUnavailableMessage() {
     return summaryCandidates().length === 0
-      ? '汇总成员必须是 read 权限：当前配置里没有 read 权限的成员可用'
+      ? t('ui.composer.summaryMustRead', '汇总成员必须是 read 权限：当前配置里没有 read 权限的成员可用')
       : '';
   }
 
@@ -3143,7 +3277,10 @@
   function summaryProblemMessage(summary) {
     const unavailable = summaryUnavailableMessage();
     const selected = summarySelectionError(summary);
-    if (unavailable && selected) return unavailable + '；' + selected;
+    if (unavailable && selected) {
+      return t('ui.composer.summaryProblemJoin', '{first}；{second}',
+        { first: unavailable, second: selected });
+    }
     return unavailable || selected;
   }
 
@@ -3153,10 +3290,13 @@
     if (summary === '' || summary === 'none') return '';
     const agent = agentEntry(summary);
     if (agent === null) {
-      return '已选中的汇总成员「' + summary + '」不在当前配置里，请重新选择';
+      return t('ui.composer.summaryNotInConfig',
+        '已选中的汇总成员「{name}」不在当前配置里，请重新选择', { name: summary });
     }
     if (agent.permission !== SUMMARY_PERMISSION) {
-      return '已选中的汇总成员「' + (agent.display_name || agent.id) + '」不是 read 权限，请重新选择';
+      return t('ui.composer.summaryNotRead',
+        '已选中的汇总成员「{name}」不是 read 权限，请重新选择',
+        { name: agent.display_name || agent.id });
     }
     return '';
   }
@@ -3301,10 +3441,10 @@
     name.className = 'chip-text';
     // 只露最后一段：工作目录常常很长，整条塞进工具条会把别的 chip 挤走；
     // 完整路径放在 title 里，悬浮就能核对。
-    name.textContent = basenameOf(state.cwd) || '工作目录';
+    name.textContent = basenameOf(state.cwd) || t('ui.composer.cwd', '工作目录');
     cwdChip.appendChild(icon);
     cwdChip.appendChild(name);
-    cwdChip.title = state.cwd || '设置这一轮的工作目录';
+    cwdChip.title = state.cwd || t('ui.composer.cwdHint', '设置这一轮的工作目录');
   }
 
   function renderPermissionChip() {
@@ -3315,7 +3455,7 @@
     icon.textContent = PERMISSION_ICONS[state.permission] || PERMISSION_ICONS.read;
     const label = document.createElement('span');
     label.className = 'chip-text';
-    label.textContent = PERMISSION_LABELS[state.permission] || PERMISSION_LABELS.read;
+    label.textContent = permissionLabel(state.permission);
     const caret = document.createElement('span');
     caret.className = 'chip-caret';
     caret.setAttribute('aria-hidden', 'true');
@@ -3344,15 +3484,15 @@
   function permissionHint() {
     if (state.permission === 'full') {
       return state.copy
-        ? '完全权限：成员在隔离副本里跑，副本之外仍可读写'
-        : '完全权限：成员不受目录限制，可读写本机任意路径';
+        ? t('ui.composer.permissionHintFullCopy', '完全权限：成员在隔离副本里跑，副本之外仍可读写')
+        : t('ui.composer.permissionHintFull', '完全权限：成员不受目录限制，可读写本机任意路径');
     }
     if (state.permission === 'workspace') {
       return state.copy
-        ? '成员在隔离副本里跑，可以改副本里的文件'
-        : '成员直接改原目录里的文件';
+        ? t('ui.composer.permissionHintWorkspaceCopy', '成员在隔离副本里跑，可以改副本里的文件')
+        : t('ui.composer.permissionHintWorkspace', '成员直接改原目录里的文件');
     }
-    return '成员只读讨论，不改任何文件';
+    return t('ui.composer.permissionHintRead', '成员只读讨论，不改任何文件');
   }
 
   // ---- 本轮参数（轮数 / 汇总成员 / 预算） ----
@@ -3360,13 +3500,25 @@
   // summary 空串＝配置里的 [summary].agent，"none"＝显式不汇总；
   // budget_usd 是这一场的硬上限。
   function paramSummaryShort() {
-    if (state.summary === 'none') return '不汇总';
-    if (state.summary === '') return '默认汇总';
-    return '汇总 ' + agentDisplayName(state.summary);
+    if (state.summary === 'none') return t('ui.composer.summaryNone', '不汇总');
+    if (state.summary === '') return t('ui.composer.summaryDefault', '默认汇总');
+    return t('ui.composer.summaryPrefix', '汇总 {name}', { name: agentDisplayName(state.summary) });
   }
 
+  const ROUND_KEYS = {
+    1: 'ui.composer.round1',
+    2: 'ui.composer.round2',
+    3: 'ui.composer.round3',
+    4: 'ui.composer.round4',
+    5: 'ui.composer.round5',
+  };
+
   function paramChipText() {
-    return state.rounds + ' 轮 · ' + paramSummaryShort() + ' · ' + formatUSDCompact(state.budgetUSD);
+    return t('ui.composer.paramChip', '{rounds} · {summary} · {budget}', {
+      rounds: t(ROUND_KEYS[state.rounds] || ROUND_KEYS[1], state.rounds + ' 轮'),
+      summary: paramSummaryShort(),
+      budget: formatUSDCompact(state.budgetUSD),
+    });
   }
 
   function renderParamChip() {
@@ -3385,8 +3537,9 @@
     paramChip.appendChild(icon);
     paramChip.appendChild(label);
     paramChip.appendChild(caret);
-    paramChip.title = '参数：' + label.textContent;
-    paramChip.setAttribute('aria-label', '参数：' + label.textContent);
+    const title = t('ui.composer.paramTitle', '参数：{text}', { text: label.textContent });
+    paramChip.title = title;
+    paramChip.setAttribute('aria-label', title);
   }
 
   // 汇总下拉的第一项永远是「配置默认（<summary_agent>）」，值为空串；
@@ -3397,12 +3550,14 @@
     paramSummary.replaceChildren();
     const fallback = document.createElement('option');
     fallback.value = '';
-    fallback.textContent = '配置默认（' + (state.summaryAgent || '未配置') + '）';
+    fallback.textContent = t('ui.composer.summaryConfigDefault', '配置默认（{name}）', {
+      name: state.summaryAgent || t('ui.composer.summaryNotConfigured', '未配置'),
+    });
     paramSummary.appendChild(fallback);
 
     const none = document.createElement('option');
     none.value = 'none';
-    none.textContent = '不汇总';
+    none.textContent = t('ui.composer.summaryNone', '不汇总');
     paramSummary.appendChild(none);
 
     const candidates = summaryCandidates();
@@ -3417,7 +3572,7 @@
       // 占位项不可选：解释为什么这份列表里没有汇总成员可用。
       const empty = document.createElement('option');
       empty.value = '__no_read_agent__';
-      empty.textContent = SUMMARY_NONE_READ;
+      empty.textContent = summaryNoneRead();
       empty.disabled = true;
       paramSummary.appendChild(empty);
     }
@@ -3433,7 +3588,9 @@
       option.value = state.summary;
       option.disabled = true;
       option.textContent = (agent ? (agent.display_name || agent.id) : state.summary) +
-        (agent ? '（不是 read 权限，不可用）' : '（不在当前配置里，不可用）');
+        (agent
+          ? t('ui.composer.summaryStaleNotRead', '（不是 read 权限，不可用）')
+          : t('ui.composer.summaryStaleMissing', '（不在当前配置里，不可用）'));
       paramSummary.appendChild(option);
     }
 
@@ -3480,7 +3637,7 @@
       return;
     }
     if (values.rounds > 1 && values.summary === 'none') {
-      setParamError('多轮必须有汇总成员：不能选「不汇总」');
+      setParamError(t('ui.composer.roundsNeedSummaryNone', '多轮必须有汇总成员：不能选「不汇总」'));
       return;
     }
     clearParamError();
@@ -3506,10 +3663,11 @@
   // 或 none，是否还能选汇总由下拉的禁用态与 #param-error 说明。
   function validateParamValues(rounds, summary, budget) {
     if (!Number.isInteger(rounds) || rounds < ROUNDS_MIN || rounds > ROUNDS_MAX) {
-      return '轮数必须是 ' + ROUNDS_MIN + '–' + ROUNDS_MAX + ' 的整数';
+      return t('ui.composer.roundsInvalid', '轮数必须是 {min}–{max} 的整数',
+        { min: ROUNDS_MIN, max: ROUNDS_MAX });
     }
     if (typeof budget !== 'number' || !isFinite(budget) || budget < BUDGET_MIN) {
-      return '预算必须是大于等于 ' + BUDGET_MIN + ' 的数字';
+      return t('ui.composer.budgetInvalid', '预算必须是大于等于 {min} 的数字', { min: BUDGET_MIN });
     }
     // 这里只拦「显式选中且已不合法」的汇总成员；「整份配置一个 read 成员
     // 都没有」已经由禁用的「应用」+ #param-error 说明，不该连不汇总的
@@ -3518,11 +3676,12 @@
     if (summaryMessage) return summaryMessage;
     if (rounds > 1) {
       if (summary === 'none') {
-        return '多轮必须有汇总成员：不能选「不汇总」';
+        return t('ui.composer.roundsNeedSummaryNone', '多轮必须有汇总成员：不能选「不汇总」');
       }
       const effective = summary === '' ? state.summaryAgent : summary;
       if (!effective) {
-        return '多轮必须有汇总成员：先选一个汇总成员，或在配置里写 [summary].agent';
+        return t('ui.composer.roundsNeedSummary',
+          '多轮必须有汇总成员：先选一个汇总成员，或在配置里写 [summary].agent');
       }
     }
     return '';
@@ -3553,7 +3712,7 @@
         // 旧预设 / 设置页刷新留下的不可运行成员：画灰并说明原因，删除按钮
         // 仍然保留，用户可以直接把它从这一轮名单里摘掉。
         chip.classList.add('is-unrunnable');
-        chip.title = UNRUNNABLE_HINT;
+        chip.title = unrunnableHint();
       }
       const text = document.createElement('span');
       text.className = 'chip-text';
@@ -3563,7 +3722,7 @@
       remove.type = 'button';
       remove.className = 'chip-x';
       remove.textContent = '×';
-      remove.title = '移除 ' + text.textContent;
+      remove.title = t('ui.composer.removeMember', '移除 {name}', { name: text.textContent });
       remove.setAttribute('aria-label', remove.title);
       remove.addEventListener('click', () => {
         state.selectedAgents = state.selectedAgents.filter((item) => item !== id);
@@ -3595,7 +3754,7 @@
     icon.textContent = '🧩';
     const label = document.createElement('span');
     label.className = 'chip-text';
-    label.textContent = '技能 ' + total;
+    label.textContent = t('ui.composer.skillsChip', '技能 {n}', { n: total });
     const caret = document.createElement('span');
     caret.className = 'chip-caret';
     caret.setAttribute('aria-hidden', 'true');
@@ -3603,14 +3762,15 @@
     skillsChip.appendChild(icon);
     skillsChip.appendChild(label);
     skillsChip.appendChild(caret);
-    skillsChip.title = '配置里可见的 ' + total + ' 个 skill：只读展示，Council 不执行';
+    skillsChip.title = t('ui.composer.skillsTitle',
+      '配置里可见的 {n} 个 skill：只读展示，Council 不执行', { n: total });
 
     for (const skill of state.skills) {
       const row = document.createElement('div');
       row.className = 'skill-row';
       const name = document.createElement('div');
       name.className = 'skill-name';
-      name.textContent = skill.name || skill.id || '(未命名)';
+      name.textContent = skill.name || skill.id || t('ui.composer.skillUnnamed', '(未命名)');
       row.appendChild(name);
       // 副行是 description；没有就退到 id（name 与 description 都是可选字段）。
       const description = skill.description || skill.id || '';
@@ -3639,7 +3799,7 @@
       remove.type = 'button';
       remove.className = 'chip-x';
       remove.textContent = '×';
-      remove.title = '移除引用 ' + path;
+      remove.title = t('ui.composer.removeContext', '移除引用 {path}', { path: path });
       remove.setAttribute('aria-label', remove.title);
       remove.addEventListener('click', () => {
         state.contexts.splice(index, 1);
@@ -3652,26 +3812,27 @@
 
   function updateContextCount() {
     contextCount.textContent = state.contexts.length === 0
-      ? '还没有引用，最多 ' + CONTEXT_LIMIT + ' 条'
-      : '已加 ' + state.contexts.length + ' 条，最多 ' + CONTEXT_LIMIT + ' 条';
+      ? t('ui.composer.contextEmpty', '还没有引用，最多 {n} 条', { n: CONTEXT_LIMIT })
+      : t('ui.composer.contextCount', '已加 {n} 条，最多 {limit} 条',
+        { n: state.contexts.length, limit: CONTEXT_LIMIT });
   }
 
   function updateRunButton() {
     if (!state.askRunning) {
-      askRun.textContent = '跑一轮';
+      askRun.textContent = t('ui.composer.run', '跑一轮');
       askRun.disabled = !state.optionsLoaded || state.agents.length === 0;
-      askRun.title = askRun.disabled ? '配置里还没有可选的 agent' : '';
+      askRun.title = askRun.disabled ? t('ui.composer.noAgentsTitle', '配置里还没有可选的 agent') : '';
       return;
     }
     if (state.stopping) {
-      askRun.textContent = '正在停止…';
+      askRun.textContent = t('ui.composer.stopping', '正在停止…');
       askRun.disabled = true;
-      askRun.title = '已发出取消请求，等待当前任务收尾';
+      askRun.title = t('ui.composer.stopPending', '已发出取消请求，等待当前任务收尾');
       return;
     }
-    askRun.textContent = '停止';
+    askRun.textContent = t('ui.composer.stop', '停止');
     askRun.disabled = false;
-    askRun.title = '停止这一轮；已经跑完的成员回复会保留';
+    askRun.title = t('ui.composer.stopTitle', '停止这一轮；已经跑完的成员回复会保留');
   }
 
   function renderComposer() {
@@ -3685,9 +3846,9 @@
 
     let hint = '';
     if (state.optionsLoaded && state.agents.length === 0) {
-      hint = '配置里还没有 agent，先在终端 /add 或编辑 config.toml';
+      hint = t('ui.composer.noAgentsHint', '配置里还没有 agent，先在终端 /add 或编辑 config.toml');
     } else if (!state.optionsLoaded) {
-      hint = '还没读到工作台选项，刷新页面重试';
+      hint = t('ui.composer.optionsNotLoaded', '还没读到工作台选项，刷新页面重试');
     }
     composerHint.textContent = hint;
     composerHint.hidden = hint === '';
@@ -3702,7 +3863,7 @@
     membersPopover.replaceChildren();
     const title = document.createElement('div');
     title.className = 'popover-title';
-    title.textContent = '成员';
+    title.textContent = t('ui.members.pickerTitle', '成员');
     membersPopover.appendChild(title);
 
     // Claude 导入的子代理不在这一轮的可选名单里：它们是 .claude/agents 下的
@@ -3716,7 +3877,7 @@
     if (available.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'menu-empty';
-      empty.textContent = '没有更多成员';
+      empty.textContent = t('ui.members.noMore', '没有更多成员');
       membersPopover.appendChild(empty);
       return;
     }
@@ -3730,7 +3891,7 @@
         // 可显示但不可选：成员是设置页刚加的，Runner 还没重建。
         button.disabled = true;
         button.classList.add('is-unrunnable');
-        button.title = UNRUNNABLE_HINT;
+        button.title = unrunnableHint();
         button.setAttribute('aria-disabled', 'true');
         membersPopover.appendChild(button);
         continue;
@@ -3793,7 +3954,7 @@
       window.localStorage.setItem(PRESET_KEY, JSON.stringify(state.presets));
     } catch (err) {
       // 隐私模式禁写 localStorage 时预设仍在本页内存里可用，只是刷新会丢。
-      showToast('浏览器不允许写入本地存储，预设只在本次页面有效');
+      showToast(t('ui.preset.storageDenied', '浏览器不允许写入本地存储，预设只在本次页面有效'));
     }
   }
 
@@ -3802,7 +3963,7 @@
     if (state.presets.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'menu-empty';
-      empty.textContent = '还没有预设';
+      empty.textContent = t('ui.preset.empty', '还没有预设');
       presetList.appendChild(empty);
       return;
     }
@@ -3818,14 +3979,14 @@
       const apply = document.createElement('button');
       apply.type = 'button';
       apply.className = 'btn-small';
-      apply.textContent = '套用';
+      apply.textContent = t('ui.preset.apply', '套用');
       apply.addEventListener('click', () => applyPreset(preset));
       row.appendChild(apply);
 
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'btn-small';
-      remove.textContent = '删除';
+      remove.textContent = t('ui.preset.delete', '删除');
       remove.addEventListener('click', () => deletePreset(preset.name));
       row.appendChild(remove);
 
@@ -3834,7 +3995,7 @@
   }
 
   function savePreset() {
-    const fallback = '预设 ' + (state.presets.length + 1);
+    const fallback = t('ui.preset.defaultName', '预设 {n}', { n: state.presets.length + 1 });
     const name = presetName.value.trim() || fallback;
     const preset = {
       name: name,
@@ -3851,7 +4012,9 @@
     else state.presets.push(preset);
     writePresets();
     renderPresetList();
-    showToast(existing >= 0 ? '预设已更新：' + name : '预设已保存：' + name);
+    showToast(existing >= 0
+      ? t('ui.preset.updated', '预设已更新：{name}', { name: name })
+      : t('ui.preset.saved', '预设已保存：{name}', { name: name }));
   }
 
   // 套用预设也走一次完全权限的确认：预设里存着 full 时，套用它和在下拉里
@@ -3880,21 +4043,24 @@
     const notes = [];
     const unavailable = preset.members.filter((id) => known.has(id) && !runnable.has(id)).length;
     const missing = preset.members.length - state.selectedAgents.length - unavailable;
-    if (missing > 0) notes.push(missing + ' 位成员已不在配置里');
-    if (unavailable > 0) notes.push(unavailable + ' 位成员是设置页新增的，重启 council serve 后可用');
+    if (missing > 0) notes.push(t('ui.preset.missingMembers', '{n} 位成员已不在配置里', { n: missing }));
+    if (unavailable > 0) {
+      notes.push(t('ui.preset.unrunnableMembers',
+        '{n} 位成员是设置页新增的，重启 council serve 后可用', { n: unavailable }));
+    }
     if (preset.summary === 'none' && rounds > 1) {
       // round 模式不允许关汇总：旧预设或手改的 localStorage 不能把界面
       // 带进一个按「跑一轮」必然 400 的状态。
       summary = '';
-      notes.push('多轮不能关闭汇总，已改回配置默认');
+      notes.push(t('ui.preset.roundsSummaryReset', '多轮不能关闭汇总，已改回配置默认'));
     } else if (preset.summary && preset.summary !== 'none' && summary === '') {
       const agent = agentEntry(preset.summary);
       notes.push(agent !== null
-        ? '汇总成员不是 read 权限，已改回配置默认'
-        : '汇总成员已不在配置里，已改回配置默认');
+        ? t('ui.preset.summaryPermissionReset', '汇总成员不是 read 权限，已改回配置默认')
+        : t('ui.preset.summaryMissingReset', '汇总成员已不在配置里，已改回配置默认'));
     }
     if (rounds > 1 && summary === '' && !state.summaryAgent) {
-      notes.push('多轮需要汇总成员，请先选一个');
+      notes.push(t('ui.preset.roundsNeedSummary', '多轮需要汇总成员，请先选一个'));
     }
     state.rounds = rounds;
     state.summary = summary;
@@ -3902,15 +4068,17 @@
     renderComposer();
     closePopover();
     // 套用不自动提交：用户还要看一眼成员与目录，再自己按「跑一轮」。
-    showToast('已套用「' + preset.name + '」' +
-      (notes.length > 0 ? '，' + notes.join('，') : ''));
+    showToast(notes.length > 0
+      ? t('ui.preset.appliedWithNotes', '已套用「{name}」，{notes}',
+        { name: preset.name, notes: notes.join(t('ui.common.listSeparator', '、')) })
+      : t('ui.preset.applied', '已套用「{name}」', { name: preset.name }));
   }
 
   function deletePreset(name) {
     state.presets = state.presets.filter((item) => item.name !== name);
     writePresets();
     renderPresetList();
-    showToast('已删除预设：' + name);
+    showToast(t('ui.preset.deleted', '已删除预设：{name}', { name: name }));
   }
 
   // ---- 文件 / 目录引用 ----
@@ -3919,7 +4087,7 @@
     if (!path) return;
     // 后端也拦 20 条，这里先拦是为了不让第 21 条看起来「加进去了」。
     if (state.contexts.length >= CONTEXT_LIMIT) {
-      showAskError('最多 ' + CONTEXT_LIMIT + ' 条');
+      showAskError(t('ui.composer.contextLimit', '最多 {n} 条', { n: CONTEXT_LIMIT }));
       return;
     }
     state.contexts.push(path);
@@ -3937,9 +4105,10 @@
     const name = agentDisplayName(agentID);
     const line = document.createElement('div');
     line.className = 'ask-line ask-thinking';
-    line.setAttribute('aria-label', name + ' 正在思考');
+    const thinkingText = t('ui.composer.thinking', '{name} 正在思考', { name: name });
+    line.setAttribute('aria-label', thinkingText);
     const text = document.createElement('span');
-    text.textContent = name + ' 正在思考';
+    text.textContent = thinkingText;
     line.appendChild(text);
     const dots = document.createElement('span');
     dots.className = 'ask-dots';
@@ -3954,16 +4123,16 @@
 
   function outcomeLabel(outcome) {
     switch (outcome) {
-      case 'ok': return '成功';
-      case 'canceled': return '已取消';
-      case 'post_rejected': return '被拒';
-      case 'provider_failed': return '失败';
-      case 'unparsable': return '输出无法解析';
-      case 'timeout': return '超时';
-      case 'spawn_failed': return '启动失败';
-      case 'refused': return '拒绝';
-      case 'lost': return '丢失';
-      default: return outcome || '未知';
+      case 'ok': return t('ui.outcome.ok', '成功');
+      case 'canceled': return t('ui.outcome.canceled', '已取消');
+      case 'post_rejected': return t('ui.outcome.rejected', '被拒');
+      case 'provider_failed': return t('ui.outcome.failed', '失败');
+      case 'unparsable': return t('ui.outcome.unparsable', '输出无法解析');
+      case 'timeout': return t('ui.outcome.timeout', '超时');
+      case 'spawn_failed': return t('ui.outcome.spawnFailed', '启动失败');
+      case 'refused': return t('ui.outcome.refused', '拒绝');
+      case 'lost': return t('ui.outcome.lost', '丢失');
+      default: return outcome || t('ui.common.unknown', '未知');
     }
   }
 
@@ -3988,7 +4157,7 @@
     for (const pending of state.thinking.values()) {
       const line = document.createElement('div');
       line.className = 'ask-line';
-      line.textContent = pending.name + ' · 未返回结果';
+      line.textContent = t('ui.composer.unreturned', '{name} · 未返回结果', { name: pending.name });
       pending.line.replaceWith(line);
     }
     state.thinking.clear();
@@ -4063,7 +4232,7 @@
     cwdList.replaceChildren();
     const loading = document.createElement('div');
     loading.className = 'cwd-empty';
-    loading.textContent = '正在读取…';
+    loading.textContent = t('ui.composer.cwdReading', '正在读取…');
     cwdList.appendChild(loading);
     try {
       const data = await api('/api/fs/dirs?path=' + encodeURIComponent(path || ''));
@@ -4097,7 +4266,7 @@
     if (entries.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'cwd-empty';
-      empty.textContent = '这个目录下没有子目录';
+      empty.textContent = t('ui.composer.cwdNoDirs', '这个目录下没有子目录');
       cwdList.appendChild(empty);
       return;
     }
@@ -4252,7 +4421,7 @@
         contextInput.focus();
         break;
       case 'presets':
-        presetName.value = '预设 ' + (state.presets.length + 1);
+        presetName.value = t('ui.preset.defaultName', '预设 {n}', { n: state.presets.length + 1 });
         renderPresetList();
         openPopover(presetPopover, addButton);
         presetName.focus();
@@ -4315,7 +4484,7 @@
       state.agents = [];
       state.skills = [];
       state.summaryAgent = '';
-      showAskError('读取工作台选项失败：' + err.message);
+      showAskError(t('ui.composer.optionsLoadFailed', '读取工作台选项失败：{err}', { err: err.message }));
     }
     renderComposer();
   }
@@ -4346,8 +4515,9 @@
       schemaLagBanner.hidden = true;
       return;
     }
-    schemaLagText.textContent = '库是 v' + dbVersion + '，程序是 v' + expectedVersion +
-      '，跑一次 council serve -rw（或任意一次新版 CLI）即可升级';
+    schemaLagText.textContent = t('ui.schema.lag',
+      '库是 v{db}，程序是 v{program}，跑一次 council serve -rw（或任意一次新版 CLI）即可升级',
+      { db: dbVersion, program: expectedVersion });
     schemaLagBanner.hidden = false;
   }
 
@@ -4378,9 +4548,9 @@
     if (state.writable) {
       // 只读模式的标题与空库文案一个字都不动；写模式把「只读」改成
       // 事实，免得用户看着「只读看板」不敢在下面输入。
-      brandNote.textContent = '写模式';
-      document.title = 'Council 写模式';
-      conversationsEmpty.textContent = '还没有会话，问一句就会新建';
+      brandNote.textContent = t('ui.app.writeDashboard', '写模式');
+      document.title = t('ui.app.titleWrite', 'Council 写模式');
+      conversationsEmpty.textContent = t('ui.sidebar.emptyWritable', '还没有会话，问一句就会新建');
       // 选项回来之前先按「不可提交」画一次：工具条已经露出，按钮不能有一
       // 瞬间是可按的（那一下用户点了也只会得到一句「还没读到选项」）。
       updateRunButton();
@@ -4401,11 +4571,11 @@
       try {
         data = JSON.parse(event.data);
       } catch (err) {
-        showAskError('started 事件不是合法 JSON');
+        showAskError(t('ui.composer.startedNotJSON', 'started 事件不是合法 JSON'));
         return;
       }
       if (!data.conversation_id) return;
-      appendAskProgress('开始 · 会话 ' + data.conversation_id);
+      appendAskProgress(t('ui.composer.startedEvent', '开始 · 会话 {id}', { id: data.conversation_id }));
       // 续接时目标会话已经在当前面板里：不能再 selectConversation，
       // 那会把 lastSeq 归零、清空消息再整页重拉。这里只刷新列表并
       // 立刻做一次增量拉取，新问题和回复按 seq 接在原来的消息后面。
@@ -4461,7 +4631,7 @@
       try {
         data = JSON.parse(event.data);
       } catch (err) {
-        showAskError('done 事件不是合法 JSON');
+        showAskError(t('ui.composer.doneNotJSON', 'done 事件不是合法 JSON'));
       }
       closeJobStream();
       // 汇总轮没有 turn 事件：done 里有 summary 正文就说明它真的回复了，
@@ -4488,10 +4658,17 @@
         if (data.status === 'budget_exceeded' && state.runMeter) {
           state.runMeter.classList.add('is-near-budget');
         }
-        const doneLine = appendAskProgress('完成 · ' + statusText(data.status) + ' · ' +
-          formatUSD(data.cost_usd) + ' · 失败 ' + data.failed + '/' + data.total);
+        const doneLine = appendAskProgress(t('ui.composer.doneEvent',
+          '完成 · {status} · {cost} · 失败 {failed}/{total}', {
+            status: statusText(data.status),
+            cost: formatUSD(data.cost_usd),
+            failed: data.failed,
+            total: data.total,
+          }));
         if (near) doneLine.classList.add('is-near-budget');
-        if (data.summary) appendAskProgress('汇总：' + data.summary);
+        if (data.summary) {
+          appendAskProgress(t('ui.composer.summaryDone', '汇总：{text}', { text: data.summary }));
+        }
       }
       // 跑完先刷新左侧列表（条数、最后活动时间），紧接着做一次增量
       // 消息拉取：续接时问题与回复都落在当前会话里，不必再等 3 秒的
@@ -4509,14 +4686,14 @@
       // 60 秒事件历史），所以这里只在确有消息时展示原因，不动按钮：
       // 解锁由紧随其后的 done 负责。
       if (!event.data) return;
-      let message = '议会出错';
+      let message = t('ui.composer.councilError', '议会出错');
       try {
         message = JSON.parse(event.data).message || message;
       } catch (err) {
         // 保留兜底文案。
       }
       showAskError(message);
-      appendAskProgress('错误 · ' + message);
+      appendAskProgress(t('ui.composer.errorLine', '错误 · {message}', { message: message }));
     });
   }
 
@@ -4536,24 +4713,26 @@
     }).catch((err) => {
       state.stopping = false;
       updateRunButton();
-      showAskError('停止失败：' + err.message);
+      showAskError(t('ui.composer.stopFailed', '停止失败：{err}', { err: err.message }));
     });
   }
 
   async function runAsk() {
     if (!state.writable || state.askRunning) return;
     if (state.agents.length === 0) {
-      showAskError(state.optionsLoaded ? '配置里还没有 agent' : '还没读到工作台选项');
+      showAskError(state.optionsLoaded
+        ? t('ui.composer.noAgent', '配置里还没有 agent')
+        : t('ui.composer.optionsNotLoadedShort', '还没读到工作台选项'));
       return;
     }
     const prompt = askPrompt.value.trim();
     if (!prompt) {
-      showAskError('先写一句要问的问题');
+      showAskError(t('ui.composer.questionRequired', '先写一句要问的问题'));
       askPrompt.focus();
       return;
     }
     if (state.selectedAgents.length === 0) {
-      showAskError('先选成员');
+      showAskError(t('ui.composer.membersRequired', '先选成员'));
       renderMemberPicker();
       openPopover(membersPopover, addButton);
       return;
@@ -4565,7 +4744,8 @@
       return agent !== null && !agentRunnable(agent);
     });
     if (notRunnable) {
-      showAskError('成员「' + agentDisplayName(notRunnable) + '」' + UNRUNNABLE_HINT);
+      showAskError(t('ui.composer.memberUnrunnable', '成员「{name}」{hint}',
+        { name: agentDisplayName(notRunnable), hint: unrunnableHint() }));
       renderMemberPicker();
       openPopover(membersPopover, addButton);
       return;
@@ -4575,7 +4755,7 @@
     // 变化之后遗留的旧状态。
     const paramMessage = validateParamValues(state.rounds, state.summary, state.budgetUSD);
     if (paramMessage) {
-      showAskError('参数不合法：' + paramMessage);
+      showAskError(t('ui.composer.invalidParams', '参数不合法：{message}', { message: paramMessage }));
       openParamPopover();
       return;
     }
@@ -4614,10 +4794,10 @@
     setAskRunning(true);
     try {
       const reply = await postJSON('/api/ask', payload);
-      if (!reply || !reply.job_id) throw new Error('接口没有返回 job_id');
+      if (!reply || !reply.job_id) throw new Error(t('ui.composer.jobNoID', '接口没有返回 job_id'));
       state.jobID = reply.job_id;
       startRunMeter();
-      appendAskProgress('已提交，等待会话开始…');
+      appendAskProgress(t('ui.composer.submitted', '已提交，等待会话开始…'));
       subscribeJob(reply.job_id);
       if (state.stopping) cancelJob(reply.job_id);
     } catch (err) {
@@ -4644,8 +4824,12 @@
     return value.toFixed(4) + ' USD';
   }
 
+  function uiLocale() {
+    return LANG === 'en' ? 'en-US' : 'zh-CN';
+  }
+
   function formatNumber(value) {
-    return typeof value === 'number' && isFinite(value) ? value.toLocaleString('zh-CN') : '0';
+    return typeof value === 'number' && isFinite(value) ? value.toLocaleString(uiLocale()) : '0';
   }
 
   // 记录里时间戳是次要信息：今天的消息只显示时分，跨天的才带日期。
@@ -4656,13 +4840,13 @@
     if (!value) return '';
     const date = new Date(value);
     if (isNaN(date.getTime())) return value;
-    const clock = date.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
+    const clock = date.toLocaleTimeString(uiLocale(), { hour12: false, hour: '2-digit', minute: '2-digit' });
     const today = now || new Date();
     const sameDay = date.getFullYear() === today.getFullYear()
       && date.getMonth() === today.getMonth()
       && date.getDate() === today.getDate();
     if (sameDay) return clock;
-    return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) + ' ' + clock;
+    return date.toLocaleDateString(uiLocale(), { month: '2-digit', day: '2-digit' }) + ' ' + clock;
   }
 
   // sender 着色：同一 id 永远得到同一个色相；user / system 是保留 id，
@@ -4703,7 +4887,7 @@
     if (!isUser) {
       const name = document.createElement('span');
       name.className = 'who';
-      name.textContent = who || '(未知)';
+      name.textContent = who || t('ui.common.unknownSender', '(未知)');
       head.appendChild(name);
     }
 
@@ -4734,8 +4918,8 @@
       const copy = document.createElement('button');
       copy.type = 'button';
       copy.className = 'msg-copy';
-      copy.textContent = '复制';
-      copy.title = '复制这条消息的正文';
+      copy.textContent = t('ui.messages.copy', '复制');
+      copy.title = t('ui.messages.copyTitle', '复制这条消息的正文');
       copy.addEventListener('click', () => copyText(message.text));
       return copy;
     };
@@ -4803,17 +4987,18 @@
     const conversation = findConversation(id);
     if (conversation && conversation.title) return conversation.title;
     if (state.detail && state.detail.id === id && state.detail.title) return state.detail.title;
-    return '(无标题)';
+    return t('ui.conversation.untitled', '(无标题)');
   }
 
   function renderAskTarget() {
     if (state.currentId) {
-      askTargetText.textContent = '继续「' + conversationTitle(state.currentId) + '」';
+      askTargetText.textContent = t('ui.composer.continueConversation', '继续「{title}」',
+        { title: conversationTitle(state.currentId) });
       askTargetNew.hidden = false;
       askTargetNew.disabled = state.askRunning;
       return;
     }
-    askTargetText.textContent = '新建会话';
+    askTargetText.textContent = t('ui.composer.newConversation', '新建会话');
     askTargetNew.hidden = true;
     askTargetNew.disabled = false;
   }
@@ -4863,9 +5048,10 @@
 
   // workspaceLabel 只用于提示文案与 aria；不存在的 id 退回「未分组」。
   function workspaceLabel(id) {
-    if (id === UNGROUPED_WORKSPACE_ID) return '未分组';
+    const ungrouped = t('ui.sidebar.workspaceUngrouped', '未分组');
+    if (id === UNGROUPED_WORKSPACE_ID) return ungrouped;
     const workspace = state.workspaces.find((item) => item.id === id);
-    return workspace && workspace.name ? workspace.name : '未分组';
+    return workspace && workspace.name ? workspace.name : ungrouped;
   }
 
   // 后端已经按 sort_order、name 排过；前端再排一次，顺序不依赖接口实现，
@@ -4900,14 +5086,14 @@
     const visible = new Set(visibleConversations());
     const groups = [{
       id: UNGROUPED_WORKSPACE_ID,
-      name: '未分组',
+      name: t('ui.sidebar.workspaceUngrouped', '未分组'),
       total: 0,
       conversations: [],
     }];
     for (const workspace of sortedWorkspaces()) {
       groups.push({
         id: workspace.id,
-        name: workspace.name || '(未命名工作区)',
+        name: workspace.name || t('ui.sidebar.workspaceUnnamed', '(未命名工作区)'),
         total: 0,
         conversations: [],
       });
@@ -4929,7 +5115,9 @@
     toggle.dataset.workspaceId = group.id;
     toggle.textContent = collapsed ? '▸' : '▾';
     toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-    const label = (collapsed ? '展开' : '折叠') + '「' + group.name + '」';
+    const label = collapsed
+      ? t('ui.sidebar.workspaceExpand', '展开「{name}」', { name: group.name })
+      : t('ui.sidebar.workspaceCollapse', '折叠「{name}」', { name: group.name });
     toggle.setAttribute('aria-label', label);
     toggle.title = label;
     toggle.addEventListener('click', (event) => {
@@ -4984,9 +5172,12 @@
       move.className = 'workspace-action';
       move.dataset.workspaceAction = direction;
       move.textContent = glyph;
-      move.title = (direction === 'up' ? '上移' : '下移') + '（' + shortcut + '）';
-      move.setAttribute('aria-label',
-        (direction === 'up' ? '上移' : '下移') + '工作区「' + group.name + '」');
+      move.title = direction === 'up'
+        ? t('ui.sidebar.workspaceMoveUpTitle', '上移（{shortcut}）', { shortcut: shortcut })
+        : t('ui.sidebar.workspaceMoveDownTitle', '下移（{shortcut}）', { shortcut: shortcut });
+      move.setAttribute('aria-label', direction === 'up'
+        ? t('ui.sidebar.workspaceMoveUpAria', '上移工作区「{name}」', { name: group.name })
+        : t('ui.sidebar.workspaceMoveDownAria', '下移工作区「{name}」', { name: group.name }));
       move.addEventListener('click', (event) => {
         event.stopPropagation();
         moveWorkspace(group, direction);
@@ -4998,7 +5189,7 @@
     rename.type = 'button';
     rename.className = 'workspace-action';
     rename.dataset.workspaceAction = 'rename';
-    rename.textContent = '重命名';
+    rename.textContent = t('ui.sidebar.workspaceRename', '重命名');
     rename.addEventListener('click', (event) => {
       event.stopPropagation();
       beginWorkspaceRename(group);
@@ -5009,7 +5200,7 @@
     remove.type = 'button';
     remove.className = 'workspace-action danger';
     remove.dataset.workspaceAction = 'delete';
-    remove.textContent = '删除';
+    remove.textContent = t('ui.sidebar.workspaceDelete', '删除');
     remove.addEventListener('click', (event) => {
       event.stopPropagation();
       openWorkspaceDelete(group, remove);
@@ -5046,15 +5237,19 @@
         direction: direction === 'up' ? 'up' : 'down',
       });
       if (!moved || moved.moved !== true) {
-        showToast('「' + group.name + '」已经在最' + (direction === 'up' ? '上' : '下') + '面');
+        showToast(direction === 'up'
+          ? t('ui.sidebar.workspaceTop', '「{name}」已经在最上面', { name: group.name })
+          : t('ui.sidebar.workspaceBottom', '「{name}」已经在最下面', { name: group.name }));
         return;
       }
       await loadWorkspaces();
       renderConversationList();
       focusWorkspaceHeader(group.id);
-      showToast('已' + (direction === 'up' ? '上移' : '下移') + '「' + group.name + '」');
+      showToast(direction === 'up'
+        ? t('ui.sidebar.workspaceMovedUp', '已上移「{name}」', { name: group.name })
+        : t('ui.sidebar.workspaceMovedDown', '已下移「{name}」', { name: group.name }));
     } catch (err) {
-      showToast('移动失败：' + err.message);
+      showToast(t('ui.sidebar.workspaceMoveFailed', '移动失败：{err}', { err: err.message }));
     } finally {
       state.workspaceMoving = false;
     }
@@ -5078,7 +5273,8 @@
   function attachWorkspaceMoveKeys(head, group) {
     if (!state.writable || group.id === UNGROUPED_WORKSPACE_ID) return;
     head.tabIndex = 0;
-    head.setAttribute('aria-label', '工作区「' + group.name + '」，Alt+↑ / Alt+↓ 排序');
+    head.setAttribute('aria-label',
+      t('ui.sidebar.workspaceAria', '工作区「{name}」，Alt+↑ / Alt+↓ 排序', { name: group.name }));
     head.addEventListener('keydown', (event) => {
       if (event.isComposing || !event.altKey || event.ctrlKey || event.metaKey) return;
       if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
@@ -5105,7 +5301,7 @@
       input.type = 'text';
       input.className = 'workspace-input';
       input.value = state.workspaceRename.draft;
-      input.setAttribute('aria-label', '新的工作区名字');
+      input.setAttribute('aria-label', t('ui.sidebar.workspaceNewNameAria', '新的工作区名字'));
       input.addEventListener('input', () => {
         if (!state.workspaceRename) return;
         state.workspaceRename.draft = input.value;
@@ -5133,7 +5329,7 @@
       }
       const hint = document.createElement('span');
       hint.className = 'workspace-hint';
-      hint.textContent = '回车保存 · Esc 取消';
+      hint.textContent = t('ui.sidebar.workspaceRenameHint', '回车保存 · Esc 取消');
       head.appendChild(hint);
     } else {
       const name = document.createElement('span');
@@ -5150,7 +5346,7 @@
       const count = document.createElement('span');
       count.className = 'workspace-count';
       count.textContent = workspaceCountText(group);
-      count.title = '当前视图共 ' + group.total + ' 场会话';
+      count.title = t('ui.sidebar.workspaceCountTitle', '当前视图共 {n} 场会话', { n: group.total });
       head.appendChild(count);
 
       // 未分组不是真实工作区，没有名字可改、也不能删。
@@ -5201,7 +5397,7 @@
       const button = document.createElement('button');
       button.id = 'workspace-create-button';
       button.type = 'button';
-      button.textContent = '+ 新建工作区';
+      button.textContent = t('ui.sidebar.workspaceCreate', '+ 新建工作区');
       button.addEventListener('click', beginWorkspaceCreate);
       workspaceCreateBox.appendChild(button);
       return;
@@ -5213,8 +5409,8 @@
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'workspace-input';
-    input.placeholder = '新工作区的名字';
-    input.setAttribute('aria-label', '新工作区名字');
+    input.placeholder = t('ui.sidebar.workspaceNamePlaceholder', '新工作区的名字');
+    input.setAttribute('aria-label', t('ui.sidebar.workspaceNameAria', '新工作区名字'));
     input.value = state.workspaceCreate.draft;
     input.addEventListener('input', () => {
       if (!state.workspaceCreate) return;
@@ -5242,7 +5438,7 @@
     }
     const hint = document.createElement('span');
     hint.className = 'workspace-hint';
-    hint.textContent = '回车新建 · Esc 取消';
+    hint.textContent = t('ui.sidebar.workspaceCreateHint', '回车新建 · Esc 取消');
     box.appendChild(hint);
     workspaceCreateBox.appendChild(box);
   }
@@ -5276,11 +5472,12 @@
     if (!state.workspaceCreate) return;
     const name = state.workspaceCreate.draft.trim();
     if (name === '') {
-      showWorkspaceCreateError('工作区名不能为空');
+      showWorkspaceCreateError(t('ui.sidebar.workspaceNameEmpty', '工作区名不能为空'));
       return;
     }
     if (Array.from(name).length > MAX_WORKSPACE_NAME_CHARS) {
-      showWorkspaceCreateError('工作区名最长 ' + MAX_WORKSPACE_NAME_CHARS + ' 个字符');
+      showWorkspaceCreateError(t('ui.sidebar.workspaceNameTooLong',
+        '工作区名最长 {n} 个字符', { n: MAX_WORKSPACE_NAME_CHARS }));
       return;
     }
 
@@ -5289,7 +5486,9 @@
       created = await postJSON('/api/workspaces', { name });
     } catch (err) {
       if (!state.workspaceCreate) return;
-      showWorkspaceCreateError(err.status === 409 ? '名字已被占用' : err.message);
+      showWorkspaceCreateError(err.status === 409
+        ? t('ui.sidebar.workspaceNameTaken', '名字已被占用')
+        : err.message);
       return;
     }
     state.workspaceCreate = null;
@@ -5299,12 +5498,13 @@
       showError(err);
     }
     renderConversationList();
-    showToast('已新建工作区「' + ((created && created.name) || name) + '」');
+    showToast(t('ui.sidebar.workspaceCreated', '已新建工作区「{name}」',
+      { name: (created && created.name) || name }));
   }
 
   function beginWorkspaceRename(group) {
     if (!state.writable) {
-      showToast('只读模式不能重命名工作区：用 council serve -rw 启动');
+      showToast(t('ui.sidebar.workspaceReadonlyRename', '只读模式不能重命名工作区：用 council serve -rw 启动'));
       return;
     }
     closeConversationMenu();
@@ -5338,11 +5538,12 @@
     const id = editing.id;
     const name = editing.draft.trim();
     if (name === '') {
-      showWorkspaceRenameError('工作区名不能为空');
+      showWorkspaceRenameError(t('ui.sidebar.workspaceNameEmpty', '工作区名不能为空'));
       return;
     }
     if (Array.from(name).length > MAX_WORKSPACE_NAME_CHARS) {
-      showWorkspaceRenameError('工作区名最长 ' + MAX_WORKSPACE_NAME_CHARS + ' 个字符');
+      showWorkspaceRenameError(t('ui.sidebar.workspaceNameTooLong',
+        '工作区名最长 {n} 个字符', { n: MAX_WORKSPACE_NAME_CHARS }));
       return;
     }
 
@@ -5353,7 +5554,9 @@
       if (!state.workspaceRename || state.workspaceRename.id !== id) return;
       // 409 的正文已经写明名字被占用；这里仍换成一句短提示，避免窄栏里
       // 塞进服务端的整句说明，同时保持编辑态让用户直接改。
-      showWorkspaceRenameError(err.status === 409 ? '名字已被占用' : err.message);
+      showWorkspaceRenameError(err.status === 409
+        ? t('ui.sidebar.workspaceNameTaken', '名字已被占用')
+        : err.message);
       return;
     }
     if (state.workspaceRename && state.workspaceRename.id === id) state.workspaceRename = null;
@@ -5363,12 +5566,13 @@
       showError(err);
     }
     renderConversationList();
-    showToast('已重命名为「' + ((result && result.name) || name) + '」');
+    showToast(t('ui.sidebar.workspaceRenamed', '已重命名为「{name}」',
+      { name: (result && result.name) || name }));
   }
 
   function openWorkspaceDelete(group, trigger) {
     if (!state.writable) {
-      showToast('只读模式不能删除工作区：用 council serve -rw 启动');
+      showToast(t('ui.sidebar.workspaceReadonlyDelete', '只读模式不能删除工作区：用 council serve -rw 启动'));
       return;
     }
     closeConversationMenu();
@@ -5380,8 +5584,9 @@
       returnFocus: trigger || null,
     };
     // 这句话是删除工作区的全部后果说明：只解除归属，不删会话。
-    workspaceDeleteText.textContent = '确定要删除工作区「' + group.name
-      + '」吗？只解除归属，不删除会话：组里的会话会回到「未分组」。';
+    workspaceDeleteText.textContent = t('ui.sidebar.workspaceDeleteText',
+      '确定要删除工作区「{name}」吗？只解除归属，不删除会话：组里的会话会回到「未分组」。',
+      { name: group.name });
     workspaceDeleteError.hidden = true;
     workspaceDeleteError.textContent = '';
     workspaceDeleteCancel.disabled = false;
@@ -5454,7 +5659,8 @@
     renderConversationList();
     if (returnFocus && returnFocus.isConnected) returnFocus.focus();
     else conversationSearch.focus();
-    showToast('已删除工作区「' + name + '」，会话已回到未分组');
+    showToast(t('ui.sidebar.workspaceDeleted',
+      '已删除工作区「{name}」，会话已回到未分组', { name: name }));
   }
 
   async function moveConversationToWorkspace(conversation, targetID) {
@@ -5466,7 +5672,7 @@
         workspace_id: targetID === UNGROUPED_WORKSPACE_ID ? null : targetID,
       });
     } catch (err) {
-      showToast('移动失败：' + err.message);
+      showToast(t('ui.sidebar.workspaceMoveFailed', '移动失败：{err}', { err: err.message }));
       return;
     }
     // 先改本地这份，刷新失败时列表也不会停在旧分组；随后再拉一次真实数据。
@@ -5477,7 +5683,7 @@
       showError(err);
     }
     renderConversationList();
-    showToast('已移到「' + workspaceLabel(targetID) + '」');
+    showToast(t('ui.sidebar.workspaceMoved', '已移到「{name}」', { name: workspaceLabel(targetID) }));
   }
 
   // draggedConversation 从内存状态（首选）或 dataTransfer 里认领这次拖动。
@@ -5569,7 +5775,7 @@
     // 算 2，会在粘贴时悄悄吃掉一半字符；真正的上限按码点在校验里挡，
     // 超了给一句能看懂的报错，而不是默默截短。
     input.value = state.rename.draft;
-    input.setAttribute('aria-label', '新的会话标题');
+    input.setAttribute('aria-label', t('ui.conversation.renameAria', '新的会话标题'));
     input.addEventListener('input', () => {
       if (!state.rename) return;
       state.rename.draft = input.value;
@@ -5590,7 +5796,7 @@
 
     const hint = document.createElement('span');
     hint.className = 'rename-hint';
-    hint.textContent = '回车保存 · Esc 取消';
+    hint.textContent = t('ui.conversation.renameHint', '回车保存 · Esc 取消');
     box.appendChild(hint);
 
     const error = document.createElement('span');
@@ -5615,7 +5821,7 @@
 
     const title = document.createElement('span');
     title.className = 'title';
-    title.textContent = conversation.title || '(无标题)';
+    title.textContent = conversation.title || t('ui.conversation.untitled', '(无标题)');
     titleLine.appendChild(title);
 
     // 已归档的会话在标题旁标一枚灰字。样式与正常列表完全一致，只多这一枚，
@@ -5623,7 +5829,7 @@
     if (conversation.archived) {
       const tag = document.createElement('span');
       tag.className = 'archived-tag';
-      tag.textContent = '已归档';
+      tag.textContent = t('ui.conversation.archivedTag', '已归档');
       titleLine.appendChild(tag);
     }
     button.appendChild(titleLine);
@@ -5631,8 +5837,8 @@
     const meta = document.createElement('span');
     meta.className = 'meta';
     const bits = [];
-    bits.push(conversation.members + ' 人');
-    bits.push(conversation.message_count + ' 条');
+    bits.push(t('ui.conversation.members', '{n} 人', { n: conversation.members }));
+    bits.push(t('ui.conversation.messages', '{n} 条', { n: conversation.message_count }));
     if (conversation.last_activity) bits.push(formatTime(conversation.last_activity));
     meta.textContent = bits.join(' · ');
     button.appendChild(meta);
@@ -5650,8 +5856,8 @@
     more.type = 'button';
     more.className = 'conv-more';
     more.textContent = '⋯';
-    more.title = '会话操作';
-    more.setAttribute('aria-label', '会话操作');
+    more.title = t('ui.conversation.actions', '会话操作');
+    more.setAttribute('aria-label', t('ui.conversation.actions', '会话操作'));
     more.setAttribute('aria-haspopup', 'menu');
     more.setAttribute('aria-expanded', 'false');
 
@@ -5664,7 +5870,7 @@
     rename.type = 'button';
     rename.className = 'menu-item';
     rename.setAttribute('role', 'menuitem');
-    rename.textContent = '重命名';
+    rename.textContent = t('ui.conversation.rename', '重命名');
     rename.addEventListener('click', (event) => {
       event.stopPropagation();
       closeConversationMenu();
@@ -5678,7 +5884,9 @@
     archive.type = 'button';
     archive.className = 'menu-item';
     archive.setAttribute('role', 'menuitem');
-    archive.textContent = conversation.archived ? '取消归档' : '归档';
+    archive.textContent = conversation.archived
+      ? t('ui.conversation.unarchive', '取消归档')
+      : t('ui.conversation.archive', '归档');
     archive.addEventListener('click', (event) => {
       event.stopPropagation();
       closeConversationMenu();
@@ -5694,7 +5902,7 @@
     remove.type = 'button';
     remove.className = 'menu-item';
     remove.setAttribute('role', 'menuitem');
-    remove.textContent = '删除';
+    remove.textContent = t('ui.conversation.delete', '删除');
     remove.addEventListener('click', (event) => {
       event.stopPropagation();
       openDeleteConfirm(conversation, more);
@@ -5772,22 +5980,26 @@
     const total = viewConversations().length;
     conversationCount.hidden = total === 0;
     conversationCount.textContent = total === 0 ? '' : (visible.length + ' / ' + total);
-    conversationCount.title = total === 0 ? '' : '匹配 ' + visible.length + ' 场 / 共 ' + total + ' 场';
+    conversationCount.title = total === 0
+      ? ''
+      : t('ui.sidebar.countTitle', '匹配 {visible} 场 / 共 {total} 场',
+        { visible: visible.length, total: total });
 
     if (visible.length === 0) {
       if (total === 0) {
         if (state.viewArchived) {
-          conversationsEmpty.textContent = '还没有归档的会话';
+          conversationsEmpty.textContent = t('ui.sidebar.emptyArchived', '还没有归档的会话');
         } else if (state.archivedConversations.length > 0) {
-          conversationsEmpty.textContent = '没有未归档的会话，点上方「已归档 ' +
-            state.archivedConversations.length + '」查看';
+          conversationsEmpty.textContent = t('ui.sidebar.emptyAllArchived',
+            '没有未归档的会话，点上方「已归档 {n}」查看',
+            { n: state.archivedConversations.length });
         } else {
           conversationsEmpty.textContent = state.writable
-            ? '还没有会话，问一句就会新建'
-            : '还没有会话，先在终端里跑一次 council';
+            ? t('ui.sidebar.emptyWritable', '还没有会话，问一句就会新建')
+            : t('ui.sidebar.emptyReadonly', '还没有会话，先在终端里跑一次 council');
         }
       } else {
-        conversationsEmpty.textContent = '没有匹配的会话';
+        conversationsEmpty.textContent = t('ui.sidebar.emptyFiltered', '没有匹配的会话');
       }
       conversationsEmpty.hidden = false;
     } else {
@@ -5808,8 +6020,8 @@
     archivedCount.textContent = String(state.archivedConversations.length);
     archivedToggle.setAttribute('aria-pressed', state.viewArchived ? 'true' : 'false');
     archivedToggle.title = state.viewArchived
-      ? '回到未归档的会话'
-      : '只看已归档的会话；正在看的会话与消息不会被清空';
+      ? t('ui.sidebar.archivedBackTitle', '回到未归档的会话')
+      : t('ui.sidebar.archivedTitle', '只看已归档的会话；正在看的会话与消息不会被清空');
   }
 
   function focusRenameInput(selectAll) {
@@ -5843,7 +6055,7 @@
 
   function beginRename(conversation) {
     if (!state.writable) {
-      showToast('只读模式不能重命名：用 council serve -rw 启动');
+      showToast(t('ui.conversation.readonlyRename', '只读模式不能重命名：用 council serve -rw 启动'));
       return;
     }
     closeConversationMenu();
@@ -5865,13 +6077,13 @@
     const id = state.rename.id;
     const title = state.rename.draft.trim();
     if (title === '') {
-      showRenameError('标题不能为空：请给出 1–120 个字符的标题');
+      showRenameError(t('ui.conversation.renameEmpty', '标题不能为空：请给出 1–120 个字符的标题'));
       return;
     }
     // Array.from 按字符（码点）数，与后端 utf8.RuneCountInString 同口径；
     // string.length 会把一个 emoji 数成 2，让前后端的 120 边界对不上。
     if (Array.from(title).length > 120) {
-      showRenameError('标题最长 120 个字符');
+      showRenameError(t('ui.conversation.renameTooLong', '标题最长 120 个字符'));
       return;
     }
     try {
@@ -5886,9 +6098,11 @@
       if (state.detail && state.detail.id === id) state.detail.title = result.title;
       // 标题栏（会话头）与列表是两份 DOM，都得同步；只改列表会让当前
       // 会话的头部继续显示旧标题，直到下一次 selectConversation。
-      if (state.currentId === id) messagesTitle.textContent = result.title || '(无标题)';
+      if (state.currentId === id) {
+        messagesTitle.textContent = result.title || t('ui.conversation.untitled', '(无标题)');
+      }
       renderConversationList();
-      showToast('已重命名为「' + result.title + '」');
+      showToast(t('ui.conversation.renamed', '已重命名为「{title}」', { title: result.title }));
     } catch (err) {
       // 失败原因留在输入框下面（例如只读模式的 405）：列表保持原样，
       // 用户可以继续改，或按 Esc 退出。
@@ -5922,20 +6136,21 @@
   // 默认焦点放在「取消」上：删除不可撤销，误按回车应当是取消而不是删。
   function openDeleteConfirm(conversation, trigger) {
     if (!state.writable) {
-      showToast('只读模式不能删除：用 council serve -rw 启动');
+      showToast(t('ui.conversation.readonlyDelete', '只读模式不能删除：用 council serve -rw 启动'));
       return;
     }
     closeConversationMenu();
     closePopover();
-    const title = conversation.title || '(无标题)';
+    const title = conversation.title || t('ui.conversation.untitled', '(无标题)');
     state.deleteConfirm = {
       id: conversation.id,
       title,
       busy: false,
       returnFocus: trigger || null,
     };
-    deleteText.textContent = '确定要删除「' + title + '」吗？删除后它会从会话列表中消失，'
-      + '库里的记录会保留（软删除）。';
+    deleteText.textContent = t('ui.conversation.deleteText',
+      '确定要删除「{title}」吗？删除后它会从会话列表中消失，库里的记录会保留（软删除）。',
+      { title: title });
     deleteError.hidden = true;
     deleteError.textContent = '';
     deleteCancel.disabled = false;
@@ -5960,9 +6175,9 @@
       state.lastSeq = 0;
       state.detail = null;
       messageList.replaceChildren();
-      messagesTitle.textContent = '消息';
+      messagesTitle.textContent = t('ui.messages.title', '消息');
       messagesMeta.textContent = '';
-      messagesEmpty.textContent = '会话已删除，在下面问一句就会新建一个';
+      messagesEmpty.textContent = t('ui.messages.emptyDeleted', '会话已删除，在下面问一句就会新建一个');
       messagesEmpty.hidden = false;
       membersBody.replaceChildren();
       membersEmpty.hidden = true;
@@ -6011,7 +6226,7 @@
     // 节点；搜索框是列表区里仍然存在的稳定落点。
     if (returnFocus && returnFocus.isConnected) returnFocus.focus();
     else conversationSearch.focus();
-    showToast('已删除「' + title + '」');
+    showToast(t('ui.conversation.deleted', '已删除「{title}」', { title: title }));
   }
 
   // ---- 归档 / 取消归档 ----
@@ -6022,17 +6237,19 @@
   // 换列表数据源，同样不清消息。
   async function toggleArchive(conversation) {
     if (!state.writable) {
-      showToast('只读模式不能归档：用 council serve -rw 启动');
+      showToast(t('ui.conversation.readonlyArchive', '只读模式不能归档：用 council serve -rw 启动'));
       return;
     }
     const id = conversation.id;
-    const title = conversation.title || '(无标题)';
+    const title = conversation.title || t('ui.conversation.untitled', '(无标题)');
     const targetArchived = !conversation.archived;
     try {
       await postJSON('/api/conversations/' + encodeURIComponent(id) +
         (targetArchived ? '/archive' : '/unarchive'), {});
     } catch (err) {
-      showToast((targetArchived ? '归档失败：' : '取消归档失败：') + err.message);
+      showToast(targetArchived
+        ? t('ui.conversation.archiveFailed', '归档失败：{err}', { err: err.message })
+        : t('ui.conversation.unarchiveFailed', '取消归档失败：{err}', { err: err.message }));
       return;
     }
     try {
@@ -6042,7 +6259,9 @@
       return;
     }
     renderConversationList();
-    showToast(targetArchived ? '已归档「' + title + '」' : '已取消归档「' + title + '」');
+    showToast(targetArchived
+      ? t('ui.conversation.archived', '已归档「{title}」', { title: title })
+      : t('ui.conversation.unarchived', '已取消归档「{title}」', { title: title }));
   }
 
   // setArchivedView 切左侧视图。只换数据源，不碰 currentId / lastSeq / 消息区：
@@ -6069,11 +6288,14 @@
     }
     costValue.textContent = formatUSDFull(usage.cost_usd);
     if (usage.complete) {
-      costNote.textContent = '金额完整';
+      const complete = t('ui.settings.costComplete', '金额完整');
+      costNote.textContent = complete;
+      costNote.title = complete;
       costNote.className = 'cost-note';
     } else {
-      costNote.textContent = '金额不完整';
-      costNote.title = '有成员的 provider 不报金额，合计只是报了金额的那些轮之和';
+      costNote.textContent = t('ui.settings.costIncomplete', '金额不完整');
+      costNote.title = t('ui.settings.costIncompleteHint',
+        '有成员的 provider 不报金额，合计只是报了金额的那些轮之和');
       costNote.className = 'cost-note warn';
     }
   }
@@ -6202,7 +6424,8 @@
     const base = sanitizeFilenamePart(title) ||
       ('council-' + String(conversationID || '').slice(0, 8));
     if (variant === 'dialogue') {
-      return base + '-' + exportStamp(date) + '-对话.' + extension;
+      return base + '-' + exportStamp(date) +
+        t('ui.export.dialogueSuffix', '-对话') + '.' + extension;
     }
     return base + '-' + exportStamp(date) + '.' + extension;
   }
@@ -6257,23 +6480,23 @@
   // 为空就只写有的那一个；已经退出的成员后面注明，避免导出看起来像它
   // 还在发言。一个成员都没有时写「无」。
   function exportMemberLine(entries) {
-    if (entries.length === 0) return '无';
+    if (entries.length === 0) return t('ui.export.memberNone', '无');
     const parts = [];
     for (const entry of entries) {
       const pair = [entry.provider, entry.model].filter(Boolean).join('/');
-      const suffix = entry.active ? '' : '（已退出）';
+      const suffix = entry.active ? '' : t('ui.export.memberExited', '（已退出）');
       parts.push(entry.name + (pair ? ' (' + pair + ')' : '') + suffix);
     }
-    return parts.join('、');
+    return parts.join(t('ui.common.listSeparator', '、'));
   }
 
   // 发言者：user / system 是保留 id，固定写中文；成员写显示名，配置里
   // 已经没有的 id 原样写 id（看板的消息头也是这么画的）。
   function exportSenderName(entries, senderID) {
-    if (senderID === 'user') return '你';
-    if (senderID === 'system') return '系统';
+    if (senderID === 'user') return t('ui.export.senderUser', '你');
+    if (senderID === 'system') return t('ui.export.senderSystem', '系统');
     const entry = entries.find((item) => item.id === senderID);
-    return (entry && entry.name) || senderID || '(未知)';
+    return (entry && entry.name) || senderID || t('ui.common.unknown', '(未知)');
   }
 
   // buildMarkdown 是纯字符串拼装：正文原样放进去（保留换行），不加引用
@@ -6294,22 +6517,26 @@
       ? allMessages.filter((message) => message.kind !== 'system')
       : allMessages;
     const lines = [];
-    lines.push('# ' + ((detail && detail.title) || '(无标题)'));
+    lines.push('# ' + ((detail && detail.title) || t('ui.conversation.untitled', '(无标题)')));
     lines.push('');
     if (truncated) {
-      lines.push('> **已截断**：导出的消息达到 ' + limit +
-        ' 条上限，后面的消息没有包含在这个文件里。');
+      lines.push(t('ui.export.truncated',
+        '> **已截断**：导出的消息达到 {limit} 条上限，后面的消息没有包含在这个文件里。',
+        { limit: limit }));
       lines.push('');
     }
-    lines.push('- 会话：' + ((detail && detail.id) || ''));
-    lines.push('- 目录：' + ((detail && detail.cwd) || '未绑定'));
-    lines.push('- 成员：' + exportMemberLine(entries));
+    lines.push(t('ui.export.conversationLabel', '- 会话：{id}',
+      { id: (detail && detail.id) || '' }));
+    lines.push(t('ui.export.directoryLabel', '- 目录：{path}',
+      { path: (detail && detail.cwd) || t('ui.export.unbound', '未绑定') }));
+    lines.push(t('ui.export.membersLabel', '- 成员：{members}',
+      { members: exportMemberLine(entries) }));
     if (dialogueOnly) {
       // 让文件自己说清它是哪一个版本：同一场会话的两份导出放在一起时，
       // 只看文件名之外还能从正文核对筛选口径。
-      lines.push('- 范围：仅对话（不含系统事件）');
+      lines.push(t('ui.export.scope', '- 范围：仅对话（不含系统事件）'));
     }
-    lines.push('- 导出时间：' + exportDateTime(now));
+    lines.push(t('ui.export.exportedAtLabel', '- 导出时间：{time}', { time: exportDateTime(now) }));
     lines.push('');
     lines.push('---');
     lines.push('');
@@ -6321,33 +6548,42 @@
     }
     if (messages.length === 0) {
       lines.push(dialogueOnly && allMessages.length > 0
-        ? '（没有可导出的对话消息：这个会话只有系统事件）'
-        : '（这个会话还没有消息）');
+        ? t('ui.export.noMessagesDialogue', '（没有可导出的对话消息：这个会话只有系统事件）')
+        : t('ui.export.noMessages', '（这个会话还没有消息）'));
       lines.push('');
     }
     lines.push('---');
     lines.push('');
-    lines.push('## 账');
+    lines.push('## ' + t('ui.export.accountHeading', '账'));
     lines.push('');
-    lines.push('| 成员 | 轮 | IN | OUT | 费用 |');
+    lines.push('| ' + [
+      t('ui.export.colMember', '成员'),
+      t('ui.export.colTurns', '轮'),
+      'IN',
+      'OUT',
+      t('ui.export.colCost', '费用'),
+    ].join(' | ') + ' |');
     lines.push('|---|---:|---:|---:|---:|');
     for (const entry of rows) {
       const stat = entry.stat || {};
-      const cost = stat.cost_reported === false ? '不报' : formatUSD(stat.cost_usd || 0);
+      const cost = stat.cost_reported === false
+        ? t('ui.common.notReported', '不报')
+        : formatUSD(stat.cost_usd || 0);
       lines.push('| ' + entry.name + ' | ' + String(stat.turns || 0) + ' | ' +
         formatNumber(stat.in) + ' | ' + formatNumber(stat.out) + ' | ' + cost + ' |');
     }
     if (rows.length === 0) {
-      lines.push('| （没有成员） | 0 | 0 | 0 | $0.0000 |');
+      lines.push(t('ui.export.noMembersRow', '| （没有成员） | 0 | 0 | 0 | $0.0000 |'));
     }
     lines.push('');
     // 合计永远取接口给的 cost_usd：它是「报了金额的那些轮之和」。
     // complete=false 时必须写明不完整，否则那笔钱会被当成全额。
     const cost = (usage && usage.cost_usd) || 0;
     const suffix = usage && usage.complete === true
-      ? '金额完整'
-      : '不完整：有成员不报金额';
-    lines.push('合计 ' + formatUSD(cost) + '（' + suffix + '）');
+      ? t('ui.export.complete', '金额完整')
+      : t('ui.export.incomplete', '不完整：有成员不报金额');
+    lines.push(t('ui.export.total', '合计 {cost}（{suffix}）',
+      { cost: formatUSD(cost), suffix: suffix }));
     lines.push('');
     return lines.join('\n');
   }
@@ -6408,7 +6644,11 @@
     closePopover();
     const encoded = encodeURIComponent(id);
     const dialogue = format === 'md-dialogue';
-    const label = format === 'json' ? 'JSON' : (dialogue ? '仅对话 Markdown' : 'Markdown');
+    const label = format === 'json'
+      ? 'JSON'
+      : (dialogue
+        ? t('ui.export.dialogueLabel', '仅对话 Markdown')
+        : t('ui.export.markdownLabel', 'Markdown'));
     try {
       const [detail, page, usage] = await Promise.all([
         api('/api/conversations/' + encoded),
@@ -6433,8 +6673,10 @@
       clearError();
       // 界面提示与导出件顶部同口径：达到上限时必须在页面上也说出来，
       // 不能只把提示藏在文件里。
-      showToast('已导出 ' + label + (truncated
-        ? '（消息超过 ' + limit + ' 条上限，已截断）' : ''));
+      showToast(truncated
+        ? t('ui.export.toastTruncated', '已导出 {label}（消息超过 {limit} 条上限，已截断）',
+          { label: label, limit: limit })
+        : t('ui.export.toast', '已导出 {label}', { label: label }));
     } catch (err) {
       showError(err);
     } finally {
@@ -6484,7 +6726,7 @@
     memberAddMenu.replaceChildren();
     const title = document.createElement('div');
     title.className = 'popover-title';
-    title.textContent = '添加成员';
+    title.textContent = t('ui.members.menuTitle', '添加成员');
     memberAddMenu.appendChild(title);
 
     const current = new Set();
@@ -6494,22 +6736,26 @@
     const available = state.agents.filter((agent) =>
       agent && agent.source !== 'claude' && !current.has(agent.id));
     if (available.length > 0) {
-      memberAddMenu.appendChild(menuSection('配置里的模型'));
+      memberAddMenu.appendChild(menuSection(t('ui.members.menuConfigModels', '配置里的模型')));
       for (const agent of available) {
         memberAddMenu.appendChild(menuAction(memberLabel(agent), () => addMember(agent.id)));
       }
     } else if (state.optionsLoaded) {
-      memberAddMenu.appendChild(menuHint('配置里的模型都已经在这个会话里'));
+      memberAddMenu.appendChild(menuHint(
+        t('ui.members.menuAllIn', '配置里的模型都已经在这个会话里')));
     } else {
-      memberAddMenu.appendChild(menuHint('还没有读到配置里的成员'));
+      memberAddMenu.appendChild(menuHint(
+        t('ui.members.menuNoConfig', '还没有读到配置里的成员')));
     }
 
-    memberAddMenu.appendChild(menuSection('本机识别'));
+    memberAddMenu.appendChild(menuSection(t('ui.members.menuDiscover', '本机识别')));
     const discover = document.createElement('button');
     discover.type = 'button';
     discover.className = 'menu-item';
     discover.setAttribute('role', 'menuitem');
-    discover.textContent = state.discovering ? '识别中…（几秒）' : '识别本机模型（不花钱）';
+    discover.textContent = state.discovering
+      ? t('ui.members.discovering', '识别中…（几秒）')
+      : t('ui.members.discover', '识别本机模型（不花钱）');
     discover.disabled = state.discovering;
     discover.addEventListener('click', () => discoverModels());
     memberAddMenu.appendChild(discover);
@@ -6549,22 +6795,24 @@
     const failed = ((state.discovered && state.discovered.providers) || [])
       .filter((p) => p && p.error);
     if (models.length === 0) {
-      memberAddMenu.appendChild(menuHint('这一轮没有识别到模型'));
+      memberAddMenu.appendChild(menuHint(t('ui.members.discoveredEmpty', '这一轮没有识别到模型')));
     } else {
-      memberAddMenu.appendChild(menuSection('识别到的模型'));
+      memberAddMenu.appendChild(menuSection(t('ui.members.discoveredTitle', '识别到的模型')));
       for (const m of models) {
         const parts = [m.name || m.model, m.provider];
         if (m.custom) parts.push('本地转发服务');
         const item = menuAction(parts.join(' · '), () => addModelMember(m));
         if (m.in_config) {
           item.disabled = true;
-          item.title = '配置里已经有 ' + (m.agent_id || '同一个模型');
+          item.title = t('ui.members.inConfig', '配置里已经有 {name}',
+            { name: m.agent_id || t('ui.members.sameModel', '同一个模型') });
         }
         memberAddMenu.appendChild(item);
       }
     }
     for (const p of failed) {
-      memberAddMenu.appendChild(menuHint(p.id + '：' + p.error));
+      memberAddMenu.appendChild(menuHint(t('ui.members.discoverFailed', '{id}：{error}',
+        { id: p.id, error: p.error })));
     }
   }
 
@@ -6599,7 +6847,8 @@
         });
       if (state.currentId !== id) return;
       applyMembers(result);
-      showToast('已加入成员 ' + (model.name || model.model));
+      showToast(t('ui.members.added', '已加入成员 {name}',
+        { name: model.name || model.model }));
       state.discovered = null;
       await loadOptions();
     } catch (err) {
@@ -6625,7 +6874,8 @@
   function updateMembersMeta() {
     if (!state.detail || state.detail.id !== state.currentId) return;
     const active = (state.detail.members || []).filter((member) => member && member.active).length;
-    messagesMeta.textContent = messageList.children.length + ' 条 · ' + active + ' 位成员';
+    messagesMeta.textContent = t('ui.messages.meta', '{messages} 条 · {members} 位成员',
+      { messages: messageList.children.length, members: active });
   }
 
   // addMember 同时服务「添加成员」与「重新加入」：后端是同一个端点，
@@ -6643,7 +6893,9 @@
         { agent_id: agentID });
       if (state.currentId !== id) return;
       applyMembers(result);
-      showToast((wasInactive ? '已重新加入成员 ' : '已加入成员 ') + agentDisplayName(agentID));
+      showToast(wasInactive
+        ? t('ui.members.rejoined', '已重新加入成员 {name}', { name: agentDisplayName(agentID) })
+        : t('ui.members.added', '已加入成员 {name}', { name: agentDisplayName(agentID) }));
     } catch (err) {
       showError(err);
     }
@@ -6671,7 +6923,7 @@
   // 改变此后的议会成员，误按回车应当什么也不做。
   function openMemberRemoveConfirm(member, trigger) {
     if (!state.writable) {
-      showToast('只读模式不能移除成员：用 council serve -rw 启动');
+      showToast(t('ui.members.removeReadonly', '只读模式不能移除成员：用 council serve -rw 启动'));
       return;
     }
     if (!member || state.currentId === null) return;
@@ -6684,8 +6936,9 @@
       busy: false,
       returnFocus: trigger || null,
     };
-    memberRemoveText.textContent = '确定要把「' + name + '」移出这个会话吗？'
-      + '它会标记为已退出，之前说过的话仍保留。';
+    memberRemoveText.textContent = t('ui.members.removeConfirmText',
+      '确定要把「{name}」移出这个会话吗？它会标记为已退出，之前说过的话仍保留。',
+      { name: name });
     memberRemoveError.hidden = true;
     memberRemoveError.textContent = '';
     memberRemoveCancel.disabled = false;
@@ -6724,7 +6977,7 @@
       if (returnFocus && returnFocus.isConnected) returnFocus.focus();
       else if (!memberAdd.hidden) memberAdd.focus();
       else document.body.focus();
-      showToast('已移除「' + name + '」');
+      showToast(t('ui.members.removed', '已移除「{name}」', { name: name }));
     } catch (err) {
       if (!state.memberConfirm || state.memberConfirm.conversationId !== conversationId ||
           state.memberConfirm.agentID !== agentID) return;
@@ -6776,11 +7029,21 @@
       // 会话详情按配置补上的 member.model，行里不会只剩 id 与 provider。
       const model = (member && member.model) || (usageById.get(id) || {}).model || '';
       const stat = usageById.get(id) || {};
-      const suffix = member && !member.active ? ' · 已退出' : '';
+      const suffix = member && !member.active
+        ? ' · ' + t('ui.members.exited', '已退出')
+        : '';
       const cacheBits = [];
-      if (stat.cache_create) cacheBits.push('建 ' + formatNumber(stat.cache_create));
-      if (stat.cache_read) cacheBits.push('读 ' + formatNumber(stat.cache_read));
-      const cacheNote = cacheBits.length ? '缓存 ' + cacheBits.join(' / ') : '';
+      if (stat.cache_create) {
+        cacheBits.push(t('ui.members.cacheCreate', '建 {n}', { n: formatNumber(stat.cache_create) }));
+      }
+      if (stat.cache_read) {
+        cacheBits.push(t('ui.members.cacheRead', '读 {n}', { n: formatNumber(stat.cache_read) }));
+      }
+      const cacheNote = cacheBits.length
+        ? t('ui.members.cacheNote', '缓存 {parts}', {
+          parts: cacheBits.join(' / '),
+        })
+        : '';
       sub.textContent = [id, provider, model, cacheNote].filter(Boolean).join(' · ') + suffix;
       memberCell.appendChild(sub);
       row.appendChild(memberCell);
@@ -6788,7 +7051,9 @@
       addCell(row, String(stat.turns || 0), 'num');
       addCell(row, formatNumber(stat.in), 'num');
       addCell(row, formatNumber(stat.out), 'num');
-      addCell(row, stat.cost_reported === false ? '不报' : formatUSD(stat.cost_usd || 0), 'num');
+      addCell(row, stat.cost_reported === false
+        ? t('ui.common.notReported', '不报')
+        : formatUSD(stat.cost_usd || 0), 'num');
 
       // 只读模式不画操作列；写模式里每行都补一格，空成员（只在用量
       // 表里出现的旧 id）给空格子，保证六列对齐。
@@ -6799,10 +7064,15 @@
           const action = document.createElement('button');
           action.type = 'button';
           action.className = member.active ? 'member-remove' : 'member-rejoin';
-          action.textContent = member.active ? '移除' : '重新加入';
-          action.title = member.active ? '把这个成员移出会话' : '让这个已退出的成员重新加入';
-          action.setAttribute('aria-label',
-            (member.active ? '移除成员 ' : '重新加入成员 ') + memberName);
+          action.textContent = member.active
+            ? t('ui.members.remove', '移除')
+            : t('ui.members.rejoin', '重新加入');
+          action.title = member.active
+            ? t('ui.members.removeTitle', '把这个成员移出会话')
+            : t('ui.members.rejoinTitle', '让这个已退出的成员重新加入');
+          action.setAttribute('aria-label', member.active
+            ? t('ui.members.removeAria', '移除成员 {name}', { name: memberName })
+            : t('ui.members.rejoinAria', '重新加入成员 {name}', { name: memberName }));
           action.addEventListener('click', () => {
             if (member.active) openMemberRemoveConfirm(member, action);
             else addMember(member.agent_id);
@@ -6847,6 +7117,21 @@
     prompt: 'prompt 变了',
     permissions: 'permissions 变了',
   };
+  const SETTINGS_RELOAD_KEYS = {
+    display_name: 'ui.settings.fieldDisplayName',
+    role: 'ui.settings.fieldDisplayName',
+    provider: 'ui.settings.fieldProvider',
+    model: 'ui.settings.fieldModel',
+    effort: 'ui.settings.fieldEffort',
+    prompt: 'ui.settings.fieldPrompt',
+    permissions: 'ui.settings.fieldPermissions',
+  };
+
+  function settingsReloadLabel(field) {
+    const key = SETTINGS_RELOAD_KEYS[field];
+    if (key) return t(key, SETTINGS_RELOAD_LABELS[field] || field);
+    return t('ui.settings.fieldChanged', '{field} 变了', { field: field });
+  }
 
   function settingsReloadPolicy() {
     const policy = state.settings && state.settings.reload;
@@ -6867,17 +7152,23 @@
   function settingsPreviewVerdict(preview) {
     if (!preview) return { reloaded: true, reasons: [] };
     if (preview.kind === 'delete') {
-      return { reloaded: false, reasons: ['删除了成员 ' + preview.id] };
+      return {
+        reloaded: false,
+        reasons: [t('ui.settings.previewReasonDeleted', '删除了成员 {id}', { id: preview.id })],
+      };
     }
     if (!preview.editing) {
       // 新增成员走设置页这条路一律要重启；「从模型添加」是另一条热路径，
       // 不经过这个预览框。
-      return { reloaded: false, reasons: ['新增成员 ' + preview.id] };
+      return {
+        reloaded: false,
+        reasons: [t('ui.settings.previewReasonNew', '新增成员 {id}', { id: preview.id })],
+      };
     }
     const policy = settingsReloadPolicy();
     const reasons = [];
     const addReason = (field) => {
-      const label = SETTINGS_RELOAD_LABELS[field] || field + ' 变了';
+      const label = settingsReloadLabel(field);
       if (!reasons.includes(label)) reasons.push(label);
     };
     // 上一次「改了 display_name / model 但没重启」留下的待重启字段
@@ -6886,7 +7177,7 @@
     const current = settingsAgentByID(preview.id);
     if (current) {
       if (current.runnable === false) {
-        reasons.push('新增成员 ' + preview.id);
+        reasons.push(t('ui.settings.previewReasonNew', '新增成员 {id}', { id: preview.id }));
       }
       for (const field of current.pending_restart_fields || []) addReason(field);
     }
@@ -6920,7 +7211,9 @@
   }
 
   function layerLabel(layer) {
-    return layer.project ? '项目层' : '全局层';
+    return layer.project
+      ? t('ui.settings.layerProject', '项目层')
+      : t('ui.settings.layerGlobal', '全局层');
   }
 
   // settingsSchemaText 只认 /api/health 的整数版本号；缺字段时给破折号，
@@ -6930,7 +7223,11 @@
     const expected = Number.isInteger(health.schema_expected_version)
       ? health.schema_expected_version
       : null;
-    return '库 v' + health.schema_version + (expected === null ? '' : ' · 程序 v' + expected);
+    if (expected === null) {
+      return t('ui.settings.schemaDbOnly', '库 v{db}', { db: health.schema_version });
+    }
+    return t('ui.settings.schemaText', '库 v{db} · 程序 v{expected}',
+      { db: health.schema_version, expected: expected });
   }
 
   // settingsVersionParts 把构建脚本注入的 <VERSION>+git.<hash>[.dirty]
@@ -6940,7 +7237,10 @@
     if (text === '') return { version: '—', build: '—' };
     const plus = text.indexOf('+');
     if (plus < 0) {
-      return { version: text, build: text.endsWith('-dev') ? '开发构建' : '—' };
+      return {
+        version: text,
+        build: text.endsWith('-dev') ? t('ui.settings.devBuild', '开发构建') : '—',
+      };
     }
     return { version: text.slice(0, plus), build: text.slice(plus + 1) };
   }
@@ -6985,13 +7285,17 @@
       const stateText = document.createElement('span');
       stateText.className = 'settings-row-value layer-state';
       stateText.textContent = layer.exists
-        ? (isTarget ? '生效 · 写回目标' : '生效')
-        : '不存在';
+        ? (isTarget
+          ? t('ui.settings.layerActiveTarget', '生效 · 写回目标')
+          : t('ui.settings.layerActive', '生效'))
+        : t('ui.settings.layerMissing', '不存在');
       item.append(main, stateText);
       settingsLayers.appendChild(item);
     }
     settingsWriteTarget.textContent = settings.write_target
-      ? '写回目标：' + settings.write_target + '（只改这一份里与所选 agent 相关的段，其它内容与其它层一个字节都不动）'
+      ? t('ui.settings.writeTarget',
+        '写回目标：{path}（只改这一份里与所选 agent 相关的段，其它内容与其它层一个字节都不动）',
+        { path: settings.write_target })
       : '';
   }
 
@@ -7018,7 +7322,7 @@
       const source = SETTINGS_SOURCES[agent.source] || agent.source || '';
       const sourceCell = addCell(source, 'settings-source');
       if (agent.source === 'claude') {
-        sourceCell.title = '来自 .claude/agents 的只读导入，请直接改那边的文件';
+        sourceCell.title = t('ui.settings.sourceClaudeTitle', '来自 .claude/agents 的只读导入，请直接改那边的文件');
       }
 
       const actions = document.createElement('td');
@@ -7026,15 +7330,17 @@
       const edit = document.createElement('button');
       edit.type = 'button';
       edit.className = 'btn-small';
-      edit.textContent = '编辑';
+      edit.textContent = t('ui.settings.edit', '编辑');
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'btn-small danger';
-      remove.textContent = '删除';
+      remove.textContent = t('ui.settings.delete', '删除');
       const readOnly = agent.source === 'claude';
       for (const button of [edit, remove]) {
         button.disabled = readOnly;
-        if (readOnly) button.title = '来自 .claude/agents 的成员只读：请改那边的文件';
+        if (readOnly) {
+          button.title = t('ui.settings.readonlyAgent', '来自 .claude/agents 的成员只读：请改那边的文件');
+        }
       }
       edit.addEventListener('click', () => openAgentForm(agent.id));
       remove.addEventListener('click', () => openAgentDelete(agent.id));
@@ -7059,11 +7365,13 @@
       const members = document.createElement('div');
       members.className = 'settings-row-hint layer-path';
       const names = Array.isArray(team.members) ? team.members : [];
-      members.textContent = names.length > 0 ? names.join(', ') : '（没有成员）';
+      members.textContent = names.length > 0
+        ? names.join(t('ui.common.listSeparator', '、'))
+        : t('ui.settings.noMembers', '（没有成员）');
       main.append(tag, members);
       const label = document.createElement('span');
       label.className = 'settings-row-value layer-state';
-      label.textContent = team.display_name || '（没有 display_name）';
+      label.textContent = team.display_name || t('ui.settings.noDisplayName', '（没有 display_name）');
       item.append(main, label);
       settingsTeams.appendChild(item);
     }
@@ -7072,16 +7380,71 @@
   function renderSettingsFacts() {
     const settings = state.settings || {};
     const health = state.settingsHealth;
-    settingsSummaryAgent.textContent = settings.summary_agent || '（未配置）';
-    settingsDataDir.textContent = settings.data_dir || '（未配置）';
+    const notConfigured = t('ui.common.notConfigured', '（未配置）');
+    settingsSummaryAgent.textContent = settings.summary_agent || notConfigured;
+    settingsDataDir.textContent = settings.data_dir || notConfigured;
     settingsDataDir.title = settings.data_dir || '';
-    settingsConfigPath.textContent = settings.config_path || '（未知）';
+    settingsConfigPath.textContent = settings.config_path || t('ui.common.unknownPath', '（未知）');
     settingsConfigPath.title = settings.config_path || '';
     settingsSchemaVersion.textContent = settingsSchemaText(health);
     settingsSchemaVersion.classList.toggle('is-warn', Boolean(health && health.schema_lag === true));
     settingsSchemaVersion.title = health && health.schema_lag === true
-      ? '库版本落后于程序版本，下次写模式启动会升级'
+      ? t('ui.settings.schemaLagTitle', '库版本落后于程序版本，下次写模式启动会升级')
       : '';
+    renderSettingsLanguage(settings);
+  }
+
+  function languageDisplayName(code) {
+    if (code === 'en') return t('ui.settings.languageEn', 'English');
+    if (code === 'zh') return t('ui.settings.languageZh', '中文');
+    return code || '';
+  }
+
+  // renderSettingsLanguage 画「通用」里的语言行：下拉选的是配置值
+  // （auto / zh / en），下面那行说清楚本次进程实际生效的是哪一种。启动时
+  // 显式给了 -lang zh/en 的话，配置里的选择当场不会生效，必须写出来。
+  function renderSettingsLanguage(settings) {
+    if (!settingsLanguage) return;
+    const configValue = settings && typeof settings.language === 'string'
+      ? settings.language
+      : 'auto';
+    settingsLanguage.value = ['auto', 'zh', 'en'].includes(configValue) ? configValue : 'auto';
+    const effective = languageDisplayName(
+      (settings && settings.language_effective) || (LANG === 'en' ? 'en' : 'zh'));
+    let note = t('ui.settings.languageEffective', '实际生效：{name}', { name: effective });
+    if (settings && settings.language_flag) {
+      note += ' ' + t('ui.settings.languageFlagOverride',
+        '启动参数 -lang {value} 优先于配置；去掉它才会跟随这里的选择。',
+        { value: settings.language_flag });
+    }
+    settingsLanguageNote.textContent = note;
+  }
+
+  // saveSettingsLanguage 走与 agent 保存同一套写盘路径（备份、合并校验、
+  // 只写 layers[0]）。成功且文件真的变了就重载页面：界面文案、<html lang>
+  // 与 document.title 一起换掉，比在页内逐块重画更不容易漏。
+  async function saveSettingsLanguage(value) {
+    if (!state.writable) return;
+    settingsLanguage.disabled = true;
+    setSettingsError('');
+    try {
+      const result = await postJSON('/api/settings/language', { language: value });
+      if (result && result.backup_path) {
+        window.location.reload();
+        return;
+      }
+      // 内容没变：把下拉恢复到当前配置值，不需要刷新。
+      if (state.settings) {
+        state.settings.language = value;
+        renderSettingsLanguage(state.settings);
+      }
+    } catch (err) {
+      setSettingsError(t('ui.settings.languageSaveFailed', '保存语言失败：{err}',
+        { err: err.message }));
+      renderSettingsLanguage(state.settings);
+    } finally {
+      settingsLanguage.disabled = false;
+    }
   }
 
   function renderSettingsProviders() {
@@ -7097,14 +7460,14 @@
       main.className = 'settings-row-main';
       const label = document.createElement('div');
       label.className = 'settings-row-label mono';
-      label.textContent = provider.id || '（没有 id）';
+      label.textContent = provider.id || t('ui.settings.noID', '（没有 id）');
       const hint = document.createElement('div');
       hint.className = 'settings-row-hint';
-      hint.textContent = 'provider.command';
+      hint.textContent = t('ui.settings.providerCommand', 'provider.command');
       main.append(label, hint);
       const command = document.createElement('span');
       command.className = 'settings-row-value mono';
-      command.textContent = provider.command || '（空 command）';
+      command.textContent = provider.command || t('ui.settings.emptyCommand', '（空 command）');
       command.title = provider.command || '';
       item.append(main, command);
       settingsProviders.appendChild(item);
@@ -7130,10 +7493,11 @@
       main.className = 'settings-row-main';
       const label = document.createElement('div');
       label.className = 'settings-row-label';
-      label.textContent = workspace.name || '(未命名工作区)';
+      label.textContent = workspace.name || t('ui.sidebar.workspaceUnnamed', '(未命名工作区)');
       const hint = document.createElement('div');
       hint.className = 'settings-row-hint';
-      hint.textContent = workspaceConversationCount(workspace) + ' 个会话';
+      hint.textContent = t('ui.settings.workspaceCount', '{n} 个会话',
+        { n: workspaceConversationCount(workspace) });
       main.append(label, hint);
 
       const actions = document.createElement('div');
@@ -7141,8 +7505,8 @@
       const locate = document.createElement('button');
       locate.type = 'button';
       locate.className = 'btn-small';
-      locate.textContent = '定位';
-      locate.title = '关闭设置并在左侧工作台定位这个工作区';
+      locate.textContent = t('ui.settings.locate', '定位');
+      locate.title = t('ui.settings.locateTitle', '关闭设置并在左侧工作台定位这个工作区');
       locate.addEventListener('click', () => {
         closeSettings();
         state.search = '';
@@ -7153,19 +7517,25 @@
       const rename = document.createElement('button');
       rename.type = 'button';
       rename.className = 'btn-small';
-      rename.textContent = '重命名';
+      rename.textContent = t('ui.settings.rename', '重命名');
       rename.addEventListener('click', () => {
         closeSettings();
-        beginWorkspaceRename({ id: workspace.id, name: workspace.name || '(未命名工作区)' });
+        beginWorkspaceRename({
+          id: workspace.id,
+          name: workspace.name || t('ui.sidebar.workspaceUnnamed', '(未命名工作区)'),
+        });
       });
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'btn-small danger';
-      remove.textContent = '删除';
+      remove.textContent = t('ui.settings.delete', '删除');
       remove.addEventListener('click', () => {
         closeSettings();
         openWorkspaceDelete(
-          { id: workspace.id, name: workspace.name || '(未命名工作区)' },
+          {
+            id: workspace.id,
+            name: workspace.name || t('ui.sidebar.workspaceUnnamed', '(未命名工作区)'),
+          },
           openSettingsButton,
         );
       });
@@ -7180,7 +7550,9 @@
     const parts = settingsVersionParts(health && health.version);
     settingsAboutVersion.textContent = parts.version;
     settingsAboutBuild.textContent = parts.build;
-    settingsAboutMode.textContent = state.writable ? '写模式 · council serve -rw' : '只读';
+    settingsAboutMode.textContent = state.writable
+      ? t('ui.settings.aboutWriteMode', '写模式 · council serve -rw')
+      : t('ui.settings.aboutReadonly', '只读');
     settingsAboutSchema.textContent = settingsSchemaText(health);
   }
 
@@ -7224,7 +7596,7 @@
 
   function openSettings() {
     if (!state.writable) {
-      showToast('只读模式没有设置：用 council serve -rw 启动');
+      showToast(t('ui.settings.readonly', '只读模式没有设置：用 council serve -rw 启动'));
       return;
     }
     closePopover();
@@ -7246,7 +7618,8 @@
     Promise.allSettled(tasks).then((results) => {
       const settingsLoad = results[0];
       if (settingsLoad.status === 'rejected') {
-        setSettingsError('读取设置失败：' + settingsLoad.reason.message);
+        setSettingsError(t('ui.settings.loadFailed', '读取设置失败：{err}',
+          { err: settingsLoad.reason.message }));
       }
       renderSettings();
       const current = settingsNavItems.find((item) => item.dataset.settingsSection === state.settingsSection);
@@ -7284,7 +7657,8 @@
     if (selected && !providers.some((provider) => provider.id === selected)) {
       const option = document.createElement('option');
       option.value = selected;
-      option.textContent = selected + '（不在 providers 里）';
+      option.textContent = t('ui.settings.providerNotListed', '{id}（不在 providers 里）',
+        { id: selected });
       settingsFormProvider.appendChild(option);
     }
     settingsFormProvider.value = selected || (providers[0] ? providers[0].id : '');
@@ -7294,15 +7668,17 @@
     if (!state.settings) return;
     const agent = agentID ? settingsAgentByID(agentID) : null;
     if (agentID && !agent) {
-      showToast('这个 agent 不在最新配置里，请重新打开设置');
+      showToast(t('ui.settings.agentMissing', '这个 agent 不在最新配置里，请重新打开设置'));
       return;
     }
     if (agent && agent.source === 'claude') {
-      showToast('claude 来源的成员只读：请改 .claude/agents 下的文件');
+      showToast(t('ui.settings.claudeReadonly', 'claude 来源的成员只读：请改 .claude/agents 下的文件'));
       return;
     }
     state.settingsForm = { editing: Boolean(agent) };
-    settingsFormTitle.textContent = agent ? '编辑 agent · ' + agent.id : '新增 agent';
+    settingsFormTitle.textContent = agent
+      ? t('ui.settings.formEditWithID', '编辑 agent · {id}', { id: agent.id })
+      : t('ui.settings.formAddTitle', '新增 agent');
     settingsFormID.value = agent ? agent.id : '';
     settingsFormID.disabled = Boolean(agent);
     settingsFormDisplay.value = agent ? (agent.display_name || '') : '';
@@ -7312,8 +7688,9 @@
     settingsFormPermissions.value = agent ? (agent.permissions || 'read') : 'read';
     settingsFormMode.value = agent ? (agent.mode || 'discussion') : 'discussion';
     settingsFormHint.textContent = agent
-      ? '保存前会先显示「将写入 <路径>」与字段新旧对比；写盘前自动把原文备份成 <文件名>.bak-<YYYYMMDD-HHmmss>。'
-      : '新增的成员会写进写回目标的末尾；保存前会先显示预览。';
+      ? t('ui.settings.formEditHint',
+        '保存前会先显示「将写入 <路径>」与字段新旧对比；写盘前自动把原文备份成 <文件名>.bak-<YYYYMMDD-HHmmss>。')
+      : t('ui.settings.formAddHint', '新增的成员会写进写回目标的末尾；保存前会先显示预览。');
     setFormError('');
     settingsFormOverlay.hidden = false;
     (agent ? settingsFormModel : settingsFormID).focus();
@@ -7344,35 +7721,36 @@
     if (!state.settingsForm) return;
     const payload = readAgentForm();
     if (payload.agent_id === '') {
-      setFormError('id 不能为空');
+      setFormError(t('ui.settings.idRequired', 'id 不能为空'));
       settingsFormID.focus();
       return;
     }
     if (payload.provider === '') {
-      setFormError('provider 不能为空：先在配置里加一个 [providers.*]');
+      setFormError(t('ui.settings.providerRequired',
+        'provider 不能为空：先在配置里加一个 [providers.*]'));
       settingsFormProvider.focus();
       return;
     }
     if (payload.model === '') {
-      setFormError('model 不能为空');
+      setFormError(t('ui.settings.modelRequired', 'model 不能为空'));
       settingsFormModel.focus();
       return;
     }
     const current = state.settingsForm.editing ? settingsAgentByID(payload.agent_id) : null;
     if (state.settingsForm.editing && !current) {
-      setFormError('这个 agent 不在最新配置里，请关闭设置后重开');
+      setFormError(t('ui.settings.agentMissingClose', '这个 agent 不在最新配置里，请关闭设置后重开'));
       return;
     }
     const changes = [];
     changes.push({
       field: 'id',
-      old: current ? current.id : '（新增）',
+      old: current ? current.id : t('ui.settings.diffNewValue', '（新增）'),
       new: payload.agent_id,
     });
     for (const field of SETTINGS_EDIT_FIELDS) {
       changes.push({
         field,
-        old: current ? String(current[field] || '') : '（新增）',
+        old: current ? String(current[field] || '') : t('ui.settings.diffNewValue', '（新增）'),
         new: String(payload[field] || ''),
       });
     }
@@ -7390,11 +7768,11 @@
   function openAgentDelete(agentID) {
     const agent = settingsAgentByID(agentID);
     if (!agent) {
-      showToast('这个 agent 不在最新配置里，请重新打开设置');
+      showToast(t('ui.settings.agentMissing', '这个 agent 不在最新配置里，请重新打开设置'));
       return;
     }
     if (agent.source === 'claude') {
-      showToast('claude 来源的成员只读：请改 .claude/agents 下的文件');
+      showToast(t('ui.settings.claudeReadonly', 'claude 来源的成员只读：请改 .claude/agents 下的文件'));
       return;
     }
     state.settingsPreview = { kind: 'delete', id: agentID, payload: {}, changes: [], busy: false };
@@ -7404,20 +7782,30 @@
   function openSettingsPreview() {
     const preview = state.settingsPreview;
     if (!preview) return;
-    const target = (state.settings && state.settings.write_target) || '（未知路径）';
+    const target = (state.settings && state.settings.write_target) || t('ui.common.unknownPath', '（未知路径）');
     const isDelete = preview.kind === 'delete';
-    settingsPreviewTitle.textContent = isDelete ? '确认删除 agent' : '确认写入配置';
+    settingsPreviewTitle.textContent = isDelete
+      ? t('ui.settings.previewDeleteTitle', '确认删除 agent')
+      : t('ui.settings.previewWriteTitle', '确认写入配置');
     settingsPreviewTarget.textContent = isDelete
-      ? '将从 ' + target + ' 删除 [agents.' + preview.id + '] 这一段；文件里的其它段、注释与行尾保持原样。'
-      : '将写入 ' + target + ' 的 [agents.' + preview.id + '] 段；文件里的其它段、注释与行尾保持原样。';
-    settingsPreviewBackup.textContent =
-      '写入前会先把原文备份成 <配置文件名>.bak-<YYYYMMDD-HHmmss>，备份路径在成功提示里显示。';
+      ? t('ui.settings.previewDeleteTarget',
+        '将从 {path} 删除 [agents.{id}] 这一段；文件里的其它段、注释与行尾保持原样。',
+        { path: target, id: preview.id })
+      : t('ui.settings.previewWriteTarget',
+        '将写入 {path} 的 [agents.{id}] 段；文件里的其它段、注释与行尾保持原样。',
+        { path: target, id: preview.id });
+    settingsPreviewBackup.textContent = t('ui.settings.previewBackup',
+      '写入前会先把原文备份成 <配置文件名>.bak-<YYYYMMDD-HHmmss>，备份路径在成功提示里显示。');
 
     // A2：保存前就把「立即生效 / 需要重启」摆在确认按钮上面。
     const verdict = settingsPreviewVerdict(preview);
     settingsPreviewReload.textContent = verdict.reloaded
-      ? '保存后立即生效（只改了不影响身份指纹的字段，不需要重启 serve）。'
-      : '本次改动需要重启 serve 后生效：' + (verdict.reasons.join('、') || '配置变更');
+      ? t('ui.settings.previewHot',
+        '保存后立即生效（只改了不影响身份指纹的字段，不需要重启 serve）。')
+      : t('ui.settings.previewRestart', '本次改动需要重启 serve 后生效：{reasons}', {
+        reasons: verdict.reasons.join(t('ui.common.listSeparator', '、')) ||
+          t('ui.settings.previewConfigChange', '配置变更'),
+      });
     settingsPreviewReload.className = 'settings-reload-hint ' + (verdict.reloaded ? 'is-hot' : 'is-restart');
     settingsPreviewReload.hidden = false;
 
@@ -7445,7 +7833,9 @@
     settingsPreviewError.textContent = '';
     settingsPreviewCancel.disabled = false;
     settingsPreviewConfirm.disabled = false;
-    settingsPreviewConfirm.textContent = isDelete ? '确认删除' : '确认写入';
+    settingsPreviewConfirm.textContent = isDelete
+      ? t('ui.settings.previewDelete', '确认删除')
+      : t('ui.settings.previewConfirm', '确认写入');
     settingsFormOverlay.hidden = true;
     settingsPreview.hidden = false;
     // 安全默认：焦点在「取消」上，误按回车不会写文件。
@@ -7489,12 +7879,14 @@
       // 一起画出来，顺序反了会看到一瞬「提示没了」。
       const lines = [];
       if (result && result.backup_path) {
-        lines.push('备份：' + result.backup_path);
+        lines.push(t('ui.settings.saveBackup', '备份：{path}', { path: result.backup_path }));
       } else {
-        lines.push('没有生成备份（内容与原文相同，文件未改动）。');
+        lines.push(t('ui.settings.saveNoBackup', '没有生成备份（内容与原文相同，文件未改动）。'));
       }
       if (result && result.write_target) {
-        lines.push((isDelete ? '已从 ' : '已写入 ') + result.write_target);
+        lines.push(isDelete
+          ? t('ui.settings.deletedFrom', '已从 {path}', { path: result.write_target })
+          : t('ui.settings.savedTo', '已写入 {path}', { path: result.write_target }));
       }
       // A2：结果区第一行按 reloaded 明说「已经生效」还是「还差一次重启」。
       // 只在文件真的改过时显示（没有生成备份＝内容逐字节没变），否则
@@ -7505,16 +7897,22 @@
           ? result.restart_reasons.filter(Boolean)
           : [];
         if (result.reloaded) {
-          lines.push('已热加载：本次改动立即生效，无需重启 serve。');
+          lines.push(t('ui.settings.hotResult', '已热加载：本次改动立即生效，无需重启 serve。'));
         } else if (reasons.length > 0) {
-          lines.push('需要重启 serve 后生效：' + reasons.join('、') + '。');
+          lines.push(t('ui.settings.restartResult', '需要重启 serve 后生效：{reasons}。', {
+            reasons: reasons.join(t('ui.common.listSeparator', '、')),
+          }));
         } else {
           // 文件字节变了但运行配置没变（例如补了一行等于默认值的 mode）。
           // 服务端既没热换也不要求重启，这里不能套用「需要重启」的文案。
-          lines.push('运行配置没有变化，无需重启 serve。');
+          lines.push(t('ui.settings.noRuntimeChange', '运行配置没有变化，无需重启 serve。'));
         }
       }
-      if (result && result.note) {
+      // result.note 是服务端文案（本片按约束仍只有中文）。英文界面下上面
+      // 这几行已经覆盖了备份、写入目标与热更/重启判定；再追加中文 note 会
+      // 在设置页结果区留一块中文。删除继承成员时那句「低优先级层仍有定义」
+      // 暂时随 note 一起不出现在英文界面，属后续服务端文案翻译片。
+      if (result && result.note && LANG !== 'en') {
         lines.push(result.note);
       }
       state.settingsResult = lines.join('\n');
@@ -7530,7 +7928,9 @@
       // 工作台的成员列表也要立刻反映新配置：/api/options 读的是同一份
       // 展示配置，只重画设置面板会让两处显示不一致。
       await loadOptions();
-      showToast(isDelete ? '已删除 agent ' + preview.id : '已保存 agent ' + preview.id);
+      showToast(isDelete
+        ? t('ui.settings.deletedAgent', '已删除 agent {id}', { id: preview.id })
+        : t('ui.settings.savedAgent', '已保存 agent {id}', { id: preview.id }));
     } catch (err) {
       if (state.settingsPreview !== preview) return;
       preview.busy = false;
@@ -7550,6 +7950,7 @@
   settingsOverlay.addEventListener('click', (event) => {
     if (event.target === settingsOverlay) closeSettings();
   });
+  settingsLanguage.addEventListener('change', () => saveSettingsLanguage(settingsLanguage.value));
   settingsAgentAdd.addEventListener('click', () => openAgentForm(''));
   settingsFormCancel.addEventListener('click', closeAgentForm);
   settingsFormSave.addEventListener('click', previewAgentSave);
@@ -7589,13 +7990,13 @@
     state.archivedConversations = [];
     renderConversationList();
     messageList.replaceChildren();
-    messagesTitle.textContent = '消息';
+    messagesTitle.textContent = t('ui.messages.title', '消息');
     messagesMeta.textContent = '';
     // 只读模式下的原文案保持不动；写模式可以直接在下面新建会话，
     // 再让用户「先去终端跑一次」就是把唯一的入口藏起来。
     messagesEmpty.textContent = state.writable
-      ? '还没有会话，在下面问一句就会新建一个'
-      : '还没有会话，先在终端里跑一次 council';
+      ? t('ui.messages.emptyWritable', '还没有会话，在下面问一句就会新建一个')
+      : t('ui.messages.emptyReadonly', '还没有会话，先在终端里跑一次 council');
     messagesEmpty.hidden = false;
     membersBody.replaceChildren();
     membersEmpty.hidden = true;
@@ -7620,9 +8021,9 @@
     state.lastSeq = 0;
     state.detail = null;
     messageList.replaceChildren();
-    messagesTitle.textContent = '消息';
+    messagesTitle.textContent = t('ui.messages.title', '消息');
     messagesMeta.textContent = '';
-    messagesEmpty.textContent = '下一轮会在新会话里开始';
+    messagesEmpty.textContent = t('ui.messages.emptyNew', '下一轮会在新会话里开始');
     messagesEmpty.hidden = false;
     membersBody.replaceChildren();
     membersEmpty.hidden = true;
@@ -7675,10 +8076,13 @@
     let failed = false;
     if (detailRes.status === 'fulfilled') {
       state.detail = detailRes.value;
-      messagesTitle.textContent = detailRes.value.title || '(无标题)';
+      messagesTitle.textContent = detailRes.value.title || t('ui.conversation.untitled', '(无标题)');
       if (pageRes.status === 'fulfilled') {
         const members = (detailRes.value.members || []).filter((m) => m.active).length;
-        messagesMeta.textContent = (pageRes.value.messages || []).length + ' 条 · ' + members + ' 位成员';
+        messagesMeta.textContent = t('ui.messages.meta', '{messages} 条 · {members} 位成员', {
+          messages: (pageRes.value.messages || []).length,
+          members: members,
+        });
       }
       // 工作台的成员来自 /api/options，不跟会话走：这里不重画工具条，
       // 否则切换会话会把用户为下一轮挑好的成员恢复成默认。
@@ -7698,7 +8102,7 @@
     if (pageRes.status === 'fulfilled') {
       const page = pageRes.value;
       if (page.messages.length === 0) {
-        messagesEmpty.textContent = '这个会话还没有消息';
+        messagesEmpty.textContent = t('ui.messages.emptySession', '这个会话还没有消息');
         messagesEmpty.hidden = false;
       } else {
         appendMessages(page.messages, true);
@@ -7881,9 +8285,13 @@
     pollOnce();
   });
 
+  // 先把界面文案表拉回来，再走 health / 会话加载：所有 render 函数都直接
+  // 调 t()，晚拉一步就会先画出一帧中文再被覆盖。i18n 接口失败时 loadI18n
+  // 自己兜底成中文，不会拒绝 Promise，看板照常可用。
+  //
   // health 先问一次：只有写模式才把底栏放出来。health 失败按只读处理，
   // 看板本来的四个端点照常工作，不必因为一个可选能力把整页变红。
-  loadHealth().then(() => refreshConversations()).then(() => {
+  loadI18n().then(() => loadHealth()).then(() => refreshConversations()).then(() => {
     if (state.currentId) schedulePoll();
   });
 })();

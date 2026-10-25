@@ -453,10 +453,11 @@ func TestGui8IndexArchiveMarkup(t *testing.T) {
 		// 两个视图的数据源与标题旁的灰字。
 		`archivedConversations: []`,
 		`state.viewArchived ? state.archivedConversations : state.conversations`,
-		`tag.textContent = '已归档'`,
+		`t('ui.conversation.archivedTag', '已归档')`,
 		`'archived-tag'`,
 		// ⋯ 菜单两种文案与两个端点。
-		`archive.textContent = conversation.archived ? '取消归档' : '归档'`,
+		`t('ui.conversation.unarchive', '取消归档')`,
+		`t('ui.conversation.archive', '归档')`,
 		`? '/archive' : '/unarchive'`,
 		// 切视图只换列表数据源：不调用 selectConversation / 不清 messageList。
 		`function setArchivedView(next)`,
@@ -465,7 +466,7 @@ func TestGui8IndexArchiveMarkup(t *testing.T) {
 		`if (!state.currentId && !state.newTarget && shown.length > 0)`,
 		`await loadConversationLists()`,
 		// 归档后的提示与失败路径。
-		`已归档「' + title + '」`,
+		`t('ui.conversation.archived', '已归档「{title}」', { title: title })`,
 		`取消归档失败：`,
 	} {
 		if !strings.Contains(html, want) {

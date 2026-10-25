@@ -23,8 +23,8 @@ func TestSchemaLagBannerInIndex(t *testing.T) {
 		`Number.isInteger(dbVersion)`,
 		`Number.isInteger(expectedVersion)`,
 		// 任务书点名的文案。
-		`'库是 v' + dbVersion`,
-		`'，程序是 v' + expectedVersion`,
+		`t('ui.schema.lag'`,
+		`库是 v{db}，程序是 v{program}`,
 		`council serve -rw`,
 		`（或任意一次新版 CLI）即可升级`,
 		// 关闭状态：sessionStorage，同一会话内不再出现。

@@ -133,9 +133,12 @@ func LoadMerged(layers []Layer) (MergedConfig, error) {
 		// 与 Load 同一个理由：裸 bool 的默认值是 true，而零值是 false。
 		// 这里先预置 true，下面只有哪一层真的写了 store_thought 才覆盖它。
 		StoreThought: true,
-		Providers:    map[string]ProviderConfig{},
-		Agents:       map[string]AgentConfig{},
-		Teams:        map[string]TeamConfig{},
+		// language 的默认值同样不是零值：空串会被 applyDefaults 变成 auto，
+		// 但先写出来，任何一层都没定义时合并结果与 Load 的默认一致。
+		Language:  LanguageAuto,
+		Providers: map[string]ProviderConfig{},
+		Agents:    map[string]AgentConfig{},
+		Teams:     map[string]TeamConfig{},
 	}
 	owner := provenance{
 		agents:    map[string]string{},
@@ -165,6 +168,12 @@ func LoadMerged(layers []Layer) (MergedConfig, error) {
 		}
 		if d.md.IsDefined("store_thought") {
 			merged.StoreThought = d.cfg.StoreThought
+		}
+		// language 与 store_thought 同一条规则：高优先级层写了才覆盖。
+		// 项目层写 en、全局层没写时，合并结果就是 en。
+		if d.md.IsDefined("language") {
+			merged.Language = d.cfg.Language
+			owner.language = path
 		}
 		if d.md.IsDefined("summary", "agent") {
 			merged.Summary.Agent = d.cfg.Summary.Agent
@@ -224,6 +233,7 @@ type provenance struct {
 	teams         map[string]string
 	summary       string
 	dataDir       string
+	language      string
 	rulesFileBase string
 }
 
@@ -263,6 +273,9 @@ func (p provenance) sourceFor(path string) string {
 	}
 	if path == "data_dir" {
 		return p.dataDir
+	}
+	if path == "language" {
+		return p.language
 	}
 	return ""
 }

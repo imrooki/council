@@ -27,7 +27,8 @@ const appWindowSize = "1440,900"
 // 历史混在一起（那个 profile 里可能登着各种账号）；二是这个窗口的历史
 // 与缓存全部落在 data_dir 里，不会写进用户自己的浏览器配置。
 // Chromium 会自己建这个目录；它不碰库、不碰 council.lock，只读模式的
-// 「不写库」边界不受影响。
+// 「不写库」边界不受影响。目录里 7 天没动过的条目会在 serve 启动时清掉
+// （profile_cleanup.go），目录本身始终留着：serve 退出后窗口可能还开着。
 const appProfileDirName = "ui-profile"
 
 // browserOptions 是「启动后怎么打开看板」的输入：-app、-open 两个 flag，

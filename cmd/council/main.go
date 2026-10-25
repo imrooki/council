@@ -64,6 +64,8 @@ func run(args []string) int {
 	fs := flag.NewFlagSet("council", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	configPath := fs.String("config", "", "配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml")
+	lang := fs.String("lang", "auto",
+		"界面语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）")
 	showVersion := fs.Bool("version", false, "打印版本号后退出，不加载配置")
 	verbose := fs.Bool("verbose", false, "详细输出：每轮的用量、金额、冷暖、provider 会话、预算表与结算全部显示（默认简洁；进去之后也可以用 /verbose 切换）")
 	noTUI := fs.Bool("no-tui", false, "不用 TUI，走行式 REPL（TUI 在你的终端上出问题时的退路）")
@@ -90,6 +92,11 @@ func run(args []string) int {
 
 	// 两个句柄都要判。只判 stdin 的话，council > out.txt 会让 TUI 往文件里画。
 	useTUI := !*noTUI && repl.IsTerminal(os.Stdin) && repl.IsTerminal(os.Stdout)
+
+	// 交互模式本片不翻译任何文案（REPL / TUI 是后续片），但 -lang 的解析
+	// 必须先落地：把最终语言写回 COUNCIL_LANG，后续片与任何子进程读到的
+	// 都是同一个 Resolve 结果，不必再各自排一次优先级。
+	applyLanguageFlag(*lang, *configPath)
 
 	// 硬退 goroutine 只在行式模式下注册。理由见 newRootContext 里的注释。
 	ctx, stop := newRootContext(!useTUI)

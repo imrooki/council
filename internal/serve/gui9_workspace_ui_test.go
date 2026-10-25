@@ -16,7 +16,7 @@ func TestGui9IndexWorkspaceMarkup(t *testing.T) {
 		// 列表底部的入口与删除确认框。
 		`id="workspace-create"`,
 		`id="workspace-delete-confirm"`,
-		`button.textContent = '+ 新建工作区'`,
+		`button.textContent = t('ui.sidebar.workspaceCreate', '+ 新建工作区')`,
 		// 折叠状态按视图分开存。
 		`const WORKSPACE_COLLAPSE_KEYS = {`,
 		`active: 'council.workspaces.collapsed.active'`,
@@ -25,7 +25,7 @@ func TestGui9IndexWorkspaceMarkup(t *testing.T) {
 		`readWorkspaceCollapse('archived')`,
 		`persistWorkspaceCollapse(view, collapsed)`,
 		// 分组顺序：未分组先入列，工作区按 sort_order 再按 name。
-		`name: '未分组'`,
+		`name: t('ui.sidebar.workspaceUngrouped', '未分组')`,
 		`(Number(left.sort_order) || 0) - (Number(right.sort_order) || 0)`,
 		`return a < b ? -1 : (a > b ? 1 : 0)`,
 		// 组标题行：箭头 + 名字 + 条数 + 悬停动作。
@@ -43,7 +43,7 @@ func TestGui9IndexWorkspaceMarkup(t *testing.T) {
 		`'/api/workspaces/' + encodeURIComponent(id) + '/delete'`,
 		`'/api/conversations/' + encodeURIComponent(conversation.id) + '/workspace'`,
 		`workspace_id: targetID === UNGROUPED_WORKSPACE_ID ? null : targetID`,
-		`err.status === 409 ? '名字已被占用' : err.message`,
+		`t('ui.sidebar.workspaceNameTaken', '名字已被占用')`,
 		// 删除工作区必须写明「只解除归属，不删除会话」。
 		`只解除归属，不删除会话`,
 		// 拖拽：写模式才加 draggable，标题行是放置目标。
