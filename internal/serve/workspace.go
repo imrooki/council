@@ -1,11 +1,12 @@
 package serve
 
-// workspace.go 是「工作区」这层纯分组在 HTTP 上的四个端点：
+// workspace.go 是「工作区」这层纯分组在 HTTP 上的五个端点：
 //
 //	GET  /api/workspaces                       列出全部工作区（带会话数）
 //	POST /api/workspaces                       新建
 //	POST /api/workspaces/{id}/rename           改名
 //	POST /api/workspaces/{id}/delete           删除（成员会话移出分组）
+//	POST /api/workspaces/{id}/move             与相邻工作区交换 sort_order
 //	POST /api/conversations/{id}/workspace     把会话放进/移出工作区
 //
 // 工作区不绑定目录，也不影响会话的可见性：删一个工作区只是把成员的
@@ -82,6 +83,21 @@ type workspaceDeleteResponse struct {
 // 非空时必须是已存在的工作区 id，未知 id 回 404 而不是静默接受。
 type conversationWorkspaceRequest struct {
 	WorkspaceID *string `json:"workspace_id"`
+}
+
+// workspaceMoveRequest 是 POST /api/workspaces/{id}/move 的请求体。
+// 只认 "up" / "down" 两个值：这不是自由排序的位置参数，方向语义必须唯一
+// （写 "top" / -1 / true 都只会让「为什么没动」多一种查法）。
+type workspaceMoveRequest struct {
+	Direction string `json:"direction"`
+}
+
+// workspaceMoveResponse 是移动成功后的响应。Moved 为 false 表示已经是
+// 第一个 / 最后一个（或 sort_order 并列无法交换）：HTTP 仍是 200，
+// 因为「已经到了边上」不是错误，前端据此决定不刷新列表。
+type workspaceMoveResponse struct {
+	ID    string `json:"id"`
+	Moved bool   `json:"moved"`
 }
 
 // conversationWorkspaceResponse 回显这场会话**现在**的归属：
@@ -222,6 +238,67 @@ func (s *Server) handleWorkspaceDelete(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	writeJSON(w, http.StatusOK, workspaceDeleteResponse{ID: id, Deleted: true})
+}
+
+// handleWorkspaceMove 把工作区与它在左栏里的相邻者交换顺序（B1）。
+//
+// 门控顺序与另外三个写端点逐条一致：
+//  1. workspaceWriteGate（只读 405 → 非 POST 405 → JSON / 同源）；
+//  2. 请求体是单个合法 JSON 对象（400）；
+//  3. direction 只能是 up / down（400）；缺失、空串、大小写不符都拒绝：
+//     "UP" 不猜、不折，前端只发两个固定值，多一种写法只会多一种错法；
+//  4. store.MoveWorkspace 在同一个写事务里找相邻行并交换 sort_order。
+//
+// 到顶 / 到底不是错误：200 + moved:false。前端拿 moved 决定要不要刷新，
+// 这样按 ↑ 按到第一组不会弹红字，也不会白拉一次列表。
+// 未知 id 是 404 而不是幂等 200：与 rename / delete 同一个口径。
+//
+// 这里不碰名字，所以永远不会回 409：409 是改名撞名的专属状态。
+func (s *Server) handleWorkspaceMove(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.workspaceWriteGate(w, r) {
+		return
+	}
+
+	var req workspaceMoveRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxWorkspaceBody))
+	if err := dec.Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("请求体超过 %d 字节上限", maxWorkspaceBody))
+			return
+		}
+		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+		return
+	}
+	// 只认一个对象，理由同 handleAsk / rename。
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "请求体只能有一个 JSON 对象")
+		return
+	}
+
+	var up bool
+	switch req.Direction {
+	case "up":
+		up = true
+	case "down":
+		up = false
+	default:
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("direction 只能是 \"up\" 或 \"down\"，实际是 %q", req.Direction))
+		return
+	}
+
+	moved, err := s.store.MoveWorkspace(r.Context(), id, up)
+	if err != nil {
+		if writeWorkspaceError(w, err, "", id) {
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "移动工作区失败: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, workspaceMoveResponse{ID: id, Moved: moved})
 }
 
 // handleConversationWorkspace 改一场会话的归属。workspace_id 为 null 或空串
@@ -367,7 +444,7 @@ func writeWorkspaceError(w http.ResponseWriter, err error, name, id string) bool
 }
 
 // handleWorkspacePath 处理 /api/workspaces/{id} 一棵子树：
-// /{id}/rename 与 /{id}/delete。只认这两段固定尾巴，别的一律 404。
+// /{id}/rename、/{id}/delete 与 /{id}/move。只认这三段固定尾巴，别的一律 404。
 func (s *Server) handleWorkspacePath(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
 	if rest == "" || strings.HasSuffix(rest, "/") {
@@ -385,6 +462,8 @@ func (s *Server) handleWorkspacePath(w http.ResponseWriter, r *http.Request) {
 		s.handleWorkspaceRename(w, r, segments[0])
 	case "delete":
 		s.handleWorkspaceDelete(w, r, segments[0])
+	case "move":
+		s.handleWorkspaceMove(w, r, segments[0])
 	default:
 		writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 	}

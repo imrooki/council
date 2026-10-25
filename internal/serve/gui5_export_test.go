@@ -4,14 +4,17 @@ package serve
 // 纯前端：没有新增接口、没有新增依赖，前端只把现有三个只读接口的响应
 // 拼成 Markdown / JSON 再落盘。所以这里钉两件事：
 //
-//  1. index.html 的结构锚点：导出按钮 / 菜单两项 / Markdown 与 JSON 的
-//     固定形状 / 文件名规则 / Blob 下载与撤销，以及「导出不看 state.writable」。
+//  1. index.html 的结构锚点：导出按钮 / 菜单（B3/B4 之后是三项）/
+//     Markdown 与 JSON 的固定形状 / 文件名规则 / Blob 下载与撤销，以及
+//     「导出不看 state.writable」。
 //  2. 前端导出所依赖的接口契约：只读 server 上 detail + messages
-//     (after=0&limit=1000) + usage 三份数据齐全，条数、金额、complete 与
-//     cost_reported 的原样语义都在，且增量那一页确实会缺早期消息。
+//     (after=0&limit=1000，B3 的第一页) + usage 三份数据齐全，条数、金额、
+//     complete 与 cost_reported 的原样语义都在，且增量那一页确实会缺早期
+//     消息。跨页取全量的契约在 gui5b_export_pagination_test.go。
 //
-// 真正的浏览器行为（点菜单、真下载 .md/.json、JSON.parse、无 JS 异常）由
-// Chrome CDP 验收覆盖，结果记在交付报告里；这里不实现 JS 解释器。
+// 真正的浏览器行为（点菜单、真下载 .md/.json、JSON.parse、无 JS 异常、
+// B3 的 2500 条分页与 B4 的仅对话版本）由 Chrome CDP 验收覆盖，结果记在
+// 交付报告里；这里不实现 JS 解释器。
 
 import (
 	"math"
@@ -27,7 +30,8 @@ import (
 func TestGui5IndexExportMarkup(t *testing.T) {
 	html := string(indexHTML)
 	for _, want := range []string{
-		// 入口：会话头右侧的「导出 ▾」与两项菜单。
+		// 入口：会话头右侧的「导出 ▾」与菜单前两项（第三项「仅对话」
+		// 的锚点在 gui5b_export_pagination_ui_test.go；这里保留原断言）。
 		`id="export-button"`,
 		`id="export-menu"`,
 		`data-export="md">Markdown`,

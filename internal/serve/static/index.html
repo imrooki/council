@@ -332,6 +332,10 @@
     transition: background .12s ease, outline-color .12s ease;
   }
   .workspace-head:hover { background: var(--surface-2); }
+  .workspace-head:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
   .workspace-head.drop-target {
     background: var(--accent-soft);
     outline: 1px dashed var(--accent);
@@ -1669,10 +1673,12 @@
                   aria-expanded="false" title="把当前会话导出成本地文件（读操作，只读模式也能用）" hidden>导出
             <span class="chip-caret" aria-hidden="true">▾</span></button>
           <div id="export-menu" class="popover export-menu" role="menu" aria-label="导出" hidden>
-            <button class="menu-item" type="button" role="menuitem" data-export="md">Markdown
+            <button class="menu-item" type="button" role="menuitem" data-export="md">Markdown（含系统事件）
               <span class="menu-hint">.md</span></button>
             <button class="menu-item" type="button" role="menuitem" data-export="json">JSON
               <span class="menu-hint">.json</span></button>
+            <button class="menu-item" type="button" role="menuitem" data-export="md-dialogue">仅对话（不含系统事件）
+              <span class="menu-hint">-对话.md</span></button>
           </div>
         </div>
       </div>
@@ -2109,6 +2115,9 @@
     workspaceCreate: null,
     workspaceRename: null,
     workspaceDelete: null,
+    // 一次组级排序在飞时为 true：连点 ↑ / ↓ 不会叠出两个基于同一旧顺序
+    // 的写请求。成功后刷新列表，失败或到边时只提示、不刷新。
+    workspaceMoving: false,
     // 正在被拖的会话 id。dragstart 时记下，dragover / drop 用它判断
     // 这次拖动来自列表内部（dragover 阶段读不到 dataTransfer 里的数据）。
     draggedConversationId: null,
@@ -4493,6 +4502,30 @@
     const actions = document.createElement('span');
     actions.className = 'workspace-actions';
 
+    // ↑ / ↓ 是 B1 的排序入口：与相邻工作区交换位置，不做自由拖拽。
+    // 两个按钮都画、不按位置禁用：到顶/到底由后端回 moved:false，
+    // 前端据此只给一句提示、不刷新（见 moveWorkspace）。在这里按
+    // 当前索引禁用会把「排序」与「到边」两件事耦合成两种状态，
+    // 列表重画一次还要重算一遍。
+    for (const [direction, glyph, shortcut] of [
+      ['up', '↑', 'Alt+↑'],
+      ['down', '↓', 'Alt+↓'],
+    ]) {
+      const move = document.createElement('button');
+      move.type = 'button';
+      move.className = 'workspace-action';
+      move.dataset.workspaceAction = direction;
+      move.textContent = glyph;
+      move.title = (direction === 'up' ? '上移' : '下移') + '（' + shortcut + '）';
+      move.setAttribute('aria-label',
+        (direction === 'up' ? '上移' : '下移') + '工作区「' + group.name + '」');
+      move.addEventListener('click', (event) => {
+        event.stopPropagation();
+        moveWorkspace(group, direction);
+      });
+      actions.appendChild(move);
+    }
+
     const rename = document.createElement('button');
     rename.type = 'button';
     rename.className = 'workspace-action';
@@ -4529,10 +4562,71 @@
     }
   }
 
+  // moveWorkspace 把一组与左栏里的相邻者交换位置（B1）。只读模式连按钮
+  // 都不画，这里再挡一道：快捷路径 / 残留的旧节点都不该发写请求。
+  //
+  // moved:false 是正常结果（已经在最上面 / 最下面）：只给一句提示，不
+  // 重新拉列表，也不刷新——这是后端与前端约定好的「到边不是错误」。
+  // 冷却标志防止连点两次 ↑ 发出两个基于同一旧顺序的请求；后端的写事务
+  // 本身也会串行化，但前端没必要制造这种交叉。
+  async function moveWorkspace(group, direction) {
+    if (!state.writable || state.workspaceMoving) return;
+    if (!group || group.id === UNGROUPED_WORKSPACE_ID) return;
+    state.workspaceMoving = true;
+    try {
+      const moved = await postJSON('/api/workspaces/' + encodeURIComponent(group.id) + '/move', {
+        direction: direction === 'up' ? 'up' : 'down',
+      });
+      if (!moved || moved.moved !== true) {
+        showToast('「' + group.name + '」已经在最' + (direction === 'up' ? '上' : '下') + '面');
+        return;
+      }
+      await loadWorkspaces();
+      renderConversationList();
+      focusWorkspaceHeader(group.id);
+      showToast('已' + (direction === 'up' ? '上移' : '下移') + '「' + group.name + '」');
+    } catch (err) {
+      showToast('移动失败：' + err.message);
+    } finally {
+      state.workspaceMoving = false;
+    }
+  }
+
+  // focusWorkspaceHeader 在列表重画之后把焦点放回被移动那一组的标题行。
+  // 用 id 找而不是留着旧节点：renderConversationList 每次 replaceChildren，
+  // 旧节点已经不在文档里，focus() 不会有任何效果。
+  function focusWorkspaceHeader(id) {
+    for (const head of conversationList.querySelectorAll('.workspace-head')) {
+      if (head.dataset.workspaceId === id) {
+        head.focus();
+        return;
+      }
+    }
+  }
+
+  // attachWorkspaceMoveKeys 只在写模式挂：Alt+↑ / Alt+↓ 在组标题行获得
+  // 焦点时移动该组。焦点在标题行本身、展开箭头或动作按钮上都算「在组
+  // 标题上」；输入框里的 Alt+方向键留给系统（输入法 / 光标），不抢。
+  function attachWorkspaceMoveKeys(head, group) {
+    if (!state.writable || group.id === UNGROUPED_WORKSPACE_ID) return;
+    head.tabIndex = 0;
+    head.setAttribute('aria-label', '工作区「' + group.name + '」，Alt+↑ / Alt+↓ 排序');
+    head.addEventListener('keydown', (event) => {
+      if (event.isComposing || !event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      if (event.target && event.target.classList
+          && event.target.classList.contains('workspace-input')) return;
+      if (group.id === UNGROUPED_WORKSPACE_ID) return;
+      event.preventDefault();
+      moveWorkspace(group, event.key === 'ArrowUp' ? 'up' : 'down');
+    });
+  }
+
   function renderWorkspaceHeader(group) {
     const head = document.createElement('div');
     head.className = 'workspace-head';
     head.dataset.workspaceId = group.id;
+    attachWorkspaceMoveKeys(head, group);
 
     const collapsed = currentCollapsedWorkspaces().has(group.id);
     head.appendChild(renderWorkspaceToggle(group, collapsed));
@@ -5533,10 +5627,74 @@
   // 后端不为导出新增任何接口：Markdown 与 JSON 都由前端用现有三个响应当场
   // 拼出来，导出内容因此不会和看板上的消息、账漂成两套。
 
-  // EXPORT_LIMIT 是 messages 接口的上限（handler.go 的 maxMessagesLimit）。
-  // 一次拉满、不做多页拼接：会话超过 1000 条时，导出与接口的同一页口径
-  // 一致，不会悄悄变成另一份「全量」。
+  // EXPORT_LIMIT 是 messages 接口的单页上限（handler.go 的 maxMessagesLimit）。
+  // B3 之前导出只拉这一页；现在按 after=lastSeq 循环，直到空页或不足一页。
   const EXPORT_LIMIT = 1000;
+
+  // EXPORT_TOTAL_LIMIT 是一次导出最多带走的条数。50000 条约几十 MB，
+  // 浏览器端 Blob 一次性组装仍在可接受范围；超过就停并在导出件顶部与
+  // 界面提示里写明「已截断」，绝不悄悄截短。
+  const EXPORT_TOTAL_LIMIT = 50000;
+
+  // collectExportMessages 分页拉全量消息，返回
+  //   { messages, truncated, lastSeq, limit }
+  //
+  // 循环终止条件（缺一不可）：
+  //   - 返回空页；
+  //   - 返回不足一页（最后一页）；
+  //   - 单页 lastSeq 没有前进 —— 防御坏响应 / 代理重放，否则会死循环；
+  //   - 达到 EXPORT_TOTAL_LIMIT。
+  //
+  // 到 50000 时不能直接说「已截断」：总数恰好 50000 的会话并不缺内容。
+  // 用 limit=1 探测一眼后面还有没有，只有真的还有才标 truncated。
+  //
+  // options.maxTotal 是给测试压低上限用的口子（生产导出的两个入口都不传，
+  // 一律走 EXPORT_TOTAL_LIMIT）。options 里没有 pageSize：单页上限由接口
+  // 的 maxMessagesLimit 决定，前端不另造一个可能与之漂移的数字。
+  async function collectExportMessages(encoded, options) {
+    const requested = options && Number(options.maxTotal);
+    const maxTotal = Number.isFinite(requested) && requested > 0
+      ? Math.floor(requested)
+      : EXPORT_TOTAL_LIMIT;
+    const collected = [];
+    let after = 0;
+    let truncated = false;
+    // 第一页保留 after=0 的字面量：调用方读代码时一眼能看出起点是 0，
+    // 后面的页才用递增的 after。
+    let url = '/api/conversations/' + encoded + '/messages?after=0&limit=' + EXPORT_LIMIT;
+    while (collected.length < maxTotal) {
+      const page = await api(url);
+      const batch = page && Array.isArray(page.messages) ? page.messages : [];
+      if (batch.length === 0) break;
+
+      const last = batch[batch.length - 1];
+      const lastSeq = Number(last && last.seq);
+      if (!Number.isFinite(lastSeq) || lastSeq <= after) break;
+
+      const room = maxTotal - collected.length;
+      if (batch.length > room) {
+        // 这一页跨过了上限：只带走还装得下的那些，剩下的确实存在，
+        // 所以截断是确定的，不再多发一次探测。
+        for (let i = 0; i < room; i += 1) collected.push(batch[i]);
+        truncated = true;
+        break;
+      }
+      for (const message of batch) collected.push(message);
+      after = lastSeq;
+
+      if (collected.length >= maxTotal) {
+        const probe = await api('/api/conversations/' + encoded +
+          '/messages?after=' + after + '&limit=1');
+        const more = probe && Array.isArray(probe.messages) ? probe.messages : [];
+        truncated = more.length > 0;
+        break;
+      }
+      if (batch.length < EXPORT_LIMIT) break;
+      url = '/api/conversations/' + encoded + '/messages?after=' + after +
+        '&limit=' + EXPORT_LIMIT;
+    }
+    return { messages: collected, truncated: truncated, lastSeq: after, limit: maxTotal };
+  }
 
   // ---- 文件名 ----
   // 时间戳与文档里的时间都用本地时区：看板是给人看的，不是给机器对时的。
@@ -5570,9 +5728,14 @@
 
   // exportFilename 的规则：<标题>-<YYYYMMDD-HHmm>.<md|json>。标题清洗后
   // 为空（没标题、或者整条都是非法字符）时用 council-<会话 id 前 8 位>。
-  function exportFilename(title, conversationID, extension, date) {
+  // variant 为 "dialogue" 时在时间戳后加 -对话：同一秒里导出「含系统事件」
+  // 与「仅对话」两个版本，文件名必须能区分，否则后一个会覆盖前一个。
+  function exportFilename(title, conversationID, extension, date, variant) {
     const base = sanitizeFilenamePart(title) ||
       ('council-' + String(conversationID || '').slice(0, 8));
+    if (variant === 'dialogue') {
+      return base + '-' + exportStamp(date) + '-对话.' + extension;
+    }
     return base + '-' + exportStamp(date) + '.' + extension;
   }
 
@@ -5647,16 +5810,37 @@
 
   // buildMarkdown 是纯字符串拼装：正文原样放进去（保留换行），不加引用
   // 块、不加代码围栏——加了之后复制走的内容就不是成员原本说的话了。
-  function buildMarkdown(detail, page, usage, now) {
+  //
+  // options.dialogue 为 true 时只保留 kind !== "system" 的消息（B4）：
+  // 系统事件（成员加入、轮次开始等）在归档材料里往往只是噪声，但默认
+  // 仍包含——「谁在第几轮参与」本身是有价值的信息，由用户自己选。
+  // options.truncated 为 true 时在标题下方写明已截断（B3）。
+  function buildMarkdown(detail, page, usage, now, options) {
     const entries = exportMemberEntries(detail, usage);
     const rows = exportAccountRows(entries);
-    const messages = (page && page.messages) || [];
+    const dialogueOnly = !!(options && options.dialogue);
+    const truncated = !!(options && options.truncated);
+    const limit = Number(page && page.limit) || EXPORT_TOTAL_LIMIT;
+    const allMessages = (page && page.messages) || [];
+    const messages = dialogueOnly
+      ? allMessages.filter((message) => message.kind !== 'system')
+      : allMessages;
     const lines = [];
     lines.push('# ' + ((detail && detail.title) || '(无标题)'));
     lines.push('');
+    if (truncated) {
+      lines.push('> **已截断**：导出的消息达到 ' + limit +
+        ' 条上限，后面的消息没有包含在这个文件里。');
+      lines.push('');
+    }
     lines.push('- 会话：' + ((detail && detail.id) || ''));
     lines.push('- 目录：' + ((detail && detail.cwd) || '未绑定'));
     lines.push('- 成员：' + exportMemberLine(entries));
+    if (dialogueOnly) {
+      // 让文件自己说清它是哪一个版本：同一场会话的两份导出放在一起时，
+      // 只看文件名之外还能从正文核对筛选口径。
+      lines.push('- 范围：仅对话（不含系统事件）');
+    }
     lines.push('- 导出时间：' + exportDateTime(now));
     lines.push('');
     lines.push('---');
@@ -5668,7 +5852,9 @@
       lines.push('');
     }
     if (messages.length === 0) {
-      lines.push('（这个会话还没有消息）');
+      lines.push(dialogueOnly && allMessages.length > 0
+        ? '（没有可导出的对话消息：这个会话只有系统事件）'
+        : '（这个会话还没有消息）');
       lines.push('');
     }
     lines.push('---');
@@ -5699,11 +5885,14 @@
   }
 
   // buildJSON 把接口返回的原对象整份放进去，不裁剪字段：导出是给机器读的
-  // 档案，字段集合应当与 /api 契约同步，而不是前端再挑一遍。
-  function buildExportJSON(detail, page, usage, now) {
+  // 档案，字段集合应当与 /api 契约同步，而不是前端再挑一遍。B3 的截断
+  // 标记必须进 JSON：机器读者也要知道这份档案不完整。
+  function buildExportJSON(detail, page, usage, now, options) {
     return JSON.stringify({
       format: 'council.export/1',
       exported_at: now.toISOString(),
+      truncated: !!(options && options.truncated),
+      message_limit: Number(page && page.limit) || EXPORT_TOTAL_LIMIT,
       conversation: detail,
       members: (detail && detail.members) || [],
       messages: (page && page.messages) || [],
@@ -5739,30 +5928,45 @@
 
   // runExport 现拉三份数据再拼文档。切会话之后到达的响应直接丢掉：
   // 把 A 的内容存成 B 的文件名比不导出更糟。
+  //
+  // format 有三个值：
+  //   md          Markdown（含系统事件），默认，行为与 B4 之前一致；
+  //   md-dialogue Markdown（仅对话），过滤 kind === "system" 的消息；
+  //   json        JSON，始终包含全部消息（没有「仅对话 JSON」这个入口）。
   async function runExport(format) {
     const id = state.currentId;
     if (!id || state.exporting) return;
     state.exporting = true;
     closePopover();
     const encoded = encodeURIComponent(id);
+    const dialogue = format === 'md-dialogue';
+    const label = format === 'json' ? 'JSON' : (dialogue ? '仅对话 Markdown' : 'Markdown');
     try {
       const [detail, page, usage] = await Promise.all([
         api('/api/conversations/' + encoded),
-        api('/api/conversations/' + encoded + '/messages?after=0&limit=' + EXPORT_LIMIT),
+        collectExportMessages(encoded),
         api('/api/conversations/' + encoded + '/usage'),
       ]);
       if (state.currentId !== id) return;
       const now = new Date();
       const title = (detail && detail.title) || '';
+      const truncated = !!(page && page.truncated);
+      const limit = (page && page.limit) || EXPORT_TOTAL_LIMIT;
       if (format === 'json') {
-        downloadText(buildExportJSON(detail, page, usage, now),
+        downloadText(buildExportJSON(detail, page, usage, now, { truncated: truncated }),
           exportFilename(title, id, 'json', now), 'application/json;charset=utf-8');
       } else {
-        downloadText(buildMarkdown(detail, page, usage, now),
-          exportFilename(title, id, 'md', now), 'text/markdown;charset=utf-8');
+        downloadText(buildMarkdown(detail, page, usage, now, {
+          dialogue: dialogue,
+          truncated: truncated,
+        }), exportFilename(title, id, 'md', now, dialogue ? 'dialogue' : ''),
+        'text/markdown;charset=utf-8');
       }
       clearError();
-      showToast('已导出 ' + (format === 'json' ? 'JSON' : 'Markdown'));
+      // 界面提示与导出件顶部同口径：达到上限时必须在页面上也说出来，
+      // 不能只把提示藏在文件里。
+      showToast('已导出 ' + label + (truncated
+        ? '（消息超过 ' + limit + ' 条上限，已截断）' : ''));
     } catch (err) {
       showError(err);
     } finally {
