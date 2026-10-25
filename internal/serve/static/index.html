@@ -20,7 +20,9 @@
     --ink: #0f1115;
     --ink-2: #43454a;
     --muted: #61666b;
-    --muted-2: #81858c;
+    /* 12–13px 的说明文字原先用 #81858c，浅底对比度只有 3.55:1；退深一档
+       到 #6b7078（4.77:1），仍比 --muted 轻，但小字号能读清。 */
+    --muted-2: #6b7078;
     --brand: #0f1115;
     --brand-ink: #ffffff;
     --accent: #3b82f6;
@@ -32,6 +34,55 @@
     --r-md: 12px;
     --r-lg: 16px;
     --shadow: 0 1px 2px rgba(15, 17, 21, .04), 0 8px 24px -18px rgba(15, 17, 21, .28);
+
+    /* ---- 字体与排版令牌 ----
+       目标是「先拉丁、后中文、最后通用」：拉丁字体先接管英文、数字与
+       标点，中文再逐字回退。反过来把中文字体放在前面，ASCII 与数字会先被
+       中文字体接走，字宽和基线都和旁边的拉丁字母对不上，费用列尤其明显。
+
+       为什么显式的 Segoe UI 两档排在 system-ui 前面：常见写法把
+       system-ui 放在最前，但在中文 Windows（本机 zh-CN）的 Chrome 上实测，
+       system-ui 会解析成 Microsoft YaHei UI，连英文与数字一起接走。
+       把它放最前等于整页都用雅黑，反而没有「先拉丁」。因此这里把
+       "Segoe UI Variable Text" / "Segoe UI" 提到 system-ui 之前：
+       Windows 的拉丁走 Segoe，中文仍逐字回退到雅黑 UI；macOS 上没有
+       Segoe，system-ui 自然落到 SF Pro。这是对候选顺序的唯一调整，
+       目的是让「先拉丁」在中文 Windows 上真的成立。
+
+       为什么中文里 "Microsoft YaHei UI" 排在 "Microsoft YaHei" 前面：
+       Windows 上两者都能渲染简体中文，但 UI 变体的行高更紧、字重更全
+       （多出 Semibold 等档），小字号下笔画更干净；优先用它，缺这个字体
+       的旧系统才回落到 Microsoft YaHei。中文栈里 PingFang SC 排最前，
+       是因为 macOS 上它是系统中文界面字体；Source Han Sans SC /
+       Noto Sans CJK SC 覆盖 Linux 与没装微软雅黑的 Windows。
+
+       "Inter" 与 "Noto Sans" 只是「本机装了就用」的候选，不下载字体、
+       不发网络请求；都没装时继续走后面的中文栈与 sans-serif，离线可用。
+       "--font-mono" 是等宽栈，只给机器可读的字符串（id、路径、模型名、
+       费用数字与 /api 路径）用；中文仍由系统逐字回退，不强行塞进拉丁等宽体。
+
+       中文正文不额外加 letter-spacing：汉字是等宽方块，人为拉开字距会让
+       词与词之间的边界碎掉；负字距更会压到笔画。这里只在纯拉丁的 eyebrow
+       标签上保留字距，其余一律 normal。 */
+    --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
+            "Inter", "Noto Sans",
+            "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+            "Source Han Sans SC", "Noto Sans CJK SC",
+            sans-serif;
+    --font-mono: "Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono",
+                 "Noto Sans Mono CJK SC", monospace;
+
+    /* 四档字号：标题 16 / 正文 14（消息 14.5）/ 说明 12.5 / 元信息 11。
+       原先 13.5 的标题与 12 的元信息只差 1.5px，扫一眼分不出层级；拉开
+       之后标题、正文、说明、时间戳各占一档，密度也不再靠 13/12 两档硬挤。 */
+    --text-title: 16px;
+    --text-body: 14px;
+    --text-note: 12.5px;
+    --text-meta: 11px;
+
+    /* 中文段落比拉丁更需要呼吸：基础行高从 1.5 提到 1.62。消息正文另有
+       更大的 1.75（见 .msg-text），不跟着这条基准收紧。 */
+    --leading-body: 1.62;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -46,7 +97,9 @@
       --ink: #f9fafb;
       --ink-2: #cfd2d8;
       --muted: #979da6;
-      --muted-2: #81858c;
+      /* 深色底上灰字是「提亮」一档：本体 #81858c 在 #151517 上约 4.9:1，
+         小字号偏灰；提到 #9aa0a9 后约 6.9:1，仍保持说明文字该有的退后。 */
+      --muted-2: #9aa0a9;
       --brand: #f9fafb;
       --brand-ink: #0f1115;
       --accent: #4d93f8;
@@ -63,8 +116,12 @@
     margin: 0;
     background: var(--bg);
     color: var(--ink);
-    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-          "Hiragino Sans GB", "Microsoft YaHei UI", system-ui, sans-serif;
+    font-family: var(--font);
+    font-size: var(--text-body);
+    font-weight: 400;
+    line-height: var(--leading-body);
+    /* 抗锯齿只对 WebKit/Blink 生效；Firefox 忽略下面一条，用系统默认渲染。
+       optimizeLegibility 让中英混排的连字与字距更稳，不会改变字号层级。 */
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     /* 只读看板的 schema 提示条（见 .schema-lag）排在 #app 之前，
@@ -72,6 +129,17 @@
     display: flex;
     flex-direction: column;
   }
+  /* 中文段落与标题的断行：Chrome/Safari 支持时把孤字留到上一行，避免
+     最后一行只剩一个「的」；不支持的浏览器整条忽略，不影响排版。 */
+  .msg-text, .empty, .confirm-text, .settings-page-intro, .settings-group-desc,
+  .settings-row-hint, .settings-empty, .menu-empty, .menu-note, .ask-line,
+  .settings-form-hint, .settings-result, .skill-desc { text-wrap: pretty; }
+  .conv-head h2, .settings-page-title, .settings-group-title { text-wrap: pretty; }
+  /* 所有金额、计数与数字列统一等宽数字：位数变化时不推挤相邻列。 */
+  #members-table, .cost-value, .conv-meta, .side-count, .conversation .meta,
+  .member-sub, .workspace-count, .msg-head time, .msg-foot time,
+  .ask-meter, .settings-row-value, .settings-table, .settings-diff,
+  #archived-count { font-variant-numeric: tabular-nums; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb {
     background: var(--line-strong);
@@ -117,7 +185,7 @@
     background: var(--surface);
     border-bottom: 1px solid var(--line);
   }
-  .brand { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+  .brand { display: flex; align-items: center; gap: 9px; font-size: var(--text-body); font-weight: 600; }
   .brand::before {
     content: "";
     width: 18px; height: 18px;
@@ -136,9 +204,14 @@
   .status { color: var(--danger); font-size: 12px; }
   .status[hidden] { display: none; }
   .cost { margin-left: 10px; display: flex; align-items: center; gap: 10px; }
-  .cost-note { font-size: 12px; color: var(--muted); }
+  .cost-note { font-size: var(--text-note); color: var(--muted); }
   .cost-note.warn { color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 3px 9px; }
-  .cost-value { font-size: 15px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .cost-value {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
 
   /* 两栏宽度由 JS 写在 :root 上的变量决定（可拖动调整，见 bindResizer）；
      没有存过宽度时回落到默认值。 */
@@ -163,17 +236,15 @@
   }
   .side-head h2 {
     margin: 0;
-    font-size: 11.5px;
+    font-size: var(--text-meta);
     font-weight: 600;
-    letter-spacing: .04em;
-    text-transform: uppercase;
     color: var(--muted-2);
   }
   .conv-head h2 {
     margin: 0;
-    font-size: 13.5px;
+    font-size: var(--text-title);
     font-weight: 600;
-    letter-spacing: -.01em;
+    line-height: 1.35;
     color: var(--ink);
     white-space: nowrap;
     overflow: hidden;
@@ -248,7 +319,7 @@
   .side-search input::placeholder { color: var(--muted-2); }
   .side-count {
     flex: none;
-    font-size: 11.5px;
+    font-size: var(--text-meta);
     color: var(--muted-2);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -314,7 +385,7 @@
     line-height: 1.6;
     color: var(--muted-2);
   }
-  .conversation .meta { font-size: 11.5px; color: var(--muted-2); }
+  .conversation .meta { font-size: var(--text-meta); color: var(--muted-2); font-variant-numeric: tabular-nums; }
 
   /* ---- 工作区分组（左栏） ----
      工作区只是列表的一层分组：组标题行本身也是拖拽的放置目标，
@@ -556,7 +627,7 @@
   .confirm-text {
     margin: 0 0 14px;
     font-size: 13px;
-    line-height: 1.6;
+    line-height: 1.65;
     color: var(--ink-2);
     /* 标题可能很长：允许在任意位置折断，别把卡片撑出屏幕。 */
     word-break: break-word;
@@ -630,17 +701,19 @@
     border-radius: 6px;
     padding: 0 5px;
   }
-  .msg-head time { font-size: 11.5px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+  .msg-head time { font-size: var(--text-meta); color: var(--muted-2); font-variant-numeric: tabular-nums; }
   .msg-text {
     max-width: 76ch;
     font-size: 14.5px;
+    /* 中文正文比拉丁更松：1.75 高于 body 的 1.62 基准，长段中文不挤。 */
     line-height: 1.75;
     color: var(--ink-2);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    text-wrap: pretty;
   }
 
-  #members-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  #members-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
   #members-table thead th {
     position: sticky;
     top: -8px;
@@ -649,7 +722,6 @@
     text-align: right;
     font-size: 10.5px;
     font-weight: 600;
-    letter-spacing: .04em;
     text-transform: uppercase;
     color: var(--muted-2);
     border-bottom: 1px solid var(--line);
@@ -658,9 +730,29 @@
   #members-table thead th:first-child { text-align: left; }
   #members-table tbody td { padding: 9px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
   #members-table tbody tr:last-child td { border-bottom: 0; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); white-space: nowrap; }
-  .member-name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
-  .member-sub { margin-top: 2px; font-size: 11px; color: var(--muted-2); }
+  /* 轮 / IN / OUT / 金额都是机器可读数字：等宽字体 + tabular-nums，
+     位数参差时小数点与个位仍落在同一列。 */
+  td.num {
+    font-family: var(--font-mono);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .member-name { font-size: 13px; font-weight: 600; color: var(--ink); }
+  .member-sub {
+    margin-top: 2px;
+    /* 副行是「agent id · provider · model · 缓存说明」这一条混合文本，
+       整行等宽会把右栏 352px 里的中文说明挤成 4–5 行（实测），因此这里
+       保留正文字体、只用 tabular-nums 对齐数字；纯 id/模型名的等宽见
+       设置页 agent 表与路径字段。 */
+    font-family: var(--font);
+    font-size: 11px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-2);
+    overflow-wrap: break-word;
+  }
   tr.inactive .member-name { color: var(--muted); }
 
   /* 右栏顶部的「+ 添加成员」：只在写模式、且选中了一场会话时出现。
@@ -716,7 +808,14 @@
   .member-rejoin { color: var(--accent); }
   .member-rejoin:hover { background: var(--surface-2); }
 
-  .empty { margin: 34px 12px; font-size: 12.5px; line-height: 1.7; color: var(--muted-2); text-align: center; }
+  .empty {
+    margin: 34px 12px;
+    font-size: var(--text-note);
+    line-height: 1.7;
+    color: var(--muted-2);
+    text-align: center;
+    text-wrap: pretty;
+  }
 
   .ask {
     display: flex;
@@ -917,8 +1016,6 @@
     padding: 4px 6px 6px;
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: .04em;
-    text-transform: uppercase;
     color: var(--muted-2);
   }
   /* 「+ 添加成员」菜单里的分段标题：配置里的模型 / 本机识别 / 识别到的模型。
@@ -927,8 +1024,6 @@
     padding: 8px 8px 2px;
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: .04em;
-    text-transform: uppercase;
     color: var(--muted-2);
   }
   .menu-item {
@@ -1038,6 +1133,14 @@
   }
   .cwd-row:hover { background: var(--surface-2); color: var(--ink); }
   .cwd-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 路径、会话/成员 id、模型名、预算与费用数字是机器可读字符串：统一
+     等宽栈，长短变化时不推挤相邻控件；中文说明仍走正文栈。 */
+  #cwd-chip .chip-text,
+  #context-tags .chip-text,
+  #context-input,
+  .cwd-path,
+  .cwd-row-name { font-family: var(--font-mono); }
+  #param-budget { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .cwd-row-go { color: var(--muted-2); }
   .cwd-empty { padding: 18px 10px; font-size: 12px; color: var(--muted-2); text-align: center; }
   .cwd-foot { display: flex; align-items: center; gap: 8px; }
@@ -1278,7 +1381,7 @@
   }
   #toggle-inspector:hover { background: var(--surface-2); color: var(--ink); }
   #app.no-inspector #toggle-inspector { color: var(--ink); background: var(--surface-2); }
-  .conv-meta { font-size: 12px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+  .conv-meta { font-size: var(--text-meta); color: var(--muted-2); font-variant-numeric: tabular-nums; }
 
   /* 会话头右侧的「导出 ▾」。导出是读操作，所以只读模式也画这个按钮；
      它只在选中了一场会话时出现（没有会话就没有可导出的东西）。
@@ -1473,7 +1576,7 @@
     min-width: 0;
     overflow: hidden;
     color: var(--muted-2);
-    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     line-height: 16px;
     text-overflow: ellipsis;
@@ -1526,16 +1629,15 @@
   .settings-page-title {
     margin: 0;
     color: var(--ink);
-    font-size: 16px;
+    font-size: var(--text-title);
     font-weight: 600;
-    line-height: 24px;
-    letter-spacing: -.01em;
+    line-height: 1.4;
   }
   .settings-page-intro {
     margin: 6px 0 0;
     color: var(--muted);
     font-size: 14px;
-    line-height: 22px;
+    line-height: 1.65;
   }
   .settings-group { margin-top: 26px; }
   .settings-group:first-of-type { margin-top: 22px; }
@@ -1555,8 +1657,8 @@
   .settings-group-desc {
     margin: 4px 0 0;
     color: var(--muted);
-    font-size: 12px;
-    line-height: 18px;
+    font-size: var(--text-note);
+    line-height: 1.65;
     word-break: break-all;
   }
   .settings-group-head .btn-small { flex: none; }
@@ -1575,8 +1677,8 @@
   .settings-row-hint {
     margin-top: 4px;
     color: var(--muted-2);
-    font-size: 12px;
-    line-height: 18px;
+    font-size: var(--text-note);
+    line-height: 1.65;
     word-break: break-all;
   }
   .settings-row-value {
@@ -1591,7 +1693,7 @@
   .settings-row-value.mono,
   .settings-row-value .mono,
   .settings-row-label.mono {
-    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
   }
   .settings-row-label.mono { font-size: 14px; }
@@ -1616,7 +1718,7 @@
   .settings-layer .layer-tag { color: var(--ink); font-size: 14px; line-height: 20px; }
   .settings-layer .layer-path {
     color: var(--muted-2);
-    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     line-height: 18px;
   }
@@ -1641,7 +1743,16 @@
   .settings-table tbody tr:last-child td { border-bottom: 0; }
   .settings-table .mono {
     color: var(--ink);
-    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  /* 成员表的 provider / model / effort / mode 是机器可读列，跟着 id 列
+     一起用等宽栈；display_name 与权限文案仍用正文栈。 */
+  #settings-agents-body td:nth-child(3),
+  #settings-agents-body td:nth-child(4),
+  #settings-agents-body td:nth-child(5),
+  #settings-agents-body td:nth-child(7) {
+    font-family: var(--font-mono);
     font-size: 12px;
   }
   .settings-source { color: var(--muted-2); white-space: nowrap; }
@@ -1669,7 +1780,7 @@
     border-radius: var(--r-sm);
     background: var(--accent-soft);
     color: var(--ink-2);
-    font-size: 12px;
+    font-size: var(--text-note);
     line-height: 1.7;
     white-space: pre-line;
     word-break: break-all;
@@ -1764,7 +1875,7 @@
   .settings-form-hint {
     margin: 0 0 12px;
     color: var(--muted-2);
-    font-size: 11.5px;
+    font-size: var(--text-note);
     line-height: 1.7;
     word-break: break-all;
   }
@@ -1796,7 +1907,7 @@
   .settings-diff .diff-field {
     color: var(--muted);
     white-space: nowrap;
-    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-family: var(--font-mono);
   }
   .settings-diff .diff-old { color: var(--muted-2); }
   .settings-diff .diff-new { color: var(--ink); font-weight: 600; }
