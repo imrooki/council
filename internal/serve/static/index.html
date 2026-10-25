@@ -1351,10 +1351,12 @@
   }
   .toast[hidden] { display: none; }
 
-  /* ---- 设置页（GUI 第 6 片） ----
-     这是唯一会写用户配置文件的界面：入口在右上角，面板只读展示合并后的
-     配置，agents 行可以增 / 改 / 删。保存前一定先经过预览确认框，成功后
-     把备份路径与「重启后生效」显示在 #settings-result 里。 */
+  /* ---- 设置页（GUI 第 6 片，dsh 形态） ----
+     整页覆盖：遮罩上只留 24px 边，面板占满剩余视口。左栏分类导航固定，
+     右栏内容独立滚动；内容按「分组标题 + 说明 + 行」组织，行内 label 在
+     左、值或控件右对齐。设计令牌沿用上面的中性冷灰、6%–12% 描边与
+     8/12/16 圆角，不引入第二套色板。 */
+  body.settings-open { overflow: hidden; }
   .settings-button {
     display: inline-flex;
     align-items: center;
@@ -1384,94 +1386,229 @@
     background: rgba(15, 17, 21, .38);
   }
   .settings-overlay[hidden] { display: none; }
+  #settings-form-overlay { z-index: 75; }
   #settings-preview { z-index: 80; }
   .settings-panel {
-    width: min(1040px, 100%);
-    max-height: calc(100vh - 48px);
     display: flex;
-    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    overflow: hidden;
     border: 1px solid var(--line-strong);
     border-radius: var(--r-lg);
     background: var(--surface);
     box-shadow: var(--shadow);
   }
-  .settings-head {
+  .settings-nav {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 18px;
+    width: 188px;
+    min-height: 0;
+    padding: 22px 12px 14px;
+    border-right: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .settings-nav-head { min-width: 0; }
+  .settings-nav-title {
+    margin: 0;
+    padding: 0 12px;
+    color: var(--ink);
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 24px;
+  }
+  .settings-nav-kicker {
+    margin: 2px 0 0;
+    padding: 0 12px;
+    color: var(--muted-2);
+    font-size: 11px;
+    line-height: 16px;
+  }
+  .settings-nav-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .settings-nav-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    flex: none;
-    padding: 14px 18px;
-    border-bottom: 1px solid var(--line);
+    gap: 8px;
+    width: 100%;
+    height: 40px;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 14px;
+    line-height: 22px;
+    text-align: left;
+    cursor: pointer;
   }
-  .settings-head h2 { margin: 0; font-size: 15px; letter-spacing: -.01em; }
+  .settings-nav-item:hover { background: var(--surface-2); color: var(--ink); }
+  .settings-nav-item[aria-current="page"] {
+    background: var(--surface-2);
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .settings-nav-icon { flex: none; width: 16px; height: 16px; opacity: .7; }
+  .settings-nav-item[aria-current="page"] .settings-nav-icon { opacity: 1; }
+  .settings-nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .settings-nav-foot {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: auto;
+    padding: 12px 12px 0;
+    border-top: 1px solid var(--line);
+  }
+  .settings-nav-foot-label { color: var(--muted-2); font-size: 11px; line-height: 16px; }
   .settings-sub {
+    display: block;
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 11.5px;
     color: var(--muted-2);
     font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-size: 11px;
+    line-height: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .settings-head .btn-small { margin-left: auto; flex: none; }
-  .settings-body { overflow: auto; padding: 2px 18px 18px; }
-  .settings-section { padding: 14px 0; border-bottom: 1px solid var(--line); }
-  .settings-section:last-child { border-bottom: 0; }
-  .settings-section h3 {
+  .settings-nav-list,
+  .settings-body { scrollbar-color: var(--line-strong) transparent; }
+  .settings-nav-list::-webkit-scrollbar-track,
+  .settings-body::-webkit-scrollbar-track { background: transparent; }
+  .settings-content { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+  .settings-content-head {
     display: flex;
+    flex: none;
     align-items: center;
-    gap: 10px;
-    margin: 0 0 8px;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: .03em;
-    text-transform: uppercase;
-    color: var(--muted-2);
+    justify-content: flex-end;
+    height: 54px;
+    padding: 20px 14px 8px 10px;
   }
-  .settings-section h3 .btn-small { margin-left: auto; text-transform: none; letter-spacing: 0; }
-  .settings-note {
-    margin: 0 0 8px;
-    font-size: 12px;
-    line-height: 1.7;
+  .settings-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .settings-close:hover { background: var(--surface-2); color: var(--ink); }
+  .settings-close:focus-visible,
+  .settings-nav-item:focus-visible,
+  .settings-row-actions .btn-small:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .settings-body {
+    flex: 1;
+    min-height: 0;
+    padding: 0 28px 40px;
+    overflow-y: auto;
+  }
+  .settings-page { max-width: 840px; padding-top: 10px; }
+  .settings-page[hidden] { display: none; }
+  .settings-page-title {
+    margin: 0;
+    color: var(--ink);
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 24px;
+    letter-spacing: -.01em;
+  }
+  .settings-page-intro {
+    margin: 6px 0 0;
     color: var(--muted);
+    font-size: 14px;
+    line-height: 22px;
+  }
+  .settings-group { margin-top: 26px; }
+  .settings-group:first-of-type { margin-top: 22px; }
+  .settings-group-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .settings-group-title {
+    margin: 0;
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 20px;
+  }
+  .settings-group-desc {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 18px;
     word-break: break-all;
   }
-  .settings-layers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-  .settings-layer {
+  .settings-group-head .btn-small { flex: none; }
+  .settings-rows { margin: 10px 0 0; padding: 0; list-style: none; }
+  .settings-row {
     display: flex;
     align-items: center;
-    gap: 9px;
-    padding: 7px 10px;
-    border: 1px solid var(--line);
-    border-radius: var(--r-sm);
-    background: var(--surface-2);
+    justify-content: space-between;
+    gap: 24px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .settings-row:last-child { border-bottom: 0; }
+  .settings-row-main { min-width: 0; }
+  .settings-row-label { color: var(--ink); font-size: 14px; line-height: 20px; }
+  .settings-row-hint {
+    margin-top: 4px;
+    color: var(--muted-2);
+    font-size: 12px;
+    line-height: 18px;
+    word-break: break-all;
+  }
+  .settings-row-value {
+    flex: none;
+    max-width: 62%;
+    color: var(--ink-2);
+    font-size: 13px;
+    line-height: 20px;
+    text-align: right;
+    word-break: break-all;
+  }
+  .settings-row-value.mono,
+  .settings-row-value .mono,
+  .settings-row-label.mono {
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
     font-size: 12px;
   }
-  .settings-layer.is-target { border-color: var(--accent); background: var(--accent-soft); }
-  .settings-layer .layer-tag {
-    flex: none;
-    padding: 1px 7px;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: var(--surface);
-    color: var(--ink-2);
-    font-size: 11px;
-    white-space: nowrap;
-  }
+  .settings-row-label.mono { font-size: 14px; }
+  .settings-row-value.is-warn { color: var(--warn); }
+  .settings-layer .layer-tag { color: var(--ink); font-size: 14px; line-height: 20px; }
   .settings-layer .layer-path {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--ink-2);
+    color: var(--muted-2);
     font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-size: 12px;
+    line-height: 18px;
   }
-  .settings-layer .layer-state { flex: none; font-size: 11px; color: var(--muted-2); white-space: nowrap; }
+  .settings-layer .layer-state { flex: none; color: var(--muted-2); font-size: 12px; white-space: nowrap; }
   .settings-layer.is-target .layer-state { color: var(--accent); }
-  .settings-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .settings-table-wrap { margin-top: 10px; overflow-x: auto; }
+  .settings-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .settings-table thead th {
-    padding: 6px;
+    padding: 8px 8px 10px;
     border-bottom: 1px solid var(--line-strong);
     color: var(--muted-2);
     font-size: 11px;
@@ -1479,32 +1616,35 @@
     text-align: left;
     white-space: nowrap;
   }
-  .settings-table tbody td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .settings-table tbody td {
+    padding: 11px 8px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+  }
   .settings-table tbody tr:last-child td { border-bottom: 0; }
   .settings-table .mono {
     color: var(--ink);
     font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-size: 12px;
   }
   .settings-source { color: var(--muted-2); white-space: nowrap; }
   .settings-row-actions { text-align: right; white-space: nowrap; }
-  .settings-row-actions .btn-small { padding: 3px 8px; font-size: 11.5px; }
+  .settings-row-actions .btn-small {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 12px;
+    line-height: 18px;
+  }
   .settings-row-actions .btn-small + .btn-small { margin-left: 4px; }
   .settings-row-actions .btn-small.danger { color: var(--danger); }
   .settings-row-actions .btn-small:disabled { opacity: .45; cursor: default; }
-  .settings-facts {
-    display: grid;
-    grid-template-columns: 140px minmax(0, 1fr);
-    gap: 6px 12px;
-    margin: 0;
-    font-size: 12px;
+  .settings-empty {
+    margin: 16px 0 0;
+    color: var(--muted-2);
+    font-size: 12.5px;
+    line-height: 1.7;
   }
-  .settings-facts dt { color: var(--muted-2); }
-  .settings-facts dd {
-    margin: 0;
-    word-break: break-all;
-    color: var(--ink-2);
-    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-  }
+  .settings-empty[hidden] { display: none; }
   .settings-result {
     margin: 12px 0 0;
     padding: 10px 12px;
@@ -1549,25 +1689,53 @@
     word-break: break-word;
   }
   .settings-error[hidden] { display: none; }
-  .settings-form-card { width: min(600px, 100%); max-height: calc(100vh - 48px); overflow: auto; }
-  .settings-form-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px 12px;
-    margin: 12px 0 10px;
+  .settings-form-card {
+    width: min(640px, 100%);
+    max-height: calc(100vh - 48px);
+    padding: 22px;
+    overflow: auto;
+    border-radius: var(--r-lg);
   }
-  .settings-field { display: flex; flex-direction: column; gap: 5px; }
-  .settings-field label { font-size: 11.5px; color: var(--muted); }
+  .settings-form-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 12px 0;
+  }
+  .settings-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .settings-field:last-child { border-bottom: 0; }
+  .settings-field label {
+    flex: none;
+    width: 210px;
+    color: var(--ink-2);
+    font-size: 13px;
+    line-height: 20px;
+  }
+  .settings-field-hint {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted-2);
+    font-size: 11px;
+    line-height: 16px;
+  }
   .settings-field input,
   .settings-field select {
-    width: 100%;
-    padding: 7px 9px;
+    width: min(300px, 100%);
+    height: 34px;
+    padding: 0 10px;
     border: 1px solid var(--line-strong);
     border-radius: var(--r-sm);
-    background: var(--surface);
+    background: var(--bg);
     color: var(--ink);
     font: inherit;
-    font-size: 12.5px;
+    font-size: 13px;
   }
   .settings-field input:focus,
   .settings-field select:focus {
@@ -1576,9 +1744,27 @@
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .settings-field input:disabled { color: var(--muted-2); background: var(--surface-2); }
-  .settings-form-hint { margin: 0 0 10px; font-size: 11.5px; line-height: 1.7; color: var(--muted-2); word-break: break-all; }
-  .settings-preview-card { width: min(680px, 100%); max-height: calc(100vh - 48px); overflow: auto; }
-  .settings-preview-target { margin: 0 0 8px; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); word-break: break-all; }
+  .settings-form-hint {
+    margin: 0 0 12px;
+    color: var(--muted-2);
+    font-size: 11.5px;
+    line-height: 1.7;
+    word-break: break-all;
+  }
+  .settings-preview-card {
+    width: min(720px, 100%);
+    max-height: calc(100vh - 48px);
+    padding: 22px;
+    overflow: auto;
+    border-radius: var(--r-lg);
+  }
+  .settings-preview-target {
+    margin: 0 0 8px;
+    color: var(--ink-2);
+    font-size: 12.5px;
+    line-height: 1.7;
+    word-break: break-all;
+  }
   .settings-diff { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0 12px; }
   .settings-diff[hidden] { display: none; }
   .settings-diff th {
@@ -1590,10 +1776,46 @@
     text-align: left;
   }
   .settings-diff td { padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; word-break: break-all; }
-  .settings-diff .diff-field { color: var(--muted); white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+  .settings-diff .diff-field {
+    color: var(--muted);
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  }
   .settings-diff .diff-old { color: var(--muted-2); }
   .settings-diff .diff-new { color: var(--ink); font-weight: 600; }
   .settings-diff tr.is-changed td { background: var(--accent-soft); }
+
+  @media (prefers-color-scheme: dark) {
+    .settings-overlay { background: rgba(0, 0, 0, .52); }
+  }
+  @media (max-width: 900px) {
+    .settings-overlay { padding: 10px; }
+    .settings-panel { flex-direction: column; }
+    .settings-nav {
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 10px 12px;
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+      overflow-x: auto;
+    }
+    .settings-nav-head { flex: none; }
+    .settings-nav-title { padding: 0; font-size: 14px; }
+    .settings-nav-kicker { display: none; }
+    .settings-nav-list { flex-direction: row; overflow: visible; }
+    .settings-nav-item { width: auto; height: 34px; padding: 6px 10px; white-space: nowrap; }
+    .settings-nav-foot { display: none; }
+    .settings-content-head { height: 44px; padding: 8px 12px; }
+    .settings-body { padding: 0 16px 28px; }
+    .settings-field { flex-direction: column; align-items: stretch; gap: 6px; }
+    .settings-field label { width: auto; }
+    .settings-field input,
+    .settings-field select { width: 100%; }
+    .settings-row { gap: 12px; }
+    .settings-row-value { max-width: 58%; }
+  }
 
   @media (max-width: 1180px) {
     .workspace { grid-template-columns: var(--sidebar-w, 250px) minmax(0, 1fr); }
@@ -1930,61 +2152,255 @@
       </div>
     </div>
   </div>
-  <!-- 设置面板（GUI 第 6 片）：只读展示合并后的配置层、agents、teams 与
-       providers。所有能写的东西只有 agents 的增 / 改 / 删，且每次写之前
-       都要经过下面的预览确认框。 -->
+  <!-- 设置页（GUI 第 6 片，dsh 形态）：整页覆盖，左侧分类导航，右侧内容区
+       独立滚动。只读展示合并后的配置层、agents、teams、providers 与工作
+       区；所有能写的东西只有 agents 的增 / 改 / 删，且每次写之前都要经过
+       下面的预览确认框。 -->
   <div id="settings-overlay" class="settings-overlay" role="dialog" aria-modal="true"
        aria-labelledby="settings-title" hidden>
     <div class="settings-panel">
-      <div class="settings-head">
-        <h2 id="settings-title">设置</h2>
-        <span id="settings-sub" class="settings-sub"></span>
-        <button id="settings-close" class="btn-small" type="button">关闭</button>
-      </div>
-      <div id="settings-body" class="settings-body">
-        <div id="settings-result" class="settings-result" hidden></div>
-        <div id="settings-error" class="settings-error" hidden></div>
-        <section class="settings-section">
-          <h3>配置层</h3>
-          <p id="settings-write-target" class="settings-note"></p>
-          <ul id="settings-layers" class="settings-layers"></ul>
-        </section>
-        <section class="settings-section">
-          <h3>agents
-            <button id="settings-agent-add" class="btn-small primary" type="button">+ 新增 agent</button>
-          </h3>
-          <table class="settings-table">
-            <thead>
-              <tr>
-                <th>id</th>
-                <th>display_name</th>
-                <th>provider</th>
-                <th>model</th>
-                <th>effort</th>
-                <th>permissions</th>
-                <th>mode</th>
-                <th>来源</th>
-                <th aria-label="操作"></th>
-              </tr>
-            </thead>
-            <tbody id="settings-agents-body"></tbody>
-          </table>
-          <p id="settings-agents-empty" class="empty" hidden>配置里还没有 agent</p>
-        </section>
-        <section class="settings-section">
-          <h3>teams（只读）</h3>
-          <ul id="settings-teams" class="settings-layers"></ul>
-          <p id="settings-teams-empty" class="empty" hidden>还没有 team</p>
-        </section>
-        <section class="settings-section">
-          <h3>其它（只读）</h3>
-          <dl class="settings-facts">
-            <dt>summary.agent</dt><dd id="settings-summary-agent"></dd>
-            <dt>data_dir</dt><dd id="settings-data-dir"></dd>
-            <dt>config_path</dt><dd id="settings-config-path"></dd>
-            <dt>providers</dt><dd id="settings-providers"></dd>
-          </dl>
-        </section>
+      <nav class="settings-nav" aria-label="设置分类">
+        <div class="settings-nav-head">
+          <h2 id="settings-title" class="settings-nav-title">设置</h2>
+          <p class="settings-nav-kicker">Council 本地看板</p>
+        </div>
+        <div class="settings-nav-list">
+          <button type="button" class="settings-nav-item" data-settings-section="general"
+                  aria-current="page">
+            <svg class="settings-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M3 4h10M3 8h10M3 12h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              <circle cx="6" cy="4" r="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+              <circle cx="10" cy="8" r="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+              <circle cx="5" cy="12" r="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            </svg>
+            <span class="settings-nav-label">通用</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-settings-section="members">
+            <svg class="settings-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="6" cy="5.5" r="2.2" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M2.5 13c.5-2.2 1.9-3.3 3.5-3.3s3 1.1 3.5 3.3M10.6 4.5a1.8 1.8 0 1 1 0 3.6M11.2 9.6c1.4.2 2.4 1.2 2.8 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+            <span class="settings-nav-label">成员</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-settings-section="workspaces">
+            <svg class="settings-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.4"/>
+              <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.4"/>
+              <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.4"/>
+              <rect x="9" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.4"/>
+            </svg>
+            <span class="settings-nav-label">工作区</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-settings-section="providers">
+            <svg class="settings-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M5.5 2.5v2M10.5 2.5v2M4 4.5h8v3.2a4 4 0 0 1-8 0V4.5ZM8 11.7v1.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+            <span class="settings-nav-label">提供方</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-settings-section="about">
+            <svg class="settings-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M8 7.2v3.4M8 5.2v.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+            <span class="settings-nav-label">关于</span>
+          </button>
+        </div>
+        <div class="settings-nav-foot">
+          <span class="settings-nav-foot-label">配置文件</span>
+          <span id="settings-sub" class="settings-sub"></span>
+        </div>
+      </nav>
+      <div class="settings-content">
+        <div class="settings-content-head">
+          <button id="settings-close" class="settings-close" type="button" aria-label="关闭设置">×</button>
+        </div>
+        <div id="settings-body" class="settings-body">
+          <div id="settings-result" class="settings-result" hidden></div>
+          <div id="settings-error" class="settings-error" hidden></div>
+
+          <section class="settings-page" data-settings-page="general"
+                   aria-labelledby="settings-general-title">
+            <h2 id="settings-general-title" class="settings-page-title">通用</h2>
+            <p class="settings-page-intro">看板读写的位置、配置合并顺序与数据库 schema。这里只展示启动时解析出的事实。</p>
+            <section class="settings-group" aria-labelledby="settings-paths-title">
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-paths-title" class="settings-group-title">数据与配置</h3>
+                  <p class="settings-group-desc">路径来自本次启动的实际解析结果，不是界面上猜的。</p>
+                </div>
+              </div>
+              <ul class="settings-rows">
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-label">数据目录</div>
+                    <div class="settings-row-hint">会话、账本与 spool 所在的本地目录。</div>
+                  </div>
+                  <span id="settings-data-dir" class="settings-row-value mono"></span>
+                </li>
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-label">配置文件</div>
+                    <div class="settings-row-hint">保存成员时只改这一份里的相关段，其它段与注释保持原样。</div>
+                  </div>
+                  <span id="settings-config-path" class="settings-row-value mono"></span>
+                </li>
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-label">schema 版本</div>
+                    <div class="settings-row-hint">库版本与程序期望版本；落后时下次写模式启动会升级。</div>
+                  </div>
+                  <span id="settings-schema-version" class="settings-row-value mono"></span>
+                </li>
+              </ul>
+            </section>
+            <section class="settings-group" aria-labelledby="settings-layers-title">
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-layers-title" class="settings-group-title">配置层</h3>
+                  <p id="settings-write-target" class="settings-group-desc"></p>
+                </div>
+              </div>
+              <ul id="settings-layers" class="settings-rows"></ul>
+            </section>
+            <section class="settings-group" aria-labelledby="settings-defaults-title">
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-defaults-title" class="settings-group-title">运行默认</h3>
+                  <p class="settings-group-desc">多轮议会的默认汇总成员；留空表示不汇总。</p>
+                </div>
+              </div>
+              <ul class="settings-rows">
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-label">汇总成员</div>
+                    <div class="settings-row-hint">配置里的 summary.agent。</div>
+                  </div>
+                  <span id="settings-summary-agent" class="settings-row-value mono"></span>
+                </li>
+              </ul>
+            </section>
+          </section>
+
+          <section class="settings-page" data-settings-page="members" hidden
+                   aria-labelledby="settings-members-title">
+            <h2 id="settings-members-title" class="settings-page-title">成员</h2>
+            <p class="settings-page-intro">agents 来自配置合并结果；新增、编辑、删除都会写回目标文件，并在写盘前自动备份。</p>
+            <section class="settings-group" aria-labelledby="settings-agents-title">
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-agents-title" class="settings-group-title">agents</h3>
+                  <p class="settings-group-desc">claude 来源的成员只读，请直接改 .claude/agents 下的文件。</p>
+                </div>
+                <button id="settings-agent-add" class="btn-small primary" type="button">+ 新增 agent</button>
+              </div>
+              <div class="settings-table-wrap">
+                <table class="settings-table">
+                  <thead>
+                    <tr>
+                      <th>id</th>
+                      <th>display_name</th>
+                      <th>provider</th>
+                      <th>model</th>
+                      <th>effort</th>
+                      <th>permissions</th>
+                      <th>mode</th>
+                      <th>来源</th>
+                      <th aria-label="操作"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="settings-agents-body"></tbody>
+                </table>
+              </div>
+              <p id="settings-agents-empty" class="settings-empty" hidden>配置里还没有 agent</p>
+            </section>
+            <section class="settings-group" aria-labelledby="settings-teams-title">
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-teams-title" class="settings-group-title">teams（只读）</h3>
+                  <p class="settings-group-desc">团队只在配置里定义，设置页不提供改写入口。</p>
+                </div>
+              </div>
+              <ul id="settings-teams" class="settings-rows"></ul>
+              <p id="settings-teams-empty" class="settings-empty" hidden>还没有 team</p>
+            </section>
+          </section>
+
+          <section class="settings-page" data-settings-page="workspaces" hidden
+                   aria-labelledby="settings-workspaces-title">
+            <h2 id="settings-workspaces-title" class="settings-page-title">工作区</h2>
+            <p class="settings-page-intro">工作区只把会话分组，不改变会话内容。重命名与删除会回到左侧工作台执行。</p>
+            <section class="settings-group" aria-labelledby="settings-workspaces-list-title">
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-workspaces-list-title" class="settings-group-title">工作区列表</h3>
+                  <p class="settings-group-desc">删除工作区只解除归属，不删除会话；组里的会话会回到「未分组」。</p>
+                </div>
+              </div>
+              <ul id="settings-workspaces" class="settings-rows"></ul>
+              <p id="settings-workspaces-empty" class="settings-empty" hidden>还没有工作区；在左侧工作台点「+ 新建工作区」。</p>
+            </section>
+          </section>
+
+          <section class="settings-page" data-settings-page="providers" hidden
+                   aria-labelledby="settings-providers-title">
+            <h2 id="settings-providers-title" class="settings-page-title">提供方</h2>
+            <p class="settings-page-intro">providers 来自启动时读入的配置，只读展示。成员运行时仍由各自的 command 启动。</p>
+            <section class="settings-group" aria-labelledby="settings-providers-list-title">
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-providers-list-title" class="settings-group-title">已配置的 provider</h3>
+                  <p class="settings-group-desc">command 是启动成员进程时使用的可执行文件或命令。</p>
+                </div>
+              </div>
+              <ul id="settings-providers" class="settings-rows"></ul>
+              <p id="settings-providers-empty" class="settings-empty" hidden>（没有 provider）</p>
+            </section>
+          </section>
+
+          <section class="settings-page" data-settings-page="about" hidden
+                   aria-labelledby="settings-about-title">
+            <h2 id="settings-about-title" class="settings-page-title">关于</h2>
+            <p class="settings-page-intro">Council 的版本与构建信息来自 /api/health，不在前端写死。</p>
+            <section class="settings-group" aria-labelledby="settings-build-title">
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-build-title" class="settings-group-title">构建</h3>
+                  <p class="settings-group-desc">界面与后端同源；构建号带 git 短哈希，dirty 表示工作区有未提交改动。</p>
+                </div>
+              </div>
+              <ul class="settings-rows">
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-label">版本</div>
+                    <div class="settings-row-hint">VERSION 文件里的基础版本。</div>
+                  </div>
+                  <span id="settings-about-version" class="settings-row-value mono"></span>
+                </li>
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-label">构建号</div>
+                    <div class="settings-row-hint">构建时的 git 提交短哈希。</div>
+                  </div>
+                  <span id="settings-about-build" class="settings-row-value mono"></span>
+                </li>
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-label">运行模式</div>
+                    <div class="settings-row-hint">设置接口只在写模式下存在。</div>
+                  </div>
+                  <span id="settings-about-mode" class="settings-row-value"></span>
+                </li>
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-label">数据库 schema</div>
+                    <div class="settings-row-hint">与「通用」里显示的是同一份事实。</div>
+                  </div>
+                  <span id="settings-about-schema" class="settings-row-value mono"></span>
+                </li>
+              </ul>
+            </section>
+          </section>
+        </div>
       </div>
     </div>
   </div>
@@ -1995,28 +2411,40 @@
       <h2 id="settings-form-title">编辑 agent</h2>
       <div class="settings-form-grid">
         <div class="settings-field">
-          <label for="settings-form-id">id</label>
+          <label for="settings-form-id">id
+            <span class="settings-field-hint">小写字母、数字、点号、下划线、连字符</span>
+          </label>
           <input id="settings-form-id" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="小写字母、数字、点号、下划线、连字符">
+                 placeholder="例如 reviewer">
         </div>
         <div class="settings-field">
-          <label for="settings-form-display">display_name</label>
+          <label for="settings-form-display">display_name
+            <span class="settings-field-hint">留空时用 id 显示</span>
+          </label>
           <input id="settings-form-display" type="text" autocomplete="off" spellcheck="false">
         </div>
         <div class="settings-field">
-          <label for="settings-form-provider">provider（必须是已配置的 provider）</label>
+          <label for="settings-form-provider">provider
+            <span class="settings-field-hint">必须是已配置的 provider</span>
+          </label>
           <select id="settings-form-provider"></select>
         </div>
         <div class="settings-field">
-          <label for="settings-form-model">model（必填）</label>
+          <label for="settings-form-model">model
+            <span class="settings-field-hint">必填</span>
+          </label>
           <input id="settings-form-model" type="text" autocomplete="off" spellcheck="false">
         </div>
         <div class="settings-field">
-          <label for="settings-form-effort">effort（可留空）</label>
+          <label for="settings-form-effort">effort
+            <span class="settings-field-hint">可留空，由 provider 决定</span>
+          </label>
           <input id="settings-form-effort" type="text" autocomplete="off" spellcheck="false">
         </div>
         <div class="settings-field">
-          <label for="settings-form-permissions">permissions</label>
+          <label for="settings-form-permissions">permissions
+            <span class="settings-field-hint">成员进程能碰哪些文件</span>
+          </label>
           <select id="settings-form-permissions">
             <option value="read">read（只读）</option>
             <option value="workspace">workspace（可改文件）</option>
@@ -2024,7 +2452,9 @@
           </select>
         </div>
         <div class="settings-field">
-          <label for="settings-form-mode">mode</label>
+          <label for="settings-form-mode">mode
+            <span class="settings-field-hint">参与讨论、执行还是当裁判</span>
+          </label>
           <select id="settings-form-mode">
             <option value="discussion">discussion</option>
             <option value="worker">worker</option>
@@ -2146,11 +2576,15 @@
     // 但共用一套 Esc / 遮罩关闭习惯，状态各自独立。
     memberConfirm: null,
     // 设置页（GUI 第 6 片）。settings 是 GET /api/settings 的原始响应；
-    // settingsForm 非 null 表示 agent 表单开着（只存「是不是编辑」与来源）；
-    // settingsPreview 非 null 表示写入确认框开着：{ kind, id, payload,
-    // changes, busy }；settingsResult 是最近一次写成功的提示（备份路径 +
-    // 重启后生效），关掉面板再打开仍然显示，刷新页面才清空。
+    // settingsHealth 是 /api/health 的快照（版本、构建号、schema）；
+    // settingsSection 是当前高亮的分类；settingsForm 非 null 表示 agent
+    // 表单开着（只存「是不是编辑」与来源）；settingsPreview 非 null 表示
+    // 写入确认框开着：{ kind, id, payload, changes, busy }；settingsResult
+    // 是最近一次写成功的提示（备份路径 + 重启后生效），关掉面板再打开
+    // 仍然显示，刷新页面才清空。
     settings: null,
+    settingsHealth: null,
+    settingsSection: 'general',
     settingsForm: null,
     settingsPreview: null,
     settingsResult: '',
@@ -2323,6 +2757,7 @@
   // 不拼任何 HTML 字符串。
   const openSettingsButton = document.getElementById('open-settings');
   const settingsOverlay = document.getElementById('settings-overlay');
+  const settingsBody = document.getElementById('settings-body');
   const settingsSub = document.getElementById('settings-sub');
   const settingsClose = document.getElementById('settings-close');
   const settingsWriteTarget = document.getElementById('settings-write-target');
@@ -2335,7 +2770,17 @@
   const settingsSummaryAgent = document.getElementById('settings-summary-agent');
   const settingsDataDir = document.getElementById('settings-data-dir');
   const settingsConfigPath = document.getElementById('settings-config-path');
+  const settingsSchemaVersion = document.getElementById('settings-schema-version');
   const settingsProviders = document.getElementById('settings-providers');
+  const settingsProvidersEmpty = document.getElementById('settings-providers-empty');
+  const settingsWorkspaces = document.getElementById('settings-workspaces');
+  const settingsWorkspacesEmpty = document.getElementById('settings-workspaces-empty');
+  const settingsAboutVersion = document.getElementById('settings-about-version');
+  const settingsAboutBuild = document.getElementById('settings-about-build');
+  const settingsAboutMode = document.getElementById('settings-about-mode');
+  const settingsAboutSchema = document.getElementById('settings-about-schema');
+  const settingsNavItems = Array.from(document.querySelectorAll('.settings-nav-item'));
+  const settingsPages = Array.from(document.querySelectorAll('[data-settings-page]'));
   const settingsResult = document.getElementById('settings-result');
   const settingsError = document.getElementById('settings-error');
   const settingsFormOverlay = document.getElementById('settings-form-overlay');
@@ -3919,9 +4364,11 @@
     try {
       const health = await api('/api/health');
       state.writable = health && health.writable === true;
+      state.settingsHealth = health && typeof health === 'object' ? health : null;
       renderSchemaLag(health);
     } catch (err) {
       state.writable = false;
+      state.settingsHealth = null;
       renderSchemaLag(null);
     }
     askPanel.hidden = !state.writable;
@@ -6476,6 +6923,45 @@
     return layer.project ? '项目层' : '全局层';
   }
 
+  // settingsSchemaText 只认 /api/health 的整数版本号；缺字段时给破折号，
+  // 不猜一个数字。库版本落后时把「程序」也写出来，和顶部黄条同一口径。
+  function settingsSchemaText(health) {
+    if (!health || !Number.isInteger(health.schema_version)) return '—';
+    const expected = Number.isInteger(health.schema_expected_version)
+      ? health.schema_expected_version
+      : null;
+    return '库 v' + health.schema_version + (expected === null ? '' : ' · 程序 v' + expected);
+  }
+
+  // settingsVersionParts 把构建脚本注入的 <VERSION>+git.<hash>[.dirty]
+  // 拆成「版本」与「构建号」两行；没有 + 的 0.0.0-dev 视为开发构建。
+  function settingsVersionParts(raw) {
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    if (text === '') return { version: '—', build: '—' };
+    const plus = text.indexOf('+');
+    if (plus < 0) {
+      return { version: text, build: text.endsWith('-dev') ? '开发构建' : '—' };
+    }
+    return { version: text.slice(0, plus), build: text.slice(plus + 1) };
+  }
+
+  function selectSettingsSection(section) {
+    const known = settingsPages.some((page) => page.dataset.settingsPage === section);
+    const next = known ? section : 'general';
+    state.settingsSection = next;
+    for (const page of settingsPages) {
+      page.hidden = page.dataset.settingsPage !== next;
+    }
+    for (const item of settingsNavItems) {
+      if (item.dataset.settingsSection === next) item.setAttribute('aria-current', 'page');
+      else item.removeAttribute('aria-current');
+    }
+    settingsBody.scrollTop = 0;
+    if (next === 'workspaces') renderSettingsWorkspaces();
+    if (next === 'providers') renderSettingsProviders();
+    if (next === 'about') renderSettingsAbout();
+  }
+
   function renderSettingsLayers() {
     settingsLayers.replaceChildren();
     const settings = state.settings;
@@ -6484,21 +6970,24 @@
     for (const layer of layers) {
       const isTarget = layer.path === settings.write_target;
       const item = document.createElement('li');
-      item.className = 'settings-layer';
+      item.className = 'settings-row settings-layer';
       if (isTarget) item.classList.add('is-target');
-      const tag = document.createElement('span');
-      tag.className = 'layer-tag';
+      const main = document.createElement('div');
+      main.className = 'settings-row-main';
+      const tag = document.createElement('div');
+      tag.className = 'settings-row-label layer-tag';
       tag.textContent = layerLabel(layer);
-      const path = document.createElement('span');
-      path.className = 'layer-path';
+      const path = document.createElement('div');
+      path.className = 'settings-row-hint layer-path';
       path.textContent = layer.path || '';
       path.title = layer.path || '';
+      main.append(tag, path);
       const stateText = document.createElement('span');
-      stateText.className = 'layer-state';
+      stateText.className = 'settings-row-value layer-state';
       stateText.textContent = layer.exists
         ? (isTarget ? '生效 · 写回目标' : '生效')
         : '不存在';
-      item.append(tag, path, stateText);
+      item.append(main, stateText);
       settingsLayers.appendChild(item);
     }
     settingsWriteTarget.textContent = settings.write_target
@@ -6561,48 +7050,176 @@
     settingsTeamsEmpty.hidden = teams.length !== 0;
     for (const team of teams) {
       const item = document.createElement('li');
-      item.className = 'settings-layer';
-      const tag = document.createElement('span');
-      tag.className = 'layer-tag';
+      item.className = 'settings-row settings-layer';
+      const main = document.createElement('div');
+      main.className = 'settings-row-main';
+      const tag = document.createElement('div');
+      tag.className = 'settings-row-label layer-tag';
       tag.textContent = team.id || '';
-      const members = document.createElement('span');
-      members.className = 'layer-path';
+      const members = document.createElement('div');
+      members.className = 'settings-row-hint layer-path';
       const names = Array.isArray(team.members) ? team.members : [];
       members.textContent = names.length > 0 ? names.join(', ') : '（没有成员）';
+      main.append(tag, members);
       const label = document.createElement('span');
-      label.className = 'layer-state';
-      label.textContent = team.display_name || '';
-      item.append(tag, members, label);
+      label.className = 'settings-row-value layer-state';
+      label.textContent = team.display_name || '（没有 display_name）';
+      item.append(main, label);
       settingsTeams.appendChild(item);
     }
   }
 
   function renderSettingsFacts() {
     const settings = state.settings || {};
+    const health = state.settingsHealth;
     settingsSummaryAgent.textContent = settings.summary_agent || '（未配置）';
     settingsDataDir.textContent = settings.data_dir || '（未配置）';
+    settingsDataDir.title = settings.data_dir || '';
     settingsConfigPath.textContent = settings.config_path || '（未知）';
-    const providers = Array.isArray(settings.providers) ? settings.providers : [];
-    settingsProviders.textContent = providers.length === 0
-      ? '（没有 provider）'
-      : providers.map((provider) => provider.id + ' → ' + (provider.command || '（空 command）')).join('；');
+    settingsConfigPath.title = settings.config_path || '';
+    settingsSchemaVersion.textContent = settingsSchemaText(health);
+    settingsSchemaVersion.classList.toggle('is-warn', Boolean(health && health.schema_lag === true));
+    settingsSchemaVersion.title = health && health.schema_lag === true
+      ? '库版本落后于程序版本，下次写模式启动会升级'
+      : '';
+  }
+
+  function renderSettingsProviders() {
+    settingsProviders.replaceChildren();
+    const providers = state.settings && Array.isArray(state.settings.providers)
+      ? state.settings.providers
+      : [];
+    settingsProvidersEmpty.hidden = providers.length !== 0;
+    for (const provider of providers) {
+      const item = document.createElement('li');
+      item.className = 'settings-row';
+      const main = document.createElement('div');
+      main.className = 'settings-row-main';
+      const label = document.createElement('div');
+      label.className = 'settings-row-label mono';
+      label.textContent = provider.id || '（没有 id）';
+      const hint = document.createElement('div');
+      hint.className = 'settings-row-hint';
+      hint.textContent = 'provider.command';
+      main.append(label, hint);
+      const command = document.createElement('span');
+      command.className = 'settings-row-value mono';
+      command.textContent = provider.command || '（空 command）';
+      command.title = provider.command || '';
+      item.append(main, command);
+      settingsProviders.appendChild(item);
+    }
+  }
+
+  // workspaceConversationCount 优先用接口给的计数；旧响应没有这个字段时
+  // 退回本地两份列表（未归档 + 已归档）的合计，不在前端猜。
+  function workspaceConversationCount(workspace) {
+    if (Number.isInteger(workspace.conversation_count)) return workspace.conversation_count;
+    const all = state.conversations.concat(state.archivedConversations);
+    return all.filter((conversation) => conversationWorkspaceKey(conversation) === workspace.id).length;
+  }
+
+  function renderSettingsWorkspaces() {
+    settingsWorkspaces.replaceChildren();
+    const workspaces = sortedWorkspaces();
+    settingsWorkspacesEmpty.hidden = workspaces.length !== 0;
+    for (const workspace of workspaces) {
+      const item = document.createElement('li');
+      item.className = 'settings-row';
+      const main = document.createElement('div');
+      main.className = 'settings-row-main';
+      const label = document.createElement('div');
+      label.className = 'settings-row-label';
+      label.textContent = workspace.name || '(未命名工作区)';
+      const hint = document.createElement('div');
+      hint.className = 'settings-row-hint';
+      hint.textContent = workspaceConversationCount(workspace) + ' 个会话';
+      main.append(label, hint);
+
+      const actions = document.createElement('div');
+      actions.className = 'settings-row-actions';
+      const locate = document.createElement('button');
+      locate.type = 'button';
+      locate.className = 'btn-small';
+      locate.textContent = '定位';
+      locate.title = '关闭设置并在左侧工作台定位这个工作区';
+      locate.addEventListener('click', () => {
+        closeSettings();
+        state.search = '';
+        conversationSearch.value = '';
+        renderConversationList();
+        focusWorkspaceHeader(workspace.id);
+      });
+      const rename = document.createElement('button');
+      rename.type = 'button';
+      rename.className = 'btn-small';
+      rename.textContent = '重命名';
+      rename.addEventListener('click', () => {
+        closeSettings();
+        beginWorkspaceRename({ id: workspace.id, name: workspace.name || '(未命名工作区)' });
+      });
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn-small danger';
+      remove.textContent = '删除';
+      remove.addEventListener('click', () => {
+        closeSettings();
+        openWorkspaceDelete(
+          { id: workspace.id, name: workspace.name || '(未命名工作区)' },
+          openSettingsButton,
+        );
+      });
+      actions.append(locate, rename, remove);
+      item.append(main, actions);
+      settingsWorkspaces.appendChild(item);
+    }
+  }
+
+  function renderSettingsAbout() {
+    const health = state.settingsHealth;
+    const parts = settingsVersionParts(health && health.version);
+    settingsAboutVersion.textContent = parts.version;
+    settingsAboutBuild.textContent = parts.build;
+    settingsAboutMode.textContent = state.writable ? '写模式 · council serve -rw' : '只读';
+    settingsAboutSchema.textContent = settingsSchemaText(health);
   }
 
   function renderSettings() {
     const settings = state.settings;
-    if (!settings) return;
-    settingsSub.textContent = settings.config_path || '';
-    renderSettingsLayers();
-    renderSettingsAgents();
-    renderSettingsTeams();
+    settingsSub.textContent = (settings && settings.config_path) || '';
+    settingsSub.title = (settings && settings.config_path) || '';
+    if (settings) {
+      renderSettingsLayers();
+      renderSettingsAgents();
+      renderSettingsTeams();
+    } else {
+      settingsLayers.replaceChildren();
+      settingsAgentsBody.replaceChildren();
+      settingsTeams.replaceChildren();
+      settingsAgentsEmpty.hidden = true;
+      settingsTeamsEmpty.hidden = true;
+    }
     renderSettingsFacts();
+    renderSettingsProviders();
+    renderSettingsWorkspaces();
+    renderSettingsAbout();
     setSettingsResult(state.settingsResult);
+    selectSettingsSection(state.settingsSection);
   }
 
   async function loadSettings() {
     const settings = await api('/api/settings');
     state.settings = settings && typeof settings === 'object' ? settings : null;
     renderSettings();
+  }
+
+  async function loadSettingsHealth() {
+    try {
+      const health = await api('/api/health');
+      state.settingsHealth = health && typeof health === 'object' ? health : null;
+    } catch (err) {
+      state.settingsHealth = null;
+    }
   }
 
   function openSettings() {
@@ -6619,12 +7236,21 @@
     settingsPreview.hidden = true;
     setSettingsError('');
     settingsOverlay.hidden = false;
+    document.body.classList.add('settings-open');
     openSettingsButton.setAttribute('aria-expanded', 'true');
-    loadSettings().then(() => {
-      settingsClose.focus();
-    }).catch((err) => {
-      setSettingsError('读取设置失败：' + err.message);
-      settingsClose.focus();
+    state.settingsSection = 'general';
+    selectSettingsSection('general');
+    const initialNav = settingsNavItems.find((item) => item.dataset.settingsSection === 'general');
+    if (initialNav) initialNav.focus();
+    const tasks = [loadSettings(), loadSettingsHealth(), loadWorkspaces().catch(() => {})];
+    Promise.allSettled(tasks).then((results) => {
+      const settingsLoad = results[0];
+      if (settingsLoad.status === 'rejected') {
+        setSettingsError('读取设置失败：' + settingsLoad.reason.message);
+      }
+      renderSettings();
+      const current = settingsNavItems.find((item) => item.dataset.settingsSection === state.settingsSection);
+      if (current && document.activeElement === document.body) current.focus();
     });
   }
 
@@ -6636,6 +7262,7 @@
     settingsPreview.hidden = true;
     settingsFormOverlay.hidden = true;
     settingsOverlay.hidden = true;
+    document.body.classList.remove('settings-open');
     openSettingsButton.setAttribute('aria-expanded', 'false');
     openSettingsButton.focus();
   }
@@ -6917,6 +7544,9 @@
 
   openSettingsButton.addEventListener('click', openSettings);
   settingsClose.addEventListener('click', closeSettings);
+  for (const item of settingsNavItems) {
+    item.addEventListener('click', () => selectSettingsSection(item.dataset.settingsSection));
+  }
   settingsOverlay.addEventListener('click', (event) => {
     if (event.target === settingsOverlay) closeSettings();
   });
