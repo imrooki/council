@@ -406,8 +406,13 @@ type agentOption struct {
 	// Active 表示"当前配置里可用"。配置里的 agent 就是启动时校验通过的
 	// 全部成员，没有第二个启停状态，所以恒为 true；字段留着是因为前端
 	// 要按它渲染禁用态，而"配置里没有"与"配置里有但停用"是两种画法。
-	Active bool   `json:"active"`
-	Source string `json:"source"`
+	Active bool `json:"active"`
+	// Runnable 表示这个 id 在当前进程的 Runner 配置（WriteDeps.RunCfg）
+	// 里存在。设置页保存后 Cfg 会换成磁盘上的新配置，但 Runner 不重建：
+	// 新加的成员能显示、能被勾选的话，提交 /api/ask 必然 400。前端据此
+	// 把它画成可见但不可选，而不是在用户点「跑一轮」之后才报错。
+	Runnable bool   `json:"runnable"`
+	Source   string `json:"source"`
 }
 
 // agentOption 的两个来源。用常量而不是散落的字面量：前端与用例都按这两个
@@ -417,7 +422,7 @@ const (
 	agentSourceClaude = "claude"
 )
 
-func newAgentOption(id string, ac config.AgentConfig, source string) agentOption {
+func newAgentOption(id string, ac config.AgentConfig, source string, runnable bool) agentOption {
 	return agentOption{
 		ID:          id,
 		DisplayName: ac.DisplayName,
@@ -427,8 +432,22 @@ func newAgentOption(id string, ac config.AgentConfig, source string) agentOption
 		Permission:  string(ac.Permissions),
 		Mode:        string(ac.Mode),
 		Active:      true,
+		Runnable:    runnable,
 		Source:      source,
 	}
+}
+
+// runnableAgent 回答「这个 id 在 Runner 启动时拿到的那份配置里存在吗」。
+//
+// 必须读 RunCfg 而不是 currentCfg：设置页保存只换展示配置，Runner 手里的
+// 指针与内容都不变。RunCfg 为空时一律 false——没有启动配置就没有任何成员
+// 能被 Runner 执行，猜一份只会让前端放行一个必然失败的 id。
+func (s *Server) runnableAgent(id string) bool {
+	if s.write == nil || s.write.RunCfg == nil {
+		return false
+	}
+	_, ok := s.write.RunCfg.Agents[id]
+	return ok
 }
 
 type teamOption struct {
@@ -553,7 +572,7 @@ func (s *Server) displayAgentOptions(cfg *config.Config) []agentOption {
 		if _, merged := s.write.ClaudeAgentsMerged[id]; merged {
 			source = agentSourceClaude
 		}
-		agents = append(agents, newAgentOption(id, configAgents[id], source))
+		agents = append(agents, newAgentOption(id, configAgents[id], source, s.runnableAgent(id)))
 	}
 	for _, id := range sortedAgentIDs(s.write.ClaudeAgents) {
 		if _, ok := configAgents[id]; ok {
@@ -562,7 +581,7 @@ func (s *Server) displayAgentOptions(cfg *config.Config) []agentOption {
 			// 可能绕过扫描，重复的 id 不该出现在响应里。
 			continue
 		}
-		agents = append(agents, newAgentOption(id, s.write.ClaudeAgents[id], agentSourceClaude))
+		agents = append(agents, newAgentOption(id, s.write.ClaudeAgents[id], agentSourceClaude, s.runnableAgent(id)))
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
 	return agents
@@ -623,7 +642,10 @@ type renameResponse struct {
 //     Origin / Sec-Fetch-Site 必须同源（403）；
 //  4. 请求体必须是单个合法 JSON 对象（400）；
 //  5. 标题去空白后 1–120 个字符（400）；
-//  6. 会话不存在（404）由 store 的写事务报出来，不在事务外先查一次。
+//  6. 看不见的会话 → 404。先用 Conversation 做可见性预检：它把已软删
+//     读成不存在，而 rename 自己的事务只查行是否存在——没有这一步，
+//     已删会话的标题仍会被改掉并回 200；
+//  7. 改名在写事务里完成；走到这一步却报 not found 只可能是并发删除。
 //
 // 返回值只有 id 与 title：前端需要的就是「哪一场、现在叫什么」，
 // 让它拿整个会话摘要去换标题没有意义。
@@ -677,6 +699,17 @@ func (s *Server) handleConversationRename(w http.ResponseWriter, r *http.Request
 	if n := utf8.RuneCountInString(title); n > maxConversationTitle {
 		writeError(w, http.StatusBadRequest,
 			fmt.Sprintf("标题最长 %d 个字符，实际 %d 个字符", maxConversationTitle, n))
+		return
+	}
+
+	// 可见性预检与 handleConversationDelete 同一做法：已软删的会话对外
+	// 就是「不存在」，不能因为 rename 的事务只查行是否还在就放行。
+	if _, err := s.store.Conversation(r.Context(), id); err != nil {
+		if errors.Is(err, conversation.ErrConversationNotFound) {
+			writeError(w, http.StatusNotFound, "会话不存在: "+id)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "读取会话失败: "+err.Error())
 		return
 	}
 
@@ -1080,7 +1113,9 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	// 不重建，按新配置放行的成员在 Runner 眼里仍然不存在。设置页保存后的
 	// 提示里已经把「重启后生效」写清楚了。
 	if err := headless.Validate(opts, s.runCfg()); err != nil {
-		writeError(w, http.StatusBadRequest, s.claudeProviderHint(err, opts.Members).Error())
+		err = s.claudeProviderHint(err, opts.Members)
+		err = s.settingsAddedHint(err, opts)
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// 续接目标必须在创建任务之前确认：未知 id 若放进去，headless 会在
@@ -1176,6 +1211,78 @@ func optionsFromAsk(req askRequest) (headless.Options, error) {
 		Conversation: strings.TrimSpace(req.Conversation),
 		JSON:         true,
 	}, nil
+}
+
+// settingsAddedHint 把「不在 RunCfg、但在展示配置里」的校验失败换成重启说明。
+//
+// headless.Validate 只认识它拿到的那一份配置，说不出「设置页刚加了这个成员」
+// 这个原因。这里补一句根因：成员 / 汇总成员确实在 /api/options 里显示，但
+// 当前进程的 Runner 不认它，必须重启 council serve 才可用。只替换被错误
+// 真正点名的 id，同一请求里拼错的 id 仍然按原来的「未知成员」报。
+//
+// 文案刻意不再以「未知成员」开头：用户刚在设置页看到它，再被告知「配置里
+// 没有」只会以为是另一个 bug。
+func (s *Server) settingsAddedHint(err error, opts headless.Options) error {
+	if err == nil || s.write == nil || s.write.RunCfg == nil {
+		return err
+	}
+	display := s.currentCfg()
+	if display == nil {
+		return err
+	}
+	message := err.Error()
+	if !strings.Contains(message, "未知成员") && !strings.Contains(message, "未知汇总成员") {
+		return err
+	}
+
+	named := func(id string) bool {
+		if id == "" {
+			return false
+		}
+		if _, runnable := s.write.RunCfg.Agents[id]; runnable {
+			return false
+		}
+		if _, displayed := display.Agents[id]; !displayed {
+			return false
+		}
+		// 只补这条错误真正点名的那几个，理由同 claudeProviderHint。
+		return strings.Contains(message, fmt.Sprintf("%q", id))
+	}
+
+	added := make([]string, 0, len(opts.Members))
+	seen := make(map[string]struct{}, len(opts.Members))
+	for _, raw := range opts.Members {
+		id := strings.TrimSpace(raw)
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		if named(id) {
+			added = append(added, id)
+		}
+	}
+	sort.Strings(added)
+
+	summary := strings.TrimSpace(opts.Summary)
+	if summary == "none" || !named(summary) {
+		summary = ""
+	}
+
+	switch {
+	case len(added) == 1 && summary == "":
+		return fmt.Errorf("成员 %q 无法在当前进程运行：该成员是设置页新增的，重启 council serve 后可用",
+			added[0])
+	case len(added) > 1 && summary == "":
+		return fmt.Errorf("成员 %s 无法在当前进程运行：这些成员是设置页新增的，重启 council serve 后可用",
+			quoteJoined(added))
+	case len(added) == 0 && summary != "":
+		return fmt.Errorf("汇总成员 %q 无法在当前进程运行：该成员是设置页新增的，重启 council serve 后可用",
+			summary)
+	case len(added) > 0 && summary != "":
+		return fmt.Errorf("成员 %s、汇总成员 %q 无法在当前进程运行：这些是设置页新增的，重启 council serve 后可用",
+			quoteJoined(added), summary)
+	}
+	return err
 }
 
 // checkAskConversation 在 /api/ask 创建任务之前确认续接目标存在。

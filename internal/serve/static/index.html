@@ -578,6 +578,13 @@
     color: var(--accent);
     cursor: default;
   }
+  /* 已选中的成员里出现当前进程跑不了的（例如设置页改过之后留下的旧选择）：
+     画灰并保留删除按钮，让用户能把它摘掉，而不是一按「跑一轮」才吃 400。 */
+  .chip.member.is-unrunnable {
+    border-color: var(--line-strong);
+    background: var(--surface);
+    color: var(--muted-2);
+  }
   .chip-x {
     display: inline-flex;
     align-items: center;
@@ -704,6 +711,12 @@
   }
   .menu-item:hover { background: var(--surface-2); color: var(--ink); }
   .menu-item.is-current { background: var(--accent-soft); color: var(--accent); }
+  /* 设置页新增、当前进程还跑不了的成员：留在列表里让人知道它存在，但画灰
+     并禁用点击；title 说明重启后可用。 */
+  .menu-item.is-unrunnable,
+  .menu-item:disabled { color: var(--muted-2); cursor: not-allowed; }
+  .menu-item.is-unrunnable:hover,
+  .menu-item:disabled:hover { background: transparent; color: var(--muted-2); }
   .menu-item[hidden] { display: none; }
   .menu-empty { padding: 8px; font-size: 12px; line-height: 1.6; color: var(--muted-2); }
   .popover-field { display: flex; flex-direction: column; gap: 6px; padding: 2px; }
@@ -1951,6 +1964,53 @@
   const ROUNDS_MAX = 5;
   const BUDGET_MIN = 0.5;
   const DEFAULT_BUDGET = 5;
+  // 设置页保存后 /api/options 会立刻列出新成员，但 Runner 仍是启动时那一份
+  // 配置（/api/options 的 runnable=false）。这类成员可以显示，不能选。
+  const UNRUNNABLE_HINT = '设置页新增，重启 council serve 后可用';
+  // 汇总成员必须 read 权限（headless.Validate 的同一条规则）。前端只按
+  // /api/options 的 permission 过滤，不复制后端的权限表。
+  const SUMMARY_PERMISSION = 'read';
+  const SUMMARY_NONE_READ = '（没有 read 权限的成员可用）';
+
+  // agentRunnable 只把明确的 false 当不可运行：/api/options 的旧响应没有这
+  // 个字段时保持原来的可选行为，不让一次前端更新把整个成员菜单锁死。
+  function agentRunnable(agent) {
+    return Boolean(agent) && agent.runnable !== false;
+  }
+
+  function summaryCandidates() {
+    return state.agents.filter((agent) => agent && agent.permission === SUMMARY_PERMISSION);
+  }
+
+  function summaryUnavailableMessage() {
+    return summaryCandidates().length === 0
+      ? '汇总成员必须是 read 权限：当前配置里没有 read 权限的成员可用'
+      : '';
+  }
+
+  // summaryProblemMessage 同时报告「整份配置没有 read 成员」与「当前选中
+  // 的那个不再合法」两件事。只报后者时，用户会以为换一个就好了，而实际
+  // 一个可用的都没有。
+  function summaryProblemMessage(summary) {
+    const unavailable = summaryUnavailableMessage();
+    const selected = summarySelectionError(summary);
+    if (unavailable && selected) return unavailable + '；' + selected;
+    return unavailable || selected;
+  }
+
+  // summarySelectionError 只看「用户显式选中的那个汇总成员」：空串表示跟随
+  // 配置默认，由后端按 RunCfg 校验；配置默认是否还合法不归前端判。
+  function summarySelectionError(summary) {
+    if (summary === '' || summary === 'none') return '';
+    const agent = agentEntry(summary);
+    if (agent === null) {
+      return '已选中的汇总成员「' + summary + '」不在当前配置里，请重新选择';
+    }
+    if (agent.permission !== SUMMARY_PERMISSION) {
+      return '已选中的汇总成员「' + (agent.display_name || agent.id) + '」不是 read 权限，请重新选择';
+    }
+    return '';
+  }
 
   function basenameOf(path) {
     const raw = String(path || '');
@@ -2148,7 +2208,9 @@
   }
 
   // 汇总下拉的第一项永远是「配置默认（<summary_agent>）」，值为空串；
-  // 第二项是显式关闭，值为 "none"；其余每个 agent 一项，显示 display_name。
+  // 第二项是显式关闭，值为 "none"；其余只列 permission === "read" 的
+  // agent——后端对汇总成员有同一条硬要求，列出 workspace 成员只会让用户
+  // 选到一个必然 400 的值。
   function renderParamSummaryOptions() {
     paramSummary.replaceChildren();
     const fallback = document.createElement('option');
@@ -2161,22 +2223,54 @@
     none.textContent = '不汇总';
     paramSummary.appendChild(none);
 
-    for (const agent of state.agents) {
+    const candidates = summaryCandidates();
+    for (const agent of candidates) {
       const option = document.createElement('option');
       option.value = agent.id;
       option.textContent = agent.display_name || agent.id;
       paramSummary.appendChild(option);
     }
 
-    const known = state.summary === '' || state.summary === 'none' || agentEntry(state.summary) !== null;
-    paramSummary.value = known ? state.summary : '';
+    if (candidates.length === 0) {
+      // 占位项不可选：解释为什么这份列表里没有汇总成员可用。
+      const empty = document.createElement('option');
+      empty.value = '__no_read_agent__';
+      empty.textContent = SUMMARY_NONE_READ;
+      empty.disabled = true;
+      paramSummary.appendChild(empty);
+    }
+
+    // 已选中的汇总成员可能因为设置页改了权限 / 删了成员而不再合法。把它
+    // 保留成一个不可选项，用户能看到「现在这个值为什么不行」，而不是让
+    // select 静默跳回「配置默认」而 state.summary 仍留着旧 id。
+    const stale = state.summary !== '' && state.summary !== 'none' &&
+      !candidates.some((agent) => agent.id === state.summary);
+    if (stale) {
+      const agent = agentEntry(state.summary);
+      const option = document.createElement('option');
+      option.value = state.summary;
+      option.disabled = true;
+      option.textContent = (agent ? (agent.display_name || agent.id) : state.summary) +
+        (agent ? '（不是 read 权限，不可用）' : '（不在当前配置里，不可用）');
+      paramSummary.appendChild(option);
+    }
+
+    if (stale || state.summary === '' || state.summary === 'none' ||
+        candidates.some((agent) => agent.id === state.summary)) {
+      paramSummary.value = state.summary;
+    } else {
+      paramSummary.value = '';
+    }
+    // 一个 read 权限的成员都没有时，任何汇总选择都会被后端拒绝：直接禁用
+    // 「应用」，原因由 fillParamControls / refreshParamHint 写进 #param-error。
+    paramApply.disabled = candidates.length === 0;
   }
 
   function fillParamControls() {
     paramRounds.value = String(state.rounds);
     renderParamSummaryOptions();
     paramBudget.value = String(state.budgetUSD);
-    setParamError('');
+    setParamError(summaryProblemMessage(state.summary));
   }
 
   function openParamPopover() {
@@ -2198,6 +2292,11 @@
   // round 模式不能关汇总；预算输入仍在失焦/应用时统一校验。
   function refreshParamHint() {
     const values = readParamValues();
+    const summaryMessage = summaryProblemMessage(values.summary);
+    if (summaryMessage) {
+      setParamError(summaryMessage);
+      return;
+    }
     if (values.rounds > 1 && values.summary === 'none') {
       setParamError('多轮必须有汇总成员：不能选「不汇总」');
       return;
@@ -2217,8 +2316,12 @@
   // 与 headless.Validate / resolveSummary 的前端同口径：
   //   - rounds 是 1–5 的整数（上限是本片的产品约束）；
   //   - budget 是有限数且 >= 0.5；
-  //   - summary 只能是空串、"none" 或配置里的一个 agent；
-  //   - round 模式（rounds>1）必须有汇总：不能 none，配置默认也不能为空。
+  //   - summary 只能是空串、"none" 或配置里的一个 read 权限 agent；
+  //   - round 模式（rounds>1）必须有汇总：不能 none，配置默认也不能为空；
+  //   - 已选中的汇总成员可能来自配置变化前的 state，提交前必须重新核对
+  //     它是否还存在、是否仍是 read 权限。
+  // 「一个 read 成员都没有」不在这里一票否决：ask 模式允许 summary 为空
+  // 或 none，是否还能选汇总由下拉的禁用态与 #param-error 说明。
   function validateParamValues(rounds, summary, budget) {
     if (!Number.isInteger(rounds) || rounds < ROUNDS_MIN || rounds > ROUNDS_MAX) {
       return '轮数必须是 ' + ROUNDS_MIN + '–' + ROUNDS_MAX + ' 的整数';
@@ -2226,9 +2329,11 @@
     if (typeof budget !== 'number' || !isFinite(budget) || budget < BUDGET_MIN) {
       return '预算必须是大于等于 ' + BUDGET_MIN + ' 的数字';
     }
-    if (summary !== '' && summary !== 'none' && agentEntry(summary) === null) {
-      return '汇总成员不在当前配置里，请重新选择';
-    }
+    // 这里只拦「显式选中且已不合法」的汇总成员；「整份配置一个 read 成员
+    // 都没有」已经由禁用的「应用」+ #param-error 说明，不该连不汇总的
+    // ask 模式一起挡死（ask 模式允许 summary = "" / "none"）。
+    const summaryMessage = summarySelectionError(summary);
+    if (summaryMessage) return summaryMessage;
     if (rounds > 1) {
       if (summary === 'none') {
         return '多轮必须有汇总成员：不能选「不汇总」';
@@ -2262,6 +2367,12 @@
       const agent = agentEntry(id);
       const chip = document.createElement('span');
       chip.className = 'chip member';
+      if (agent && !agentRunnable(agent)) {
+        // 旧预设 / 设置页刷新留下的不可运行成员：画灰并说明原因，删除按钮
+        // 仍然保留，用户可以直接把它从这一轮名单里摘掉。
+        chip.classList.add('is-unrunnable');
+        chip.title = UNRUNNABLE_HINT;
+      }
       const text = document.createElement('span');
       text.className = 'chip-text';
       text.textContent = agent ? memberLabel(agent) : id;
@@ -2421,16 +2532,26 @@
       return;
     }
     for (const agent of available) {
+      const runnable = agentRunnable(agent);
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'menu-item';
       button.textContent = memberLabel(agent);
+      if (!runnable) {
+        // 可显示但不可选：成员是设置页刚加的，Runner 还没重建。
+        button.disabled = true;
+        button.classList.add('is-unrunnable');
+        button.title = UNRUNNABLE_HINT;
+        button.setAttribute('aria-disabled', 'true');
+        membersPopover.appendChild(button);
+        continue;
+      }
       button.addEventListener('click', () => {
         if (!state.selectedAgents.includes(agent.id)) state.selectedAgents.push(agent.id);
         renderComposer();
         renderMemberPicker();
         // 列表重画会丢掉焦点：落到下一个可加成员上，键盘连续添加不用再 Tab 一圈。
-        const next = membersPopover.querySelector('.menu-item');
+        const next = membersPopover.querySelector('.menu-item:not(:disabled)');
         if (next) next.focus();
         else addButton.focus();
       });
@@ -2451,8 +2572,10 @@
 
   function normalizeSummary(value) {
     if (value === 'none') return 'none';
-    if (typeof value === 'string' && agentEntry(value) !== null) return value;
-    return '';
+    if (typeof value !== 'string') return '';
+    const agent = agentEntry(value);
+    // 预设是旧数据：成员还在但权限改成 workspace 时也不能再当汇总。
+    return agent !== null && agent.permission === SUMMARY_PERMISSION ? value : '';
   }
 
   function readPresets() {
@@ -2543,22 +2666,30 @@
 
   function applyPreset(preset) {
     const known = new Set(state.agents.map((agent) => agent.id));
-    state.selectedAgents = preset.members.filter((id) => known.has(id));
+    const runnable = new Set(state.agents.filter(agentRunnable).map((agent) => agent.id));
+    // 预设可以套用一批成员；设置页新增的那些能显示但不能选，这里同样不
+    // 让一条旧预设把它们偷偷塞回这一轮名单。
+    state.selectedAgents = preset.members.filter((id) => runnable.has(id));
     state.cwd = preset.cwd;
     state.permission = preset.permission === 'workspace' ? 'workspace' : 'read';
     const rounds = normalizeRounds(preset.rounds);
     let summary = normalizeSummary(preset.summary);
     const budget = normalizeBudget(preset.budget_usd);
     const notes = [];
-    const missing = preset.members.length - state.selectedAgents.length;
+    const unavailable = preset.members.filter((id) => known.has(id) && !runnable.has(id)).length;
+    const missing = preset.members.length - state.selectedAgents.length - unavailable;
     if (missing > 0) notes.push(missing + ' 位成员已不在配置里');
+    if (unavailable > 0) notes.push(unavailable + ' 位成员是设置页新增的，重启 council serve 后可用');
     if (preset.summary === 'none' && rounds > 1) {
       // round 模式不允许关汇总：旧预设或手改的 localStorage 不能把界面
       // 带进一个按「跑一轮」必然 400 的状态。
       summary = '';
       notes.push('多轮不能关闭汇总，已改回配置默认');
     } else if (preset.summary && preset.summary !== 'none' && summary === '') {
-      notes.push('汇总成员已不在配置里，已改回配置默认');
+      const agent = agentEntry(preset.summary);
+      notes.push(agent !== null
+        ? '汇总成员不是 read 权限，已改回配置默认'
+        : '汇总成员已不在配置里，已改回配置默认');
     }
     if (rounds > 1 && summary === '' && !state.summaryAgent) {
       notes.push('多轮需要汇总成员，请先选一个');
@@ -3023,6 +3154,18 @@
     }
     if (state.selectedAgents.length === 0) {
       showAskError('先选成员');
+      renderMemberPicker();
+      openPopover(membersPopover, addButton);
+      return;
+    }
+    // 选择发生在配置变化之前（预设、设置页保存后的旧 state）时，成员菜单
+    // 已经拦不住它；提交前再挡一次，不把一个必然 400 的请求发出去。
+    const notRunnable = state.selectedAgents.find((id) => {
+      const agent = agentEntry(id);
+      return agent !== null && !agentRunnable(agent);
+    });
+    if (notRunnable) {
+      showAskError('成员「' + agentDisplayName(notRunnable) + '」' + UNRUNNABLE_HINT);
       renderMemberPicker();
       openPopover(membersPopover, addButton);
       return;
