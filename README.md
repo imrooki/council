@@ -104,7 +104,7 @@ council serve -rw          # 写模式：网页底部可以输入问题、跑一
 ```
 
 - **`-app`（仅 Windows）**：优先找 Edge（`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`，再试 `Program Files` 下的那份），找不到再找 Chrome（`Program Files\Google\Chrome\Application\chrome.exe` 等），用 `--app=<url>` 起一个 1440x900 的窗口，看起来像独立桌面应用。只读与 `-rw` 两种模式都支持。
-- `-app` 用独立的 Chromium profile：`<data_dir>\ui-profile`，不碰你日常浏览器的会话与扩展；这个目录留在 `data_dir` 里，下次 `-app` 继续用同一份窗口配置。
+- `-app` 用独立的 Chromium profile：`<data_dir>\ui-profile`，不碰你日常浏览器的会话与扩展；这个目录留在 `data_dir` 里，下次 `-app` 继续用同一份窗口配置；每次 `serve` 启动会清掉其中超过 7 天没动过的条目（目录本身不删，正在用的窗口不受影响）。
 - 找不到 Edge/Chrome（或者不在 Windows 上）时不会报错退出：打印一行说明，退回 `-open` 的行为，服务照常开着。`-app` 与 `-open` 同时给时按 `-app` 处理，并打印一行说明。
 - **窗口是独立的浏览器进程**：Ctrl-C 关掉 `serve` 之后窗口仍然开着，这是预期；关掉窗口也不影响 `serve`。要关窗口请自己关它，`serve` 不会替你收走。
 - **只绑回环地址**：`-addr` 传非 `127.0.0.1`/`::1` 会直接退 2。
