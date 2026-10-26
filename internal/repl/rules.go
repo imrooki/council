@@ -10,9 +10,9 @@ package repl
 
 import (
 	"context"
-	"fmt"
 
 	"council/internal/config"
+	"council/internal/i18n"
 	"council/internal/provider"
 	"council/internal/turn"
 )
@@ -23,18 +23,18 @@ func cmdRules(ctx context.Context, r *REPL, args cmdArgs) error {
 		return cmdRulesShow(ctx, r)
 	}
 	if args.fields[0] != "reload" {
-		return r.printf("用法: /rules 或 /rules reload [--rebuild]\n")
+		return r.printf("%s", r.t("tui.rules.usage", "用法: /rules 或 /rules reload [--rebuild]\n"))
 	}
 	switch len(args.fields) {
 	case 1:
 		return cmdRulesReload(ctx, r, false)
 	case 2:
 		if args.fields[1] != "--rebuild" {
-			return r.printf("用法: /rules reload [--rebuild]\n")
+			return r.printf("%s", r.t("tui.rules.usageReload", "用法: /rules reload [--rebuild]\n"))
 		}
 		return cmdRulesReload(ctx, r, true)
 	default:
-		return r.printf("用法: /rules reload [--rebuild]\n")
+		return r.printf("%s", r.t("tui.rules.usageReload", "用法: /rules reload [--rebuild]\n"))
 	}
 }
 
@@ -42,13 +42,13 @@ func cmdRules(ctx context.Context, r *REPL, args cmdArgs) error {
 // 合计，逐 provider 一行，外加启动漂移审计同一个函数算出来的当前值。
 func cmdRulesShow(ctx context.Context, r *REPL) error {
 	rules := r.rulesCtx.Rules
-	if err := r.printf("全局规则: %s\n", ruleFileLine(rules.GlobalPath, rules.GlobalFound, len(rules.GlobalText))); err != nil {
+	if err := r.printf("%s", r.t("tui.rules.globalLine", "全局规则: %s\n", ruleFileLineLang(r.lang, rules.GlobalPath, rules.GlobalFound, len(rules.GlobalText)))); err != nil {
 		return err
 	}
-	if err := r.printf("局部规则: %s\n", localRuleFileLine(rules)); err != nil {
+	if err := r.printf("%s", r.t("tui.rules.localLine", "局部规则: %s\n", localRuleFileLineLang(r.lang, rules))); err != nil {
 		return err
 	}
-	if err := r.printf("合计 %d 字节\n\n", len(rules.GlobalText)+len(rules.LocalText)); err != nil {
+	if err := r.printf("%s", r.t("tui.rules.totalBytes", "合计 %d 字节\n\n", len(rules.GlobalText)+len(rules.LocalText))); err != nil {
 		return err
 	}
 
@@ -56,7 +56,7 @@ func cmdRulesShow(ctx context.Context, r *REPL) error {
 		// 多一列档位（11c 契约第 6 节）：开了 WORKSPACE 之后同一家 provider
 		// 可能有两行，只印 ProviderID 分不清这一行报的是哪一档的余量。
 		if err := r.printf("%s  %s  %s  %s  %s\n",
-			row.ProviderID, row.Tier, isolationLabel(row.CleanInstrEnv), cacheLabel(row.CacheAcrossTurns), headroomLabel(row),
+			row.ProviderID, row.Tier, isolationLabelLang(r.lang, row.CleanInstrEnv), cacheLabelLang(r.lang, row.CacheAcrossTurns), headroomLabelLang(r.lang, row),
 		); err != nil {
 			return err
 		}
@@ -68,7 +68,7 @@ func cmdRulesShow(ctx context.Context, r *REPL) error {
 	// 一次；/rules 是用户主动来看这一份配置怎么路由的地方。代价是不敲
 	// /rules 就看不见这行——接受，因为无条件印在横幅上会给所有人加一行
 	// 噪声，而下面那个函数已经要求两个条件同时成立才返回非空。
-	if hint := storeThoughtVisibilityHint(r.cfg); hint != "" {
+	if hint := storeThoughtVisibilityHintLang(r.lang, r.cfg); hint != "" {
 		if err := r.printf("\n%s\n", hint); err != nil {
 			return err
 		}
@@ -78,7 +78,7 @@ func cmdRulesShow(ctx context.Context, r *REPL) error {
 	if err != nil {
 		// 审计本身失败不该让整条 /rules 打不出来：上面的文件与 provider
 		// 信息已经打完了，这里只追加报错，不回滚已经写出去的内容。
-		return r.reportErr("身份漂移审计失败", err)
+		return r.reportErr(r.t("tui.err.driftAudit", "身份漂移审计失败"), err)
 	}
 	if len(drift) == 0 {
 		return nil
@@ -92,12 +92,12 @@ func cmdRulesShow(ctx context.Context, r *REPL) error {
 		}
 	}
 	if n1 > 0 {
-		if err := r.printf("\n身份已变的 provider 会话: %d 条（要重建才能接着用，各付一次入场费）\n", n1); err != nil {
+		if err := r.printf("%s", r.t("tui.rules.driftedSessions", "\n身份已变的 provider 会话: %d 条（要重建才能接着用，各付一次入场费）\n", n1)); err != nil {
 			return err
 		}
 	}
 	if n2 > 0 {
-		if err := r.printf("\n按当前配置 /ask 会被拒的 provider 会话: %d 条（不花钱）\n", n2); err != nil {
+		if err := r.printf("%s", r.t("tui.rules.refusedSessions", "\n按当前配置 /ask 会被拒的 provider 会话: %d 条（不花钱）\n", n2)); err != nil {
 			return err
 		}
 	}
@@ -110,12 +110,17 @@ func cmdRulesShow(ctx context.Context, r *REPL) error {
 // 文案不写「恒为空串」：store_thought=false 不洗历史，历史行的 thought
 // 照样会被 Router 渲染进打开了可见性的 Mode 的 prompt。
 func storeThoughtVisibilityHint(cfg *config.Config) string {
+	return storeThoughtVisibilityHintLang(i18n.LangZh, cfg)
+}
+
+// storeThoughtVisibilityHintLang 是 storeThoughtVisibilityHint 带语言的那一半。
+func storeThoughtVisibilityHintLang(lang i18n.Lang, cfg *config.Config) string {
 	if cfg == nil || cfg.StoreThought {
 		return ""
 	}
 	for _, team := range cfg.Teams {
 		if len(team.ThoughtVisibleTo) > 0 {
-			return "store_thought = false：此后新增的轮次不再产生 thought；thought_visible_to 只对历史行生效。"
+			return i18n.TF(lang, "tui.rules.storeThoughtHint", "store_thought = false：此后新增的轮次不再产生 thought；thought_visible_to 只对历史行生效。")
 		}
 	}
 	return ""
@@ -147,20 +152,20 @@ func cmdRulesReload(ctx context.Context, r *REPL, rebuild bool) error {
 	}
 	newRules, err := config.LoadRules(rulesBase, r.rulesCtx.RulesFile)
 	if err != nil {
-		return r.reportErr("重读规则文件失败", err)
+		return r.reportErr(r.t("tui.err.reloadRules", "重读规则文件失败"), err)
 	}
 	oldRules := r.rulesCtx.Rules
 
-	if err := r.printf("全局规则: %d 字节 %s -> %d 字节 %s\n",
+	if err := r.printf("%s", r.t("tui.rules.globalDiff", "全局规则: %d 字节 %s -> %d 字节 %s\n",
 		len(oldRules.GlobalText), orPlaceholder(turn.RulesDigest(oldRules.GlobalText)),
 		len(newRules.GlobalText), orPlaceholder(turn.RulesDigest(newRules.GlobalText)),
-	); err != nil {
+	)); err != nil {
 		return err
 	}
-	if err := r.printf("局部规则: %d 字节 %s -> %d 字节 %s\n",
+	if err := r.printf("%s", r.t("tui.rules.localDiff", "局部规则: %d 字节 %s -> %d 字节 %s\n",
 		len(oldRules.LocalText), orPlaceholder(turn.RulesDigest(oldRules.LocalText)),
 		len(newRules.LocalText), orPlaceholder(turn.RulesDigest(newRules.LocalText)),
-	); err != nil {
+	)); err != nil {
 		return err
 	}
 
@@ -184,15 +189,15 @@ func cmdRulesReload(ctx context.Context, r *REPL, rebuild bool) error {
 
 	drift, auditErr := r.rn.AuditDrift(ctx)
 	if auditErr != nil {
-		return r.reportErr("计算漂移名单失败", auditErr)
+		return r.reportErr(r.t("tui.err.driftList", "计算漂移名单失败"), auditErr)
 	}
 
 	if len(drift) == 0 {
-		if err := r.printf("没有会话会因此漂移\n"); err != nil {
+		if err := r.printf("%s", r.t("tui.rules.noDrift", "没有会话会因此漂移\n")); err != nil {
 			return err
 		}
 	} else {
-		if err := r.printf("会因此漂移的会话（%d 条）:\n", len(drift)); err != nil {
+		if err := r.printf("%s", r.t("tui.rules.driftSessions", "会因此漂移的会话（%d 条）:\n", len(drift))); err != nil {
 			return err
 		}
 		for _, row := range drift {
@@ -213,13 +218,13 @@ func cmdRulesReload(ctx context.Context, r *REPL, rebuild bool) error {
 		}
 		switch {
 		case n1 > 0 && n2 == 0:
-			return r.printf("要应用请敲 /rules reload --rebuild（会重建上列会话，各付一次入场费）\n")
+			return r.printf("%s", r.t("tui.rules.applyRebuild", "要应用请敲 /rules reload --rebuild（会重建上列会话，各付一次入场费）\n"))
 		case n1 > 0 && n2 > 0:
-			return r.printf("要应用请敲 /rules reload --rebuild（其中 %d 条会重建，各付一次入场费；另 %d 条只会被清掉，不花钱）\n", n1, n2)
+			return r.printf("%s", r.t("tui.rules.applyMixed", "要应用请敲 /rules reload --rebuild（其中 %d 条会重建，各付一次入场费；另 %d 条只会被清掉，不花钱）\n", n1, n2))
 		case n1 == 0 && n2 > 0:
-			return r.printf("要应用请敲 /rules reload --rebuild（上列会话只会被清掉，不花钱）\n")
+			return r.printf("%s", r.t("tui.rules.applyClear", "要应用请敲 /rules reload --rebuild（上列会话只会被清掉，不花钱）\n"))
 		default:
-			return r.printf("要应用请敲 /rules reload --rebuild\n")
+			return r.printf("%s", r.t("tui.rules.apply", "要应用请敲 /rules reload --rebuild\n"))
 		}
 	}
 
@@ -229,9 +234,9 @@ func cmdRulesReload(ctx context.Context, r *REPL, rebuild bool) error {
 	for _, row := range drift {
 		existed, rebuildErr := r.rn.Rebuild(ctx, row.ConvID, row.AgentID)
 		if rebuildErr != nil {
-			prefix := fmt.Sprintf("重建 %s/%s 失败", row.ConvID, row.AgentID)
+			prefix := r.t("tui.rules.rebuildFailed", "重建 %s/%s 失败", row.ConvID, row.AgentID)
 			if row.AskRefused() {
-				prefix = fmt.Sprintf("清掉 %s/%s 失败", row.ConvID, row.AgentID)
+				prefix = r.t("tui.rules.clearFailed", "清掉 %s/%s 失败", row.ConvID, row.AgentID)
 			}
 			if err := r.reportErr(prefix, rebuildErr); err != nil {
 				return err
@@ -239,12 +244,12 @@ func cmdRulesReload(ctx context.Context, r *REPL, rebuild bool) error {
 			continue
 		}
 		if row.AskRefused() {
-			if err := r.printf("已清掉 %s/%s（existed=%v；按当前配置 /ask 会被拒，不花钱）\n", row.ConvID, row.AgentID, existed); err != nil {
+			if err := r.printf("%s", r.t("tui.rules.cleared", "已清掉 %s/%s（existed=%v；按当前配置 /ask 会被拒，不花钱）\n", row.ConvID, row.AgentID, existed)); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := r.printf("已重建 %s/%s（existed=%v）\n", row.ConvID, row.AgentID, existed); err != nil {
+		if err := r.printf("%s", r.t("tui.rules.rebuilt", "已重建 %s/%s（existed=%v）\n", row.ConvID, row.AgentID, existed)); err != nil {
 			return err
 		}
 	}
@@ -253,33 +258,48 @@ func cmdRulesReload(ctx context.Context, r *REPL, rebuild bool) error {
 
 // ruleFileLine 渲染"路径 (N 字节)"或"路径 (不存在)"。
 func ruleFileLine(path string, found bool, n int) string {
+	return ruleFileLineLang(i18n.LangZh, path, found, n)
+}
+
+// ruleFileLineLang 是 ruleFileLine 带语言的那一半。
+func ruleFileLineLang(lang i18n.Lang, path string, found bool, n int) string {
 	if !found {
-		return fmt.Sprintf("%s (不存在)", path)
+		return i18n.TF(lang, "tui.rules.fileMissing", "%s (不存在)", path)
 	}
-	return fmt.Sprintf("%s (%d 字节)", path, n)
+	return i18n.TF(lang, "tui.rules.filePresent", "%s (%d 字节)", path, n)
 }
 
 // localRuleFileLine 是局部规则那一行的特殊之处：配置里根本没写
 // rules_file 时 LocalPath 是空串，这与"写了但文件不存在"是两种不同的
 // 正常状态，必须分开说，不能都显示成"(不存在)"。
 func localRuleFileLine(rules config.Rules) string {
+	return localRuleFileLineLang(i18n.LangZh, rules)
+}
+
+// localRuleFileLineLang 是 localRuleFileLine 带语言的那一半。
+func localRuleFileLineLang(lang i18n.Lang, rules config.Rules) string {
 	if rules.LocalPath == "" {
-		return "(未配置)"
+		return i18n.TF(lang, "tui.rules.notConfigured", "(未配置)")
 	}
-	return ruleFileLine(rules.LocalPath, rules.LocalFound, len(rules.LocalText))
+	return ruleFileLineLang(lang, rules.LocalPath, rules.LocalFound, len(rules.LocalText))
 }
 
 // isolationLabel 把三态 Support 直译成 11a 契约 5.1 给定的三句话。
 // Unknown 按最坏情况显示（叠加），这是 fail-closed 的显示面写法——
 // 用户看到"未验证，按叠加处理"，不会误以为 Council 的规则就是唯一来源。
 func isolationLabel(s provider.Support) string {
+	return isolationLabelLang(i18n.LangZh, s)
+}
+
+// isolationLabelLang 是 isolationLabel 带语言的那一半。
+func isolationLabelLang(lang i18n.Lang, s provider.Support) string {
 	switch s {
 	case provider.SupportYes:
-		return "唯一指令源"
+		return i18n.TF(lang, "tui.rules.isolationYes", "唯一指令源")
 	case provider.SupportNo:
-		return "叠加在用户全局规则之上"
+		return i18n.TF(lang, "tui.rules.isolationNo", "叠加在用户全局规则之上")
 	default:
-		return "未验证，按叠加处理"
+		return i18n.TF(lang, "tui.rules.isolationUnknown", "未验证，按叠加处理")
 	}
 }
 
@@ -292,13 +312,18 @@ func isolationLabel(s provider.Support) string {
 // 已经在 provider.Capabilities.CacheAcrossTurns 的注释里写清楚了，
 // 想知道"为什么"的人应该去读那份实测记录，不是来读 repl 的输出。
 func cacheLabel(s provider.Support) string {
+	return cacheLabelLang(i18n.LangZh, s)
+}
+
+// cacheLabelLang 是 cacheLabel 带语言的那一半。
+func cacheLabelLang(lang i18n.Lang, s provider.Support) string {
 	switch s {
 	case provider.SupportYes:
-		return "进缓存前缀，首轮付"
+		return i18n.TF(lang, "tui.rules.cacheYes", "进缓存前缀，首轮付")
 	case provider.SupportNo:
-		return "无缓存，按轮数乘着付"
+		return i18n.TF(lang, "tui.rules.cacheNo", "无缓存，按轮数乘着付")
 	default:
-		return "缓存行为未测"
+		return i18n.TF(lang, "tui.rules.cacheUnknown", "缓存行为未测")
 	}
 }
 
@@ -306,8 +331,13 @@ func cacheLabel(s provider.Support) string {
 // 命令行（例如该 provider 拒绝当前权限档），此时 HeadroomBytes 无意义，
 // 不能打印它，否则用户会把一个无意义的数字当成真余量。
 func headroomLabel(row turn.ProviderRulesInfo) string {
+	return headroomLabelLang(i18n.LangZh, row)
+}
+
+// headroomLabelLang 是 headroomLabel 带语言的那一半。
+func headroomLabelLang(lang i18n.Lang, row turn.ProviderRulesInfo) string {
 	if row.HeadroomNote != "" {
-		return fmt.Sprintf("不适用（%s）", row.HeadroomNote)
+		return i18n.TF(lang, "tui.rules.headroomNotApplicable", "不适用（%s）", row.HeadroomNote)
 	}
-	return fmt.Sprintf("命令行余量 %d 字节", row.HeadroomBytes)
+	return i18n.TF(lang, "tui.rules.headroomBytes", "命令行余量 %d 字节", row.HeadroomBytes)
 }

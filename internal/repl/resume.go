@@ -172,7 +172,7 @@ func (r *REPL) loadResumeRows(ctx context.Context, all, archived bool) (resumeLi
 				} else if len(tail) == 0 {
 					// MaxSeq 说有消息，History 却一条也没给：库状态对不上，
 					// 这一格必须是 ?，表后也要有一句能对上的说明。
-					row.readErrs = append(row.readErrs, fmt.Errorf("MaxSeq 报告有 %d 条消息，但读不到末条", maxSeq))
+					row.readErrs = append(row.readErrs, fmt.Errorf("%s", r.t("tui.resume.tailMissing", "MaxSeq 报告有 %d 条消息，但读不到末条", maxSeq)))
 				} else {
 					row.lastActive = tail[len(tail)-1].CreatedAt
 					row.lastKnown = true
@@ -302,7 +302,7 @@ func isResumeIndex(token string) bool {
 func (r *REPL) printResumeList(ctx context.Context, all, archived bool) error {
 	list, err := r.loadResumeRows(ctx, all, archived)
 	if err != nil {
-		return r.reportErr("列出会话失败", err)
+		return r.reportErr(r.t("tui.err.listConvs", "列出会话失败"), err)
 	}
 	rows, hiddenUnbound, filter := list.rows, list.hiddenUnbound, list.filtered
 	n := len(rows)
@@ -476,15 +476,15 @@ func (r *REPL) resumeByIndex(ctx context.Context, all, archived bool, token stri
 	}
 	list, err := r.loadResumeRows(ctx, all, archived)
 	if err != nil {
-		return r.reportErr("列出会话失败", err)
+		return r.reportErr(r.t("tui.err.listConvs", "列出会话失败"), err)
 	}
 	rows := list.rows
 	cmd := resumeListCommand(archived)
 	if n < 1 || n > len(rows) {
 		if len(rows) == 0 {
-			return r.printf("编号 %d 超出范围（当前没有可选的会话），先敲 %s 看列表\n", n, cmd)
+			return r.printf("%s", r.t("tui.resume.indexOutOfRangeEmpty", "编号 %d 超出范围（当前没有可选的会话），先敲 %s 看列表\n", n, cmd))
 		}
-		return r.printf("编号 %d 超出范围（1..%d），先敲 %s 看列表\n", n, len(rows), cmd)
+		return r.printf("%s", r.t("tui.resume.indexOutOfRange", "编号 %d 超出范围（1..%d），先敲 %s 看列表\n", n, len(rows), cmd))
 	}
 	return r.attachResume(ctx, rows[n-1].conv)
 }
@@ -501,7 +501,7 @@ func (r *REPL) resumeByIndex(ctx context.Context, all, archived bool, token stri
 func (r *REPL) resumeByPrefix(ctx context.Context, prefix string, archived bool) error {
 	convs, err := r.resumeConvs(ctx, archived)
 	if err != nil {
-		return r.reportErr("列出会话失败", err)
+		return r.reportErr(r.t("tui.err.listConvs", "列出会话失败"), err)
 	}
 	var matched []conversation.Conversation
 	for _, c := range convs {
@@ -516,13 +516,13 @@ func (r *REPL) resumeByPrefix(ctx context.Context, prefix string, archived bool)
 	switch len(matched) {
 	case 0:
 		if archived {
-			return r.printf("没有 id 以 %s 开头的归档会话，用 /resume --all --archived 看看有哪些\n", prefix)
+			return r.printf("%s", r.t("tui.resume.noPrefixArchived", "没有 id 以 %s 开头的归档会话，用 /resume --all --archived 看看有哪些\n", prefix))
 		}
-		return r.printf("没有 id 以 %s 开头的会话，用 /resume --all 看看有哪些\n", prefix)
+		return r.printf("%s", r.t("tui.resume.noPrefix", "没有 id 以 %s 开头的会话，用 /resume --all 看看有哪些\n", prefix))
 	case 1:
 		return r.attachResume(ctx, matched[0])
 	default:
-		if err := r.printf("id 前缀 %s 匹配到 %d 个会话，请给出更长的前缀:\n", prefix, len(matched)); err != nil {
+		if err := r.printf("%s", r.t("tui.resume.ambiguous", "id 前缀 %s 匹配到 %d 个会话，请给出更长的前缀:\n", prefix, len(matched))); err != nil {
 			return err
 		}
 		sort.Slice(matched, func(i, j int) bool { return matched[i].ID < matched[j].ID })
@@ -562,17 +562,17 @@ func (r *REPL) attachResume(ctx context.Context, c conversation.Conversation) er
 func (r *REPL) printResumeMembers(ctx context.Context, id string) error {
 	parts, err := r.svc.Participants(ctx, id, false)
 	if err != nil {
-		return r.printf("成员 (?): 读取失败: %v\n", err)
+		return r.printf("%s", r.t("tui.resume.membersReadFailed", "成员 (?): 读取失败: %v\n", err))
 	}
 	if len(parts) == 0 {
-		return r.printf("成员 (0): 还没有，用 /add 或 /team use 加入\n")
+		return r.printf("%s", r.t("tui.resume.membersEmpty", "成员 (0): 还没有，用 /add 或 /team use 加入\n"))
 	}
 	ids := make([]string, len(parts))
 	for i, p := range parts {
 		ids[i] = p.AgentID
 	}
 	sort.Strings(ids)
-	return r.printf("成员 (%d): %s\n", len(ids), strings.Join(ids, ", "))
+	return r.printf("%s", r.t("tui.resume.members", "成员 (%d): %s\n", len(ids), strings.Join(ids, ", ")))
 }
 
 // printResumeTail 回显最近几条消息。MaxSeq 或 History 读失败同样只打一行，
@@ -580,10 +580,10 @@ func (r *REPL) printResumeMembers(ctx context.Context, id string) error {
 func (r *REPL) printResumeTail(ctx context.Context, id string) error {
 	maxSeq, err := r.svc.MaxSeq(ctx, id)
 	if err != nil {
-		return r.printf("消息: 读取失败: %v\n", err)
+		return r.printf("%s", r.t("tui.resume.messagesReadFailed", "消息: 读取失败: %v\n", err))
 	}
 	if maxSeq == 0 {
-		return r.printf("还没有消息\n")
+		return r.printf("%s", r.t("tui.resume.noMessages", "还没有消息\n"))
 	}
 	after := maxSeq - resumeTailLimit
 	if after < 0 {
@@ -591,9 +591,9 @@ func (r *REPL) printResumeTail(ctx context.Context, id string) error {
 	}
 	msgs, err := r.svc.History(ctx, id, after, resumeTailLimit)
 	if err != nil {
-		return r.printf("消息: 读取失败: %v\n", err)
+		return r.printf("%s", r.t("tui.resume.messagesReadFailed", "消息: 读取失败: %v\n", err))
 	}
-	if err := r.printf("共 %d 条消息；最近 %d 条:\n", maxSeq, len(msgs)); err != nil {
+	if err := r.printf("%s", r.t("tui.resume.recentMessages", "共 %d 条消息；最近 %d 条:\n", maxSeq, len(msgs))); err != nil {
 		return err
 	}
 	for _, m := range msgs {

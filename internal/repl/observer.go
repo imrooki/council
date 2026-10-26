@@ -1,6 +1,9 @@
 package repl
 
-import "council/internal/turn"
+import (
+	"council/internal/i18n"
+	"council/internal/turn"
+)
 
 // RoundObserver 接收 /round 每一段的三种事件。nil 表示不观察，行式路径不装。
 //
@@ -28,7 +31,7 @@ type RoundStartEvent struct {
 
 // MemberDoneEvent 在一个成员的明细文本全部写完之后发出。只带小值，不带 turn.Record。
 type MemberDoneEvent struct {
-	Label         string       // 同本段 RoundStartEvent.Label
+	Label         string       // 同本段 RoundStartEvent.Label，已按界面语言取好
 	AgentID       string       // rec.AgentID
 	Outcome       turn.Outcome // rec.Outcome
 	MaybeAdvanced bool         // rec.MaybeAdvanced
@@ -36,6 +39,7 @@ type MemberDoneEvent struct {
 	Dropped       bool         // rec.DroppedText != ""
 	WallMS        int          // rec.WallMS
 	RoundID       string       // rec.RoundID（铸 id 失败时是空串）
+	Lang          i18n.Lang    // 发出事件时的界面语言；零值按中文处理（TUI 观察者不改它）
 }
 
 // RoundEndEvent 在本段结算文本打完之后发出。简洁档下结算块不打（至多一行「分不清进程是否起来 N（…）」），发射时刻仍在同一位置。
@@ -45,6 +49,9 @@ type RoundEndEvent struct {
 	N       int
 	Results []MemberDoneEvent // 本段每个成员的结果，新分配；按 Speakers 的顺序（即 turn 返回 recs 的顺序），不按回来的顺序
 	Concise bool              // 发出这个事件时 REPL 的输出档位是简洁；零值是详细
+	// Lang 是发出事件时的界面语言。TUI 的段终态块（结局词、标记、回来计数）
+	// 靠它取文案；零值按中文处理，既有测试直接构造事件时仍是中文。
+	Lang i18n.Lang
 }
 
 // SetRoundObserver 晚绑定观察者（照 LineWriter.SetEmit 的先例），传 nil 即卸下。

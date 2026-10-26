@@ -168,6 +168,18 @@ Flags:
 	"cli.serve.err.addrNoPort":      "地址 %q 没有指定端口",
 	"cli.serve.err.addrBadPort":     "地址 %q 的端口 %q 不合法，必须是 0 到 65535 的整数",
 	"cli.serve.err.addrNotLoopback": "只允许绑定回环地址（127.0.0.0/8、::1、localhost），%q 不是回环地址",
+	// ---- 命令细则输出（本片；中文值 = 调用处的 fallback 原文） ----
+
+	"cli.add.comment":            "council /add 追加：%s 识别出的 %s（%s）",
+	"cli.add.backupPrefix":       "备份: ",
+	"cli.add.id.exists":          "配置里已经有 agent %s",
+	"cli.add.id.folds":           "id %s 与已有的 agent %s 只差点号、下划线或连字符，claude 会把两者的工作目录落进同一个项目目录",
+	"cli.add.id.hint":            "；用 --id <新 id> 换一个",
+	"cli.add.id.invalid":         "id %s 不合法（要匹配 %s）",
+	"cli.add.id.reserved":        "id %s 是保留名",
+	"cli.add.id.windowsDevice":   "id %s 是 Windows 保留设备名，不能当工作目录名",
+	"cli.add.readOriginalPrefix": "读原文件: ",
+	"cli.add.writePrefix":        "写入: ",
 }
 
 var enCLI = Catalog{
@@ -318,4 +330,16 @@ Flags:
 	"cli.serve.err.addrNoPort":      "address %q has no port",
 	"cli.serve.err.addrBadPort":     "address %q has an invalid port %q; it must be an integer from 0 to 65535",
 	"cli.serve.err.addrNotLoopback": "only loopback addresses are allowed (127.0.0.0/8, ::1, localhost); %q is not one",
+	// ---- command-detail output (this slice) ----
+
+	"cli.add.comment":            "council /add appended: %s model %s (%s)",
+	"cli.add.backupPrefix":       "backup: ",
+	"cli.add.id.exists":          "the config already has agent %s",
+	"cli.add.id.folds":           "id %s and the existing agent %s differ only by dots, underscores or hyphens; claude would put both working directories under the same project directory",
+	"cli.add.id.hint":            "; use --id <new id> to pick another",
+	"cli.add.id.invalid":         "id %s is invalid (must match %s)",
+	"cli.add.id.reserved":        "id %s is a reserved name",
+	"cli.add.id.windowsDevice":   "id %s is a Windows reserved device name and cannot be a working directory name",
+	"cli.add.readOriginalPrefix": "read original: ",
+	"cli.add.writePrefix":        "write: ",
 }

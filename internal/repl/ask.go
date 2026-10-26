@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"council/internal/conversation"
+	"council/internal/i18n"
 	"council/internal/turn"
 )
 
@@ -43,7 +44,7 @@ import (
 // 成员闸之前做，理由见函数体里的注释。
 func cmdAsk(ctx context.Context, r *REPL, args cmdArgs) error {
 	if len(args.fields) == 0 {
-		return r.printf("用法: /ask <agent-id> [文本]\n")
+		return r.printf("%s", r.t("tui.ask.usage", "用法: /ask <agent-id> [文本]\n"))
 	}
 	ref := args.fields[0]
 	text := restOf(args.rest)
@@ -63,7 +64,7 @@ func cmdAsk(ctx context.Context, r *REPL, args cmdArgs) error {
 	// agent 分开；传 false 会把「退出过」误报成「还没加入」。
 	participants, err := r.svc.Participants(ctx, r.cur.ID, true)
 	if err != nil {
-		return r.reportErr("列出成员失败", err)
+		return r.reportErr(r.t("tui.err.listMembers", "列出成员失败"), err)
 	}
 
 	// 先把引用解析成全名，再过闸。两件事：前缀解析只决定「问谁」，下面的闸
@@ -102,9 +103,9 @@ func cmdAsk(ctx context.Context, r *REPL, args cmdArgs) error {
 		if rerr != nil {
 			var refErr *agentRefError
 			if errors.As(rerr, &refErr) && len(refErr.Matches) >= 2 {
-				return r.printf("%s 有歧义，可能是：%s\n", ref, strings.Join(refErr.Matches, ", "))
+				return r.printf("%s", r.t("tui.ask.ambiguous", "%s 有歧义，可能是：%s\n", ref, strings.Join(refErr.Matches, ", ")))
 			}
-			return r.printf("配置里没有 %s 这个 agent，用 /agents 看看有哪些\n", ref)
+			return r.printf("%s", r.t("tui.ask.unknown", "配置里没有 %s 这个 agent，用 /agents 看看有哪些\n", ref))
 		}
 		agentID = resolved
 	}
@@ -116,28 +117,28 @@ func cmdAsk(ctx context.Context, r *REPL, args cmdArgs) error {
 		}
 		found = true
 		if !p.Active {
-			return r.printf("%s 已退出当前会话，用 /join %s 重新加入\n", agentID, agentID)
+			return r.printf("%s", r.t("tui.ask.left", "%s 已退出当前会话，用 /join %s 重新加入\n", agentID, agentID))
 		}
 		break
 	}
 	if !found {
 		if _, ok := r.cfg.Agents[agentID]; ok {
-			return r.printf("%s 在配置里但还没加入当前会话，用 /join %s 加入\n", agentID, agentID)
+			return r.printf("%s", r.t("tui.ask.notJoined", "%s 在配置里但还没加入当前会话，用 /join %s 加入\n", agentID, agentID))
 		}
-		return r.printf("配置里没有 %s 这个 agent，用 /agents 看看有哪些\n", agentID)
+		return r.printf("%s", r.t("tui.ask.unknown", "配置里没有 %s 这个 agent，用 /agents 看看有哪些\n", agentID))
 	}
 
 	if text != "" {
 		before, err := r.svc.MaxSeq(ctx, r.cur.ID)
 		if err != nil {
-			return r.reportErr("读会话进度失败", err)
+			return r.reportErr(r.t("tui.err.readProgress", "读会话进度失败"), err)
 		}
 		if err := postUserText(ctx, r, text); err != nil {
 			return err
 		}
 		after, err := r.svc.MaxSeq(ctx, r.cur.ID)
 		if err != nil {
-			return r.reportErr("读会话进度失败", err)
+			return r.reportErr(r.t("tui.err.readProgress", "读会话进度失败"), err)
 		}
 		if after <= before {
 			return nil
@@ -161,7 +162,7 @@ func cmdAsk(ctx context.Context, r *REPL, args cmdArgs) error {
 	// （不花钱）。2026-09-23 真机实测过：会话里遗留的成员 op，/ask op 正是这样。
 	// X-1 落地时这里曾写成「这一档不再会出现」，那句话只对从没加入过的 agent 成立，
 	// 已订正。绕过 REPL 直接调 Runner.Ask 的调用方两种都会命中。
-	if err := r.printf("正在问 %s ...\n", agentID); err != nil {
+	if err := r.printf("%s", r.t("tui.ask.asking", "正在问 %s ...\n", agentID)); err != nil {
 		return err
 	}
 	rec, askErr := r.rn.Ask(ctx, r.cur.ID, agentID)
@@ -169,7 +170,7 @@ func cmdAsk(ctx context.Context, r *REPL, args cmdArgs) error {
 		return err
 	}
 	if askErr != nil {
-		return r.printf("%s\n", askCause(askErr))
+		return r.printf("%s\n", askCauseLang(r.lang, askErr))
 	}
 	return nil
 }
@@ -193,10 +194,10 @@ func cmdSession(ctx context.Context, r *REPL, args cmdArgs) error {
 	}
 	ps, err := r.svc.Participants(ctx, r.cur.ID, false)
 	if err != nil {
-		return r.reportErr("列出成员失败", err)
+		return r.reportErr(r.t("tui.err.listMembers", "列出成员失败"), err)
 	}
 	if len(ps) == 0 {
-		return r.printf("会话 %s 没有活跃成员，用 /join <agent-id> 加一个\n", r.cur.ID)
+		return r.printf("%s", r.t("tui.session.noActive", "会话 %s 没有活跃成员，用 /join <agent-id> 加一个\n", r.cur.ID))
 	}
 
 	sort.Slice(ps, func(i, j int) bool { return ps[i].AgentID < ps[j].AgentID })
@@ -260,13 +261,13 @@ func cmdSession(ctx context.Context, r *REPL, args cmdArgs) error {
 // 不经这里，不会替用户结清任何一行。
 func cmdSessionRebuild(ctx context.Context, r *REPL, fields []string) error {
 	if len(fields) != 2 || fields[0] != "rebuild" {
-		return r.printf("用法: /session 或 /session rebuild <agent-id>\n")
+		return r.printf("%s", r.t("tui.session.usage", "用法: /session 或 /session rebuild <agent-id>\n"))
 	}
 	agentID := fields[1]
 
 	active, err := r.svc.Participants(ctx, r.cur.ID, false)
 	if err != nil {
-		return r.reportErr("列出成员失败", err)
+		return r.reportErr(r.t("tui.err.listMembers", "列出成员失败"), err)
 	}
 	found := false
 	for _, p := range active {
@@ -278,7 +279,7 @@ func cmdSessionRebuild(ctx context.Context, r *REPL, fields []string) error {
 
 	drift, auditErr := r.rn.AuditDrift(ctx)
 	if auditErr != nil {
-		return r.reportErr("身份漂移审计失败", auditErr)
+		return r.reportErr(r.t("tui.err.driftAudit", "身份漂移审计失败"), auditErr)
 	}
 	var row turn.DriftRow
 	rowFound := false
@@ -290,7 +291,7 @@ func cmdSessionRebuild(ctx context.Context, r *REPL, fields []string) error {
 		}
 	}
 	if !(found || (rowFound && row.Kind == turn.DriftAgentGone)) {
-		return r.printf("%s 不在当前会话的活跃成员里，用 /who 看看有哪些\n", agentID)
+		return r.printf("%s", r.t("tui.session.notActive", "%s 不在当前会话的活跃成员里，用 /who 看看有哪些\n", agentID))
 	}
 
 	// 先结清陈旧的在飞记录，再丢 provider 会话，顺序不能反。一是 fail closed：
@@ -301,20 +302,20 @@ func cmdSessionRebuild(ctx context.Context, r *REPL, fields []string) error {
 	stale, err := r.rn.SettleStaleInflight(ctx, r.cur.ID, agentID)
 	if err != nil {
 		if errors.Is(err, turn.ErrTurnInFlight) {
-			return r.printf("%s 此刻正有一轮在跑，什么都没丢；等这一轮跑完再敲一次\n", agentID)
+			return r.printf("%s", r.t("tui.session.inFlight", "%s 此刻正有一轮在跑，什么都没丢；等这一轮跑完再敲一次\n", agentID))
 		}
 		if stale.Found {
-			return r.printf("结清 %s 的在飞记录（turn %s）失败，什么都没改，provider 会话也没丢；对它 /ask 仍会被拒: %v\n", agentID, stale.Lost.Turn.TurnID, err)
+			return r.printf("%s", r.t("tui.session.settleFailed", "结清 %s 的在飞记录（turn %s）失败，什么都没改，provider 会话也没丢；对它 /ask 仍会被拒: %v\n", agentID, stale.Lost.Turn.TurnID, err))
 		}
-		return r.printf("读不出 %s 的在飞记录，什么都没改，provider 会话也没丢: %v\n", agentID, err)
+		return r.printf("%s", r.t("tui.session.readInflightFailed", "读不出 %s 的在飞记录，什么都没改，provider 会话也没丢: %v\n", agentID, err))
 	}
 	if stale.Found {
-		if err := r.printf("已结清 %s 的一轮在飞记录（turn %s，phase %s），对它 /ask 不会再因为这条记录被拒\n", agentID, stale.Lost.Turn.TurnID, stale.Lost.Turn.Phase); err != nil {
+		if err := r.printf("%s", r.t("tui.session.settled", "已结清 %s 的一轮在飞记录（turn %s，phase %s），对它 /ask 不会再因为这条记录被拒\n", agentID, stale.Lost.Turn.TurnID, stale.Lost.Turn.Phase)); err != nil {
 			return err
 		}
-		consequence := "那一轮记为丢失：可能花了钱，用量与金额都不知道（与重启时启动对账的记法相同）\n"
+		consequence := r.t("tui.session.lostConsequence", "那一轮记为丢失：可能花了钱，用量与金额都不知道（与重启时启动对账的记法相同）\n")
 		if stale.Lost.Turn.Phase == conversation.PhaseBegun {
-			consequence = "那一轮没起过进程、没花钱，只删掉了这条记录\n"
+			consequence = r.t("tui.session.begunConsequence", "那一轮没起过进程、没花钱，只删掉了这条记录\n")
 		}
 		if err := r.write(consequence); err != nil {
 			return err
@@ -328,17 +329,17 @@ func cmdSessionRebuild(ctx context.Context, r *REPL, fields []string) error {
 		// 「已丢弃」而其实什么都没丢。拒绝是 fail-closed 的那一边。
 		// Rebuild 拿不到闸时什么都不做，尤其没有先删库再发现拿不到。
 		if errors.Is(err, turn.ErrTurnInFlight) {
-			return r.printf("%s 此刻正有一轮在跑，什么都没丢；等这一轮跑完再敲一次\n", agentID)
+			return r.printf("%s", r.t("tui.session.inFlight", "%s 此刻正有一轮在跑，什么都没丢；等这一轮跑完再敲一次\n", agentID))
 		}
-		return r.reportErr("重建失败", err)
+		return r.reportErr(r.t("tui.err.rebuild", "重建失败"), err)
 	}
 	if !existed {
-		return r.printf("本来就没有开着的会话，下一轮照常是首轮\n")
+		return r.printf("%s", r.t("tui.session.noSession", "本来就没有开着的会话，下一轮照常是首轮\n"))
 	}
 	if rowFound && row.AskRefused() {
-		return r.printf("已清掉 %s 的 provider 会话（会话 id / 游标 / 成本基线 / 上轮时刻 / 指纹 五样全丢）；按当前配置对它 /ask 会被拒，不花钱\n", agentID)
+		return r.printf("%s", r.t("tui.session.clearedRefused", "已清掉 %s 的 provider 会话（会话 id / 游标 / 成本基线 / 上轮时刻 / 指纹 五样全丢）；按当前配置对它 /ask 会被拒，不花钱\n", agentID))
 	}
-	return r.printf("已丢弃 %s 的 provider 会话（会话 id / 游标 / 成本基线 / 上轮时刻 / 指纹 五样全丢），下一轮按首轮计价\n", agentID)
+	return r.printf("%s", r.t("tui.session.discarded", "已丢弃 %s 的 provider 会话（会话 id / 游标 / 成本基线 / 上轮时刻 / 指纹 五样全丢），下一轮按首轮计价\n", agentID))
 }
 
 // writeAskRecord 渲染发言轮与裁判轮的一条 Record，也是 /ask 的渲染：/ask 问总结成员
@@ -378,10 +379,10 @@ func writeRecord(r *REPL, rec turn.Record, summary bool) error {
 	if r.concise {
 		name := r.displayName(rec.AgentID)
 		if rec.Message != nil {
-			head := name + "（" + FormatWall(rec.WallMS) + "）:"
+			head := r.t("tui.ask.memberHead", "%s（%s）:", name, FormatWall(rec.WallMS))
 			sep := " "
 			if summary {
-				head = "总的来看（" + name + " 做总结）："
+				head = r.t("tui.ask.summaryHead", "总的来看（%s 做总结）：", name)
 				sep = ""
 			}
 			if rec.Message.Text == "" {
@@ -396,15 +397,15 @@ func writeRecord(r *REPL, rec turn.Record, summary bool) error {
 					return err
 				}
 			}
-			if note := completionNote(rec); note != "" {
+			if note := completionNoteLang(r.lang, rec); note != "" {
 				if err := r.printf("%s\n", note); err != nil {
 					return err
 				}
 			}
 		} else {
-			line := name + ": 没有回复（" + OutcomeWord(rec.Outcome) + "）\n"
+			line := r.t("tui.ask.noReply", "%s: 没有回复（%s）\n", name, OutcomeWordLang(r.lang, rec.Outcome))
 			if summary {
-				line = "总的来看：没有总结（" + OutcomeWord(rec.Outcome) + "）\n"
+				line = r.t("tui.ask.noSummary", "总的来看：没有总结（%s）\n", OutcomeWordLang(r.lang, rec.Outcome))
 			}
 			if err := r.write(line); err != nil {
 				return err
@@ -414,30 +415,30 @@ func writeRecord(r *REPL, rec turn.Record, summary bool) error {
 		return err
 	}
 	if rec.MaybeAdvanced {
-		if err := r.printf("provider 那边可能已经吃下这批内容\n"); err != nil {
+		if err := r.printf("%s\n", r.t("tui.ask.maybeAdvanced", "provider 那边可能已经吃下这批内容")); err != nil {
 			return err
 		}
 	}
 	if !r.concise {
 		if rec.Fresh {
-			if err := r.printf("新开了一条 provider 会话 %s\n", orPlaceholder(rec.ProviderSession)); err != nil {
+			if err := r.printf("%s\n", r.t("tui.ask.freshSession", "新开了一条 provider 会话 %s", orPlaceholder(rec.ProviderSession))); err != nil {
 				return err
 			}
 		} else if rec.ProviderSession != "" {
-			if err := r.printf("provider 会话 %s\n", rec.ProviderSession); err != nil {
+			if err := r.printf("%s\n", r.t("tui.ask.providerSession", "provider 会话 %s", rec.ProviderSession)); err != nil {
 				return err
 			}
 		}
 	}
 	if rec.Drifted {
-		if err := r.printf("送出去的会话 id 与回来的不一样：CLI 悄悄开了新会话，前缀已经断了，钱已经花了\n"); err != nil {
+		if err := r.printf("%s\n", r.t("tui.ask.drifted", "送出去的会话 id 与回来的不一样：CLI 悄悄开了新会话，前缀已经断了，钱已经花了")); err != nil {
 			return err
 		}
 	}
 	// 放在 rec.Message 判断之外：turn_failed / post_rejected 这两条路径也可能
 	// 带着非空的 DeniedActions（absorbParse 先于失败判定运行），不能只在
 	// 「说成功了话」这一支才把这件事说出来。
-	if note := deniedActionsNote(rec); note != "" {
+	if note := deniedActionsNoteLang(r.lang, rec); note != "" {
 		if err := r.printf("%s\n", note); err != nil {
 			return err
 		}
@@ -447,7 +448,7 @@ func writeRecord(r *REPL, rec turn.Record, summary bool) error {
 		if err := r.printf("seq %d  %s  %s\n", m.Seq, m.SenderID, brainCell(m.SenderProvider, m.SenderModel, m.SenderEffort)); err != nil {
 			return err
 		}
-		if note := completionNote(rec); note != "" {
+		if note := completionNoteLang(r.lang, rec); note != "" {
 			if err := r.printf("%s\n", note); err != nil {
 				return err
 			}
@@ -457,7 +458,7 @@ func writeRecord(r *REPL, rec turn.Record, summary bool) error {
 		}
 	}
 	if rec.Outcome == turn.OutcomePostRejected {
-		if err := r.printf("正文写不进库（已经付过钱），整段如下:\n"); err != nil {
+		if err := r.printf("%s", r.t("tui.ask.postRejectedHead", "正文写不进库（已经付过钱），整段如下:\n")); err != nil {
 			return err
 		}
 		if err := writeFullText(r, rec.DroppedText); err != nil {
@@ -495,54 +496,54 @@ func writeAskMeter(r *REPL, rec turn.Record) error {
 			}
 			return fmt.Sprintf("%d", *v)
 		}
-		if err := r.printf("用量 in=%s cache_create=%s cache_read=%s out=%s thinking=%s\n",
+		if err := r.printf("%s", r.t("tui.ask.usageLine", "用量 in=%s cache_create=%s cache_read=%s out=%s thinking=%s\n",
 			cell(ru.Input),
 			cell(ru.CacheCreate),
 			cell(ru.CacheRead),
 			cell(ru.Output),
 			cell(ru.Thinking),
-		); err != nil {
+		)); err != nil {
 			return err
 		}
 	} else {
-		if err := r.printf("用量 未知（没解析到用量）\n"); err != nil {
+		if err := r.printf("%s", r.t("tui.ask.usageUnknown", "用量 未知（没解析到用量）\n")); err != nil {
 			return err
 		}
 	}
 
 	switch {
 	case rec.CostUSDDelta != nil:
-		if err := r.printf("金额 %g USD\n", *rec.CostUSDDelta); err != nil {
+		if err := r.printf("%s", r.t("tui.ask.cost", "金额 %g USD\n", *rec.CostUSDDelta)); err != nil {
 			return err
 		}
 	case rec.BaselineSuspect:
-		if err := r.printf("金额未计（上一轮结局未知，基线可疑）\n"); err != nil {
+		if err := r.printf("%s", r.t("tui.ask.costSuspect", "金额未计（上一轮结局未知，基线可疑）\n")); err != nil {
 			return err
 		}
 	default:
-		if err := r.printf("金额未报\n"); err != nil {
+		if err := r.printf("%s", r.t("tui.ask.costUnreported", "金额未报\n")); err != nil {
 			return err
 		}
 	}
 
-	forecast := "暖"
+	forecast := r.t("tui.ask.warm", "暖")
 	if rec.ColdExpected {
-		forecast = "冷"
+		forecast = r.t("tui.ask.cold", "冷")
 	}
 	cold, known := rec.MeasuredCold()
-	actual := "未知"
+	actual := r.t("tui.ask.warmthUnknown", "未知")
 	if known {
-		actual = "暖"
+		actual = r.t("tui.ask.warm", "暖")
 		if cold {
-			actual = "冷"
+			actual = r.t("tui.ask.cold", "冷")
 		}
 	}
-	if err := r.printf("冷暖 预报=%s 实测=%s  wall_ms=%d  prompt_bytes=%d  scanned_to=%d\n",
-		forecast, actual, rec.WallMS, rec.PromptBytes, rec.ScannedTo); err != nil {
+	if err := r.printf("%s", r.t("tui.ask.warmth", "冷暖 预报=%s 实测=%s  wall_ms=%d  prompt_bytes=%d  scanned_to=%d\n",
+		forecast, actual, rec.WallMS, rec.PromptBytes, rec.ScannedTo)); err != nil {
 		return err
 	}
 	if rec.UnexpectedCold && known {
-		if err := r.printf("意外冷启动：预报是暖的，实测 cache_read=0\n"); err != nil {
+		if err := r.printf("%s", r.t("tui.ask.unexpectedCold", "意外冷启动：预报是暖的，实测 cache_read=0\n")); err != nil {
 			return err
 		}
 	}
@@ -574,6 +575,11 @@ func writeFullText(r *REPL, s string) error {
 // 刻意不说「这一轮失败了」：agy 越界写被拒的同时，界内那件事很可能已经
 // 做完，只是模型的汇报被清空，把它说成失败是另一种谎言（同样来自那一节）。
 func deniedActionsNote(rec turn.Record) string {
+	return deniedActionsNoteLang(i18n.LangZh, rec)
+}
+
+// deniedActionsNoteLang 是 deniedActionsNote 带语言的那一半。
+func deniedActionsNoteLang(lang i18n.Lang, rec turn.Record) string {
 	if len(rec.DeniedActions) == 0 {
 		return ""
 	}
@@ -587,29 +593,33 @@ func deniedActionsNote(rec turn.Record) string {
 	// 11c 第 7.1 节）。这个长度是**下界**，不是被拒次数的清点 ——
 	// 可能是 agy 首次被拒就停下这一轮，也可能是它按 action 类型去重，
 	// 本次探针分辨不出来。所以措辞不许写成「一共有 N 个」。
-	return fmt.Sprintf(
+	return i18n.TF(lang, "tui.ask.deniedActions",
 		"provider 报了 %d 个被拒的工具调用（可能不止这些）：%s。界内的事可能已经做完，"+
 			"只是这一轮的正文被清空了，不代表整轮失败",
-		len(rec.DeniedActions), strings.Join(names, "、"),
-	)
+		len(rec.DeniedActions), strings.Join(names, i18n.TF(lang, "tui.list.sep", "、")))
 }
 
 func completionNote(rec turn.Record) string {
+	return completionNoteLang(i18n.LangZh, rec)
+}
+
+// completionNoteLang 是 completionNote 带语言的那一半。
+func completionNoteLang(lang i18n.Lang, rec turn.Record) string {
 	if rec.Message == nil {
 		return ""
 	}
 	if rec.Message.Text == "" {
-		return "本轮为空"
+		return i18n.TF(lang, "tui.ask.turnEmpty", "本轮为空")
 	}
 	if rec.Message.Meta == nil {
 		return ""
 	}
 	v, _ := rec.Message.Meta[turn.MetaCompletion].(string)
 	if v == "truncated" {
-		return "本轮被截断"
+		return i18n.TF(lang, "tui.ask.turnTruncated", "本轮被截断")
 	}
 	if v == "empty" {
-		return "本轮为空"
+		return i18n.TF(lang, "tui.ask.turnEmpty", "本轮为空")
 	}
 	return ""
 }
@@ -644,6 +654,12 @@ func outcomeLabel(o turn.Outcome) string {
 // 原样打 Err —— 第 5-9 类结局的退出码 / stderr 头 /
 // 可执行文件路径已经折进这个错误值的格式化消息里。
 func askCause(err error) string {
+	return askCauseLang(i18n.LangZh, err)
+}
+
+// askCauseLang 是 askCause 带语言的那一半。认得出的哨兵按界面语言给一句人话，
+// 认不出的原样返回 err.Error()。
+func askCauseLang(lang i18n.Lang, err error) string {
 	switch {
 	// 两个产出方共用一个哨兵：起进程之前的检查，以及 BeginTurn 撞
 	// (conv_id, agent_id) 唯一索引。/ask 与 /round 都经这一个函数，所以打的
@@ -651,17 +667,17 @@ func askCause(err error) string {
 	// /session rebuild <成员> 同样能解开：它先按启动对账的同一条路结清陈旧的
 	// 在飞记录，再丢掉 provider 会话，下一轮付一次入场费。
 	case errors.Is(err, conversation.ErrInflightConflict):
-		return "这个成员有一轮没记上账的在飞记录还留在库里，对账成功之前不再起进程、不花钱；重启 council 会在启动时重新对账，对账失败的原因在启动输出里以「启动在飞对账」开头的那一行"
+		return i18n.TF(lang, "tui.ask.causeInflight", "这个成员有一轮没记上账的在飞记录还留在库里，对账成功之前不再起进程、不花钱；重启 council 会在启动时重新对账，对账失败的原因在启动输出里以「启动在飞对账」开头的那一行")
 	case errors.Is(err, turn.ErrNoDelta):
-		return "这个 agent 没有新内容可读"
+		return i18n.TF(lang, "tui.ask.causeNoDelta", "这个 agent 没有新内容可读")
 	case errors.Is(err, turn.ErrAgentUnknown):
-		return "配置里没有这个 agent，用 /agents 看看有哪些"
+		return i18n.TF(lang, "tui.ask.causeAgentUnknown", "配置里没有这个 agent，用 /agents 看看有哪些")
 	case errors.Is(err, turn.ErrIdentityDrift):
-		return "身份或脑子在这条 provider 会话开着的时候被改了；Step 6 不静默重建"
+		return i18n.TF(lang, "tui.ask.causeIdentityDrift", "身份或脑子在这条 provider 会话开着的时候被改了；Step 6 不静默重建")
 	case errors.Is(err, turn.ErrPrefixRewrite):
-		return "这一批会改写已经送出去的历史"
+		return i18n.TF(lang, "tui.ask.causePrefixRewrite", "这一批会改写已经送出去的历史")
 	case errors.Is(err, turn.ErrTierNotOffered):
-		return "full 权限档不提供给编排器自动使用（06 第 2 节）；拼错或未知的档同样被拒绝"
+		return i18n.TF(lang, "tui.ask.causeTierNotOffered", "full 权限档不提供给编排器自动使用（06 第 2 节）；拼错或未知的档同样被拒绝")
 	default:
 		return err.Error()
 	}

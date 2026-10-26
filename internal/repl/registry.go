@@ -10,6 +10,7 @@ import (
 
 	"council/internal/command"
 	"council/internal/conversation"
+	"council/internal/i18n"
 )
 
 // commandFunc 是一条命令的处理函数。参数形状与执行顺序由 runCommand 统一安排：
@@ -143,10 +144,10 @@ func cmdCopy(_ context.Context, r *REPL, _ cmdArgs) error {
 // 所以这里必须自己判一遍，否则 svc 或 cur 为 nil 时会在下面空指针。
 func (r *REPL) CopyRecent(ctx context.Context, args string) (string, error) {
 	if r.svc == nil {
-		return "", errors.New(msgNoStore)
+		return "", errors.New(r.t("tui.repl.noStore", msgNoStore))
 	}
 	if r.cur == nil {
-		return "", errors.New(msgNoConv)
+		return "", errors.New(r.t("tui.repl.noConv", msgNoConv))
 	}
 	n, err := parseCopyCount(args)
 	if err != nil {
@@ -194,7 +195,7 @@ func parseCopyCount(args string) (int, error) {
 func (r *REPL) recentCopyable(ctx context.Context, convID string, want int) ([]conversation.Message, error) {
 	maxSeq, err := r.svc.MaxSeq(ctx, convID)
 	if err != nil {
-		return nil, fmt.Errorf("读会话进度失败: %w", err)
+		return nil, fmt.Errorf("%s%w", r.t("tui.err.readProgressPrefix", "读会话进度失败: "), err)
 	}
 	picked := make([]conversation.Message, 0, min(want, copyPage)) // 从新到旧，最后再反过来
 	after, window := maxSeq, int64(copyPage)
@@ -202,7 +203,7 @@ func (r *REPL) recentCopyable(ctx context.Context, convID string, want int) ([]c
 		from := max(0, after-window)
 		msgs, err := r.svc.History(ctx, convID, from, int(after-from))
 		if err != nil {
-			return nil, fmt.Errorf("读消息失败: %w", err)
+			return nil, fmt.Errorf("%s%w", r.t("tui.err.readMessagesPrefix", "读消息失败: "), err)
 		}
 		for i := len(msgs) - 1; i >= 0 && len(picked) < want; i-- {
 			if copyableMessage(msgs[i]) {
@@ -261,4 +262,19 @@ func WriteCommandTable(w io.Writer, specs []command.Spec) error {
 		fmt.Fprintf(tw, "/%s\t%s\n", spec.Name, spec.Summary)
 	}
 	return tw.Flush()
+}
+
+// WriteCommandTableLang 与 WriteCommandTable 同一张表，只是先把摘要按语言
+// 替换掉：key 与 /help 共用 tui.cmd.<name>.summary，fallback 是注册表里的
+// 中文摘要，所以中文（或缺条）时输出与 WriteCommandTable 逐字节相同。
+//
+// council commands 的纯文本输出走它；-json 不走，元数据契约里的 summary
+// 始终是注册表原值。
+func WriteCommandTableLang(w io.Writer, specs []command.Spec, lang i18n.Lang) error {
+	localized := make([]command.Spec, len(specs))
+	copy(localized, specs)
+	for i := range localized {
+		localized[i].Summary = i18n.TF(lang, "tui.cmd."+localized[i].Name+".summary", localized[i].Summary)
+	}
+	return WriteCommandTable(w, localized)
 }

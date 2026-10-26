@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"council/internal/i18n"
 	"council/internal/repl"
 )
 
@@ -123,6 +124,10 @@ func TestCommandsJSON(t *testing.T) {
 // TestCommandsPlainMatchesSharedFormat 钉住不带 -json 的输出就是 /help 的列格式：
 // 同一份 WriteCommandTable、同一份元数据，两处不可能长得不一样。
 func TestCommandsPlainMatchesSharedFormat(t *testing.T) {
+	// 固定语言：commands 的纯文本摘要跟界面语言走，开发机配置里的 language
+	// 不该让这条格式用例时红时绿。
+	t.Setenv(i18n.EnvLang, string(i18n.LangZh))
+
 	out, code := commandsRun(t, []string{"commands"})
 	if code != exitOK {
 		t.Fatalf("council commands 退出码 = %d，期望 %d", code, exitOK)
@@ -132,14 +137,72 @@ func TestCommandsPlainMatchesSharedFormat(t *testing.T) {
 	}
 
 	var want bytes.Buffer
-	if err := repl.WriteCommandTable(&want, repl.CommandSpecs()); err != nil {
-		t.Fatalf("WriteCommandTable 返回 %v", err)
+	if err := repl.WriteCommandTableLang(&want, repl.CommandSpecs(), i18n.LangZh); err != nil {
+		t.Fatalf("WriteCommandTableLang 返回 %v", err)
 	}
 	if out != want.String() {
-		t.Errorf("council commands 的输出与 WriteCommandTable(CommandSpecs()) 不同\n实际:\n%s\n期望:\n%s", out, want.String())
+		t.Errorf("council commands 的输出与 WriteCommandTableLang(CommandSpecs(), zh) 不同\n实际:\n%s\n期望:\n%s", out, want.String())
 	}
 	if n := strings.Count(out, "\n"); n != len(repl.CommandSpecs())+1 {
 		t.Errorf("输出有 %d 行，期望 %d 行（表头 + 每条命令一行）", n, len(repl.CommandSpecs())+1)
+	}
+}
+
+// TestCommandsPlainEnglish 钉住纯文本表的摘要跟着语言走：英文下一个汉字都
+// 不能有，且摘要与 /help 共用同一批 tui.cmd.* 译文；-json 不受影响。
+func TestCommandsPlainEnglish(t *testing.T) {
+	t.Setenv(i18n.EnvLang, string(i18n.LangEn))
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANG", "")
+
+	out, code := commandsRun(t, []string{"commands"})
+	if code != exitOK {
+		t.Fatalf("council commands 退出码 = %d，期望 %d", code, exitOK)
+	}
+	if cliHasHan(out) {
+		t.Fatalf("英文 council commands 里出现汉字:\n%s", out)
+	}
+	for _, want := range []string{"COMMAND", "List every command", "Exit council", "/help", "/resume"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("英文 council commands 缺少 %q:\n%s", want, out)
+		}
+	}
+	if n := strings.Count(out, "\n"); n != len(repl.TUISpecs())+1 {
+		t.Errorf("输出有 %d 行，期望 %d 行（表头 + 每条命令一行）", n, len(repl.TUISpecs())+1)
+	}
+}
+
+// TestCommandsJSONUnaffectedByLanguage 是 -json 的契约闸：元数据里的 summary
+// 永远是注册表原值（中文），换语言只该改纯文本表，JSON 字节必须完全相同。
+func TestCommandsJSONUnaffectedByLanguage(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANG", "")
+
+	t.Setenv(i18n.EnvLang, string(i18n.LangZh))
+	zh, code := commandsRun(t, []string{"commands", "-json"})
+	if code != exitOK {
+		t.Fatalf("zh council commands -json 退出码 = %d，期望 %d", code, exitOK)
+	}
+	t.Setenv(i18n.EnvLang, string(i18n.LangEn))
+	en, code := commandsRun(t, []string{"commands", "-json"})
+	if code != exitOK {
+		t.Fatalf("en council commands -json 退出码 = %d，期望 %d", code, exitOK)
+	}
+	if zh != en {
+		t.Fatalf("-json 的输出随语言变了（元数据契约被破坏）\nzh:\n%s\nen:\n%s", zh, en)
+	}
+
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(en), &rows); err != nil {
+		t.Fatalf("输出不是 JSON 数组: %v", err)
+	}
+	specs := repl.CommandSpecs()
+	for i, row := range rows {
+		if got, _ := row["summary"].(string); got != specs[i].Summary {
+			t.Errorf("第 %d 条 summary = %q，期望注册表原值 %q", i+1, got, specs[i].Summary)
+		}
 	}
 }
 

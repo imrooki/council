@@ -201,13 +201,13 @@ func (row *costRow) addTurn(u conversation.TurnUsage) {
 func cmdCost(ctx context.Context, r *REPL, args cmdArgs) error {
 	agentID, roundID, err := parseCostArgs(args.fields)
 	if err != nil {
-		return r.printf("%s\n", err.Error())
+		return r.printf("%s\n", r.t("tui.cost.usage", err.Error()))
 	}
 	// limit < 0：与 UsageSamples 同一套，不限条数。账要的是范围内的全部行，
 	// 先截断再聚合会把更早的轮悄悄丢掉。
 	rows, err := r.svc.TurnUsage(ctx, r.cur.ID, agentID, -1)
 	if err != nil {
-		return r.reportErr("读账失败", err)
+		return r.reportErr(r.t("tui.err.readAccount", "读账失败"), err)
 	}
 	// nBefore 是过滤前的行数。空结果用它判，不用 unknown：
 	// 行全属于别的 round、又没有空 round 行时，过滤后为空而 unknown 仍是 0。
@@ -243,9 +243,9 @@ func cmdCost(ctx context.Context, r *REPL, args cmdArgs) error {
 	summary := summarizeCost(rows)
 	if len(summary) == 0 {
 		if nBefore == 0 {
-			return r.printf("本会话还没有记过账\n")
+			return r.printf("%s", r.t("tui.cost.noRecords", "本会话还没有记过账\n"))
 		}
-		if err := r.printf("这一轮（round_id=%s）没有记账行\n", roundID); err != nil {
+		if err := r.printf("%s", r.t("tui.cost.noRoundRecords", "这一轮（round_id=%s）没有记账行\n", roundID)); err != nil {
 			return err
 		}
 		// 这句话之后还要看空 round 行。只剩这些行的会话配任何 --round，
@@ -297,9 +297,9 @@ func printCostUnknownRound(r *REPL, unknown, unknownLost int) error {
 		return nil
 	}
 	if unknownLost == 0 {
-		return r.printf("未计入本轮：另有 %d 行 round_id 为空，不知道属于哪一轮；不带 --round 的 /cost 能看到它们\n", unknown)
+		return r.printf("%s", r.t("tui.cost.unknownRound", "未计入本轮：另有 %d 行 round_id 为空，不知道属于哪一轮；不带 --round 的 /cost 能看到它们\n", unknown))
 	}
-	return r.printf("未计入本轮：另有 %d 行 round_id 为空，不知道属于哪一轮（其中 %d 行是崩溃后启动对账补的账）；不带 --round 的 /cost 能看到它们\n", unknown, unknownLost)
+	return r.printf("%s", r.t("tui.cost.unknownRoundLost", "未计入本轮：另有 %d 行 round_id 为空，不知道属于哪一轮（其中 %d 行是崩溃后启动对账补的账）；不带 --round 的 /cost 能看到它们\n", unknown, unknownLost))
 }
 
 // parseCostArgs 只认两种形状：零个词、一个 agent id，或恰好 --round 加一个 id。

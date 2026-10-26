@@ -206,9 +206,16 @@ func runServe(args []string) int {
 //
 // 写法照 ask / serve 的体例：私有 FlagSet、用法错误退 2、-h 退 0。
 func runCommands(args []string) int {
+	// 纯文本表的摘要跟着界面语言走（与 /help 共用 tui.cmd.*）；-json 是元数据
+	// 契约，原样交出注册表里的值，一个字都不换。commands 没有 -lang，语言按
+	// 环境变量 / 配置里的 language / 系统区域求；只读、失败即忽略。
+	lang := cliLanguage("", "")
+	text := func(key, fallback string) string {
+		return i18n.TF(lang, key, fallback)
+	}
 	fs := flag.NewFlagSet("council commands", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	asJSON := fs.Bool("json", false, "按 JSON 打印全部命令的元数据（name / aliases / args / summary / detail / scopes），给 GUI 面板与 dsh 工具用")
+	asJSON := fs.Bool("json", false, text("cli.commands.flag.json", "按 JSON 打印全部命令的元数据（name / aliases / args / summary / detail / scopes），给 GUI 面板与 dsh 工具用"))
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
@@ -217,16 +224,17 @@ func runCommands(args []string) int {
 	}
 	// 位置参数没有含义，静默忽略会让用户以为它生效了（与全局 flag 同一条纪律）。
 	if fs.NArg() > 0 {
-		fmt.Fprintf(os.Stderr, "council commands 不接受位置参数，多出来的是: %v\n", fs.Args())
+		fmt.Fprintf(os.Stderr, text("cli.commands.error.positional", "council commands 不接受位置参数，多出来的是: %v\n"), fs.Args())
 		fs.Usage()
 		return exitUsage
 	}
 
 	specs := repl.CommandSpecs()
 	if !*asJSON {
-		// 纯文本与 /help 同源（TUISpecs），JSON 用全目录。两者今天内容相同，
-		// 但将来出现 TUI 专有命令时，纯文本不该跟着 JSON 一起变。
-		if err := repl.WriteCommandTable(os.Stdout, repl.TUISpecs()); err != nil {
+		// 纯文本与 /help 同源（TUISpecs 与同一份 WriteCommandTableLang），
+		// JSON 用全目录。两者今天内容相同，但将来出现 TUI 专有命令时，
+		// 纯文本不该跟着 JSON 一起变。
+		if err := repl.WriteCommandTableLang(os.Stdout, repl.TUISpecs(), lang); err != nil {
 			fmt.Fprintf(os.Stderr, "council commands: %v\n", err)
 			return exitConfigFailed
 		}

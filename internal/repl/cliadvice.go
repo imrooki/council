@@ -37,7 +37,7 @@ func printUnconfiguredCLIs(r *REPL) error {
 		if _, ok := r.cfg.Providers[d.ID]; ok {
 			continue
 		}
-		if err := r.printf("本机装了 %s（%s），配置里还没有：要用它，把下面两行追加到 %s 末尾，再敲 /config reload --apply 与 /add --refresh\n", d.ID, d.Path, r.rulesCtx.ConfigPath); err != nil {
+		if err := r.printf("%s", r.t("tui.add.unconfiguredCLI", "本机装了 %s（%s），配置里还没有：要用它，把下面两行追加到 %s 末尾，再敲 /config reload --apply 与 /add --refresh\n", d.ID, d.Path, r.rulesCtx.ConfigPath)); err != nil {
 			return err
 		}
 		if err := r.write(config.ProviderBlockTOML(d.ID, d.Path)); err != nil {

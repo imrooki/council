@@ -327,7 +327,7 @@ func postUser(ctx context.Context, r *REPL, text string, auto bool, recipients [
 		Recipients: recipients,
 	})
 	if err != nil {
-		return false, r.reportErr("发言失败", err)
+		return false, r.reportErr(r.t("tui.err.speak", "发言失败"), err)
 	}
 	if !r.concise {
 		if err := r.printf("%s\n", r.t("tui.repl.recorded", "已记下 seq %d", posted.Seq)); err != nil {
@@ -338,7 +338,7 @@ func postUser(ctx context.Context, r *REPL, text string, auto bool, recipients [
 		// 收窄不可逆：一条消息在某个 agent 的流里被判为不路由，游标照样
 		// 往前推，它永远不会再送给它。这句必须在落库成功后当场说出来，
 		// 否则用户会以为只是「先给这几个人看」。
-		if err := r.printf("只有 %s 会看到这条；其余成员永远不会 —— 游标只前进\n", strings.Join(recipients, ", ")); err != nil {
+		if err := r.printf("%s", r.t("tui.to.narrowed", "只有 %s 会看到这条；其余成员永远不会 —— 游标只前进\n", strings.Join(recipients, ", "))); err != nil {
 			return true, err
 		}
 	}
@@ -366,13 +366,13 @@ func postUser(ctx context.Context, r *REPL, text string, auto bool, recipients [
 	for _, tok := range tokens {
 		if _, ok := known[tok]; ok {
 			if !r.concise && !auto {
-				if err := r.printf("点名了 %s（用 /ask %s 让他说话）\n", tok, tok); err != nil {
+				if err := r.printf("%s", r.t("tui.to.mentioned", "点名了 %s（用 /ask %s 让他说话）\n", tok, tok)); err != nil {
 					return true, err
 				}
 			}
 			continue
 		}
-		if err := r.printf("%s 不是当前会话的成员\n", tok); err != nil {
+		if err := r.printf("%s", r.t("tui.to.notMember", "%s 不是当前会话的成员\n", tok)); err != nil {
 			return true, err
 		}
 	}
@@ -408,12 +408,13 @@ func postUser(ctx context.Context, r *REPL, text string, auto bool, recipients [
 // 一个在场的才打第 2 道的提示。否则 /to ghost x 会被「没有在场成员」盖住，
 // 用户看不到 ghost 根本不存在。
 func cmdTo(ctx context.Context, r *REPL, args cmdArgs) error {
+	usage := func() error { return r.printf("%s", r.t("tui.to.usage", "用法: /to <id>[,<id>...] <文本>\n")) }
 	if len(args.fields) == 0 {
-		return r.printf("用法: /to <id>[,<id>...] <文本>\n")
+		return usage()
 	}
 	text := restOf(args.rest)
 	if text == "" {
-		return r.printf("用法: /to <id>[,<id>...] <文本>\n")
+		return usage()
 	}
 
 	rawIDs := strings.Split(args.fields[0], ",")
@@ -422,7 +423,7 @@ func cmdTo(ctx context.Context, r *REPL, args cmdArgs) error {
 	for _, raw := range rawIDs {
 		id := strings.ToLower(strings.TrimSpace(raw))
 		if id == "" {
-			return r.printf("用法: /to <id>[,<id>...] <文本>\n")
+			return usage()
 		}
 		if _, ok := seen[id]; ok {
 			continue
@@ -433,7 +434,7 @@ func cmdTo(ctx context.Context, r *REPL, args cmdArgs) error {
 
 	ps, err := r.svc.Participants(ctx, r.cur.ID, true)
 	if err != nil {
-		return r.reportErr("列出成员失败", err)
+		return r.reportErr(r.t("tui.err.listMembers", "列出成员失败"), err)
 	}
 	byID := make(map[string]conversation.Participant, len(ps))
 	for _, p := range ps {
@@ -452,7 +453,7 @@ func cmdTo(ctx context.Context, r *REPL, args cmdArgs) error {
 		}
 	}
 	if !missing && !anyActive {
-		return r.printf("这条消息不会有任何在场成员看到\n")
+		return r.printf("%s", r.t("tui.to.nobody", "这条消息不会有任何在场成员看到\n"))
 	}
 
 	return postUserText(ctx, r, text, ids...)
@@ -495,13 +496,7 @@ func restOf(text string) string {
 // 帮助不再是一份手写的命令清单，加命令时不可能漏改。
 func cmdHelp(_ context.Context, r *REPL, _ cmdArgs) error {
 	specs := r.cmds.List(command.ScopeTUI)
-	// 摘要按当前语言替换；fallback 是注册表里那份中文原文，所以语言为中文
-	// （或目录缺条）时输出与改造前逐字节相同。命令名、参数形状一个字不动：
-	// 帮助里的每一行都得能照抄着敲。
-	for i := range specs {
-		specs[i].Summary = r.t("tui.cmd."+specs[i].Name+".summary", specs[i].Summary)
-	}
-	return WriteCommandTable(r.out, specs)
+	return WriteCommandTableLang(r.out, specs, r.lang)
 }
 
 // cmdQuit 返回哨兵错误 errQuit，由 Run 翻译成正常退出。
@@ -577,7 +572,7 @@ func cmdTeams(ctx context.Context, r *REPL, _ cmdArgs) error {
 	if r.cur != nil {
 		c, err := r.svc.Conversation(ctx, r.cur.ID)
 		if err != nil {
-			return r.reportErr("读当前会话失败", err)
+			return r.reportErr(r.t("tui.err.readCurrentConv", "读当前会话失败"), err)
 		}
 		boundID = c.TeamID
 	}
@@ -659,12 +654,12 @@ func cmdTeamUse(ctx context.Context, r *REPL, teamID string) error {
 	}
 
 	if err := r.svc.BindTeam(ctx, r.cur.ID, teamID); err != nil {
-		return r.reportErr("绑定 team 失败", err)
+		return r.reportErr(r.t("tui.err.bindTeam", "绑定 team 失败"), err)
 	}
 
 	fresh, err := r.svc.Conversation(ctx, r.cur.ID)
 	if err != nil {
-		return r.reportErr("读会话失败", err)
+		return r.reportErr(r.t("tui.err.readConv", "读会话失败"), err)
 	}
 	r.cur = &fresh
 
@@ -674,7 +669,7 @@ func cmdTeamUse(ctx context.Context, r *REPL, teamID string) error {
 
 	ps, err := r.svc.Participants(ctx, r.cur.ID, true)
 	if err != nil {
-		return r.reportErr("列出成员失败", err)
+		return r.reportErr(r.t("tui.err.listMembers", "列出成员失败"), err)
 	}
 	existing := make(map[string]conversation.Participant, len(ps))
 	for _, p := range ps {
@@ -688,7 +683,7 @@ func cmdTeamUse(ctx context.Context, r *REPL, teamID string) error {
 				continue
 			}
 			if p.LeftAt != nil {
-				if err := r.printf("%s 已退出，未自动拉回，要加回用 /join\n", agentID); err != nil {
+				if err := r.printf("%s", r.t("tui.team.memberLeft", "%s 已退出，未自动拉回，要加回用 /join\n", agentID)); err != nil {
 					return err
 				}
 			}
@@ -699,7 +694,7 @@ func cmdTeamUse(ctx context.Context, r *REPL, teamID string) error {
 		// 又还不是成员时不 Join，打一行说明；多个成员回复之后由 runSummary 自己 Join。已是成员的
 		// （在场、已退出）走上面那一支，与它是不是总结成员无关。
 		if sumID := r.cfg.Summary.Agent; sumID != "" && agentID == sumID {
-			if err := r.printf("%s 是总结成员（config.toml 的 [summary]），不随 team 加入：多个成员回复之后它会自己加入做总结\n", agentID); err != nil {
+			if err := r.printf("%s", r.t("tui.team.summaryMember", "%s 是总结成员（config.toml 的 [summary]），不随 team 加入：多个成员回复之后它会自己加入做总结\n", agentID)); err != nil {
 				return err
 			}
 			continue
@@ -707,7 +702,7 @@ func cmdTeamUse(ctx context.Context, r *REPL, teamID string) error {
 
 		ac, ok := r.cfg.Agents[agentID]
 		if !ok {
-			return r.printf("配置里没有 agent %s，用 /agents 看看有哪些\n", agentID)
+			return r.printf("%s", r.t("tui.team.unknownAgent", "配置里没有 agent %s，用 /agents 看看有哪些\n", agentID))
 		}
 		part := conversation.Participant{
 			ConvID:      r.cur.ID,
@@ -718,9 +713,9 @@ func cmdTeamUse(ctx context.Context, r *REPL, teamID string) error {
 			JoinedAt:    time.Now().UTC(),
 		}
 		if err := r.svc.Join(ctx, r.cur.ID, part); err != nil {
-			return r.reportErr("加入失败", err)
+			return r.reportErr(r.t("tui.err.join", "加入失败"), err)
 		}
-		if err := r.printf("%s 已加入会话 %s\n", agentID, r.cur.ID); err != nil {
+		if err := r.printf("%s", r.t("tui.add.joined", "%s 已加入会话 %s\n", agentID, r.cur.ID)); err != nil {
 			return err
 		}
 	}
@@ -739,7 +734,7 @@ func cmdNew(ctx context.Context, r *REPL, args cmdArgs) error {
 
 	conv, err := r.svc.CreateIn(ctx, title, r.projectDir)
 	if err != nil {
-		return r.reportErr("建会话失败", err)
+		return r.reportErr(r.t("tui.err.createConv", "建会话失败"), err)
 	}
 	r.cur = &conv
 	return r.printf("%s\n", r.t("tui.new.created", "已建会话 %s，标题: %s", conv.ID, oneLine(conv.Title)))
@@ -751,7 +746,7 @@ func cmdNew(ctx context.Context, r *REPL, args cmdArgs) error {
 func cmdConv(ctx context.Context, r *REPL, _ cmdArgs) error {
 	convs, err := r.svc.Conversations(ctx)
 	if err != nil {
-		return r.reportErr("列出会话失败", err)
+		return r.reportErr(r.t("tui.err.listConvs", "列出会话失败"), err)
 	}
 	if len(convs) == 0 {
 		return r.printf("%s\n", r.t("tui.conv.none", "还没有任何会话，用 /new <标题> 建一个"))
@@ -784,7 +779,7 @@ func cmdUse(ctx context.Context, r *REPL, args cmdArgs) error {
 
 	convs, err := r.svc.Conversations(ctx)
 	if err != nil {
-		return r.reportErr("列出会话失败", err)
+		return r.reportErr(r.t("tui.err.listConvs", "列出会话失败"), err)
 	}
 
 	var matched []conversation.Conversation
@@ -857,7 +852,7 @@ func cmdAdd(ctx context.Context, r *REPL, args cmdArgs) error {
 	refresh := false
 	if len(args.fields) > 0 && args.fields[0] == "--refresh" {
 		if len(args.fields) != 1 {
-			return r.printf("%s\n", msgAddModelUsage)
+			return r.printf("%s", r.t("tui.add.usage", msgAddModelUsage))
 		}
 		refresh = true
 		r.modelSnap = nil
@@ -865,7 +860,7 @@ func cmdAdd(ctx context.Context, r *REPL, args cmdArgs) error {
 
 	participants, err := r.svc.Participants(ctx, r.cur.ID, true)
 	if err != nil {
-		return r.reportErr("列出成员失败", err)
+		return r.reportErr(r.t("tui.err.listMembers", "列出成员失败"), err)
 	}
 	active := make(map[string]bool, len(participants))
 	member := make(map[string]bool, len(participants))
@@ -910,7 +905,7 @@ func cmdAdd(ctx context.Context, r *REPL, args cmdArgs) error {
 		}
 	}
 	if len(segs) == 0 {
-		return r.printf("用法: /add 列出可加入的；/add <全名|编号|前缀>[,...] 一次加多个\n")
+		return r.printf("%s", r.t("tui.add.usageList", "用法: /add 列出可加入的；/add <全名|编号|前缀>[,...] 一次加多个\n"))
 	}
 
 	// 全或无：先把所有段解析完，任何一段失败就一个都不加，并把每一段的错误
@@ -959,9 +954,9 @@ func cmdAdd(ctx context.Context, r *REPL, args cmdArgs) error {
 			JoinedAt:    time.Now().UTC(),
 		}
 		if err := r.svc.Join(ctx, r.cur.ID, p); err != nil {
-			return r.reportErr("加入失败", err)
+			return r.reportErr(r.t("tui.err.join", "加入失败"), err)
 		}
-		if err := r.printf("%s 已加入会话 %s\n", id, r.cur.ID); err != nil {
+		if err := r.printf("%s", r.t("tui.add.joined", "%s 已加入会话 %s\n", id, r.cur.ID)); err != nil {
 			return err
 		}
 	}
@@ -988,13 +983,13 @@ func printAddCandidates(r *REPL, candidates []string, active, member map[string]
 		}
 		switch {
 		case sumID != "" && member[sumID] && !active[sumID]:
-			return r.printf("总结成员 %s 已退出当前会话，要恢复总结用 /join %s；除它之外配置里没有可以 /add 的成员\n", sumID, sumID)
+			return r.printf("%s", r.t("tui.add.summaryLeft", "总结成员 %s 已退出当前会话，要恢复总结用 /join %s；除它之外配置里没有可以 /add 的成员\n", sumID, sumID))
 		case others == 0:
-			return r.printf("配置里还没有可以 /add 的成员\n")
+			return r.printf("%s", r.t("tui.add.noAgents", "配置里还没有可以 /add 的成员\n"))
 		case sumID != "" && !active[sumID]:
-			return r.printf("除总结成员 %s 外，配置里的 agent 都已经在当前会话里了；总结成员不用 /add：多个成员回复之后它会自己加入做总结\n", sumID)
+			return r.printf("%s", r.t("tui.add.onlySummaryLeft", "除总结成员 %s 外，配置里的 agent 都已经在当前会话里了；总结成员不用 /add：多个成员回复之后它会自己加入做总结\n", sumID))
 		default:
-			return r.printf("配置里的 agent 都已经在当前会话里了\n")
+			return r.printf("%s", r.t("tui.add.allPresent", "配置里的 agent 都已经在当前会话里了\n"))
 		}
 	}
 	tw := r.newTabWriter()
@@ -1011,7 +1006,7 @@ func printAddCandidates(r *REPL, candidates []string, active, member map[string]
 	if err := tw.Flush(); err != nil {
 		return err
 	}
-	return r.printf("用 /add <编号|全名|前缀> 加入，多个用空格或逗号隔开，例如 /add 1,2\n")
+	return r.printf("%s", r.t("tui.add.candidatesHint", "用 /add <编号|全名|前缀> 加入，多个用空格或逗号隔开，例如 /add 1,2\n"))
 }
 
 // ideographicSpace 是全角空格的码位，写成数字常量的理由同 fullwidthComma。中文输入法
@@ -1055,9 +1050,9 @@ func resolveAddConfig(r *REPL, seg string, candidates []string, active, member m
 	// 正在场的（OB1 v1.2）说它已经在了：它已经加入，再说「它会自己加入」不准。
 	if sumID := r.cfg.Summary.Agent; sumID != "" && seg == sumID && !(member[seg] && !active[seg]) {
 		if active[seg] {
-			return "", fmt.Sprintf("%s 是总结成员（config.toml 的 [summary]），已经在当前会话里了\n", seg)
+			return "", r.t("tui.add.summaryActive", "%s 是总结成员（config.toml 的 [summary]），已经在当前会话里了\n", seg)
 		}
-		return "", fmt.Sprintf("%s 是总结成员（config.toml 的 [summary]），不用 /add：多个成员回复之后它会自己加入做总结\n", seg)
+		return "", r.t("tui.add.summaryNoAdd", "%s 是总结成员（config.toml 的 [summary]），不用 /add：多个成员回复之后它会自己加入做总结\n", seg)
 	}
 	// 1. 全名精确命中排在最前，而且集合要含成员 id（含已退出的）。全名是用户
 	// 最明确的意图；W1 与 W1b 各抓到一次「全名被另一个以它为前缀的候选偷走」：
@@ -1074,7 +1069,7 @@ func resolveAddConfig(r *REPL, seg string, candidates []string, active, member m
 	// 只是成员、不在配置里：没有 display_name / provider 可抄，不能 Join。
 	// 这一段直接失败，绝不落进下面的前缀解析。
 	if member[seg] {
-		return "", fmt.Sprintf("配置里没有 agent %s，用 /agents 看看有哪些\n", seg)
+		return "", r.t("tui.add.memberNotConfigured", "配置里没有 agent %s，用 /agents 看看有哪些\n", seg)
 	}
 
 	// 2. 全是 ASCII 数字就当编号。正则允许全数字的 agent id（例如就叫 7），
@@ -1084,9 +1079,9 @@ func resolveAddConfig(r *REPL, seg string, candidates []string, active, member m
 		n, err := strconv.Atoi(seg)
 		if err != nil || n < 1 || n > len(candidates) {
 			if len(candidates) == 0 {
-				return "", fmt.Sprintf("编号 %s 超出范围（没有可加入的）\n", seg)
+				return "", r.t("tui.add.indexNoCandidates", "编号 %s 超出范围（没有可加入的）\n", seg)
 			}
-			return "", fmt.Sprintf("编号 %s 超出范围（1-%d）\n", seg, len(candidates))
+			return "", r.t("tui.add.indexOutOfRange", "编号 %s 超出范围（1-%d）\n", seg, len(candidates))
 		}
 		return candidates[n-1], ""
 	}
@@ -1100,7 +1095,7 @@ func resolveAddConfig(r *REPL, seg string, candidates []string, active, member m
 	}
 	var refErr *agentRefError
 	if errors.As(err, &refErr) && len(refErr.Matches) >= 2 {
-		return "", fmt.Sprintf("%s 有歧义，可能是：%s\n", seg, strings.Join(refErr.Matches, ", "))
+		return "", r.t("tui.add.ambiguous", "%s 有歧义，可能是：%s\n", seg, strings.Join(refErr.Matches, ", "))
 	}
 	return "", ""
 }
@@ -1120,19 +1115,19 @@ func resolveAddConfig(r *REPL, seg string, candidates []string, active, member m
 func addSegmentNotFound(r *REPL, seg string, active, member map[string]bool) string {
 	if sumID := r.cfg.Summary.Agent; sumID != "" && !active[sumID] && strings.HasPrefix(sumID, seg) {
 		if member[sumID] {
-			return fmt.Sprintf("%s 开头的除总结成员 %s 外没有可加入的；%s 已退出当前会话，要恢复总结用 /join %s\n", seg, sumID, sumID, sumID)
+			return r.t("tui.add.prefixSummaryLeft", "%s 开头的除总结成员 %s 外没有可加入的；%s 已退出当前会话，要恢复总结用 /join %s\n", seg, sumID, sumID, sumID)
 		}
-		return fmt.Sprintf("%s 开头的除总结成员 %s 外没有可加入的；总结成员不用 /add：多个成员回复之后它会自己加入做总结\n", seg, sumID)
+		return r.t("tui.add.prefixSummaryOnly", "%s 开头的除总结成员 %s 外没有可加入的；总结成员不用 /add：多个成员回复之后它会自己加入做总结\n", seg, sumID)
 	}
 	for aid := range active {
 		if strings.HasPrefix(aid, seg) {
-			return fmt.Sprintf("%s 开头的都已经在当前会话里了\n", seg)
+			return r.t("tui.add.prefixAllPresent", "%s 开头的都已经在当前会话里了\n", seg)
 		}
 	}
 	if r.addByName {
-		return fmt.Sprintf(msgAddNameNotFound, seg)
+		return r.t("tui.addName.notFound", msgAddNameNotFound, seg)
 	}
-	return fmt.Sprintf("配置里没有可加入的 %s，不带参数的 /add 能列出可加的\n", seg)
+	return r.t("tui.add.notFound", "配置里没有可加入的 %s，不带参数的 /add 能列出可加的\n", seg)
 }
 
 // isASCIIDigits 报告 s 非空且每个字节都是 ASCII 数字。不用 unicode.IsDigit：
@@ -1161,7 +1156,7 @@ func cmdLeave(ctx context.Context, r *REPL, args cmdArgs) error {
 	agentID := args.fields[0]
 
 	if err := r.svc.Leave(ctx, r.cur.ID, agentID, time.Now().UTC()); err != nil {
-		return r.reportErr("退出失败", err)
+		return r.reportErr(r.t("tui.err.leave", "退出失败"), err)
 	}
 	return r.printf("%s\n", r.t("tui.leave.left", "%s 已退出会话 %s", agentID, r.cur.ID))
 }
@@ -1181,10 +1176,10 @@ func cmdLeave(ctx context.Context, r *REPL, args cmdArgs) error {
 func cmdWho(ctx context.Context, r *REPL, _ cmdArgs) error {
 	ps, err := r.svc.Participants(ctx, r.cur.ID, true)
 	if err != nil {
-		return r.reportErr("列出成员失败", err)
+		return r.reportErr(r.t("tui.err.listMembers", "列出成员失败"), err)
 	}
 	if len(ps) == 0 {
-		return r.printf("会话 %s 还没有成员，用 /join <agent-id> 加一个\n", r.cur.ID)
+		return r.printf("%s", r.t("tui.who.none", "会话 %s 还没有成员，用 /join <agent-id> 加一个\n", r.cur.ID))
 	}
 
 	// 返回顺序不在契约里，这里按 agent id 排一遍，输出才稳定。
@@ -1269,18 +1264,18 @@ func cmdLog(ctx context.Context, r *REPL, args cmdArgs) error {
 	case 1:
 		n, err := strconv.Atoi(args.fields[0])
 		if err != nil || n <= 0 {
-			return r.printf("条数要是正整数，用法: /log [n]\n")
+			return r.printf("%s", r.t("tui.log.badCount", "条数要是正整数，用法: /log [n]\n"))
 		}
 		limit = n
 	default:
-		return r.printf("用法: /log [n]\n")
+		return r.printf("%s", r.t("tui.log.usage", "用法: /log [n]\n"))
 	}
 
 	// 「最近 n 条」= 先问最大 seq，再从 max-n 之后读 n 条。
 	// 读法本身是游标读（04 节 1），只是这里的游标是临时算出来的，不落库。
 	maxSeq, err := r.svc.MaxSeq(ctx, r.cur.ID)
 	if err != nil {
-		return r.reportErr("读会话进度失败", err)
+		return r.reportErr(r.t("tui.err.readProgress", "读会话进度失败"), err)
 	}
 	after := maxSeq - int64(limit)
 	if after < 0 {
@@ -1289,10 +1284,10 @@ func cmdLog(ctx context.Context, r *REPL, args cmdArgs) error {
 
 	msgs, err := r.svc.History(ctx, r.cur.ID, after, limit)
 	if err != nil {
-		return r.reportErr("读消息失败", err)
+		return r.reportErr(r.t("tui.err.readMessages", "读消息失败"), err)
 	}
 	if len(msgs) == 0 {
-		return r.printf("会话 %s 还没有消息，用 /say <文本> 说点什么\n", r.cur.ID)
+		return r.printf("%s", r.t("tui.log.none", "会话 %s 还没有消息，用 /say <文本> 说点什么\n", r.cur.ID))
 	}
 
 	tw := r.newTabWriter()

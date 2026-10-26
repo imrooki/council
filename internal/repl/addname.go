@@ -149,17 +149,17 @@ func cmdAddByName(ctx context.Context, r *REPL, fields, segs []string, candidate
 	if flagged {
 		name, a, ok := parseAddNameArgs(fields)
 		if !ok {
-			return true, r.printf("%s", msgAddNameUsage)
+			return true, r.printf("%s", r.t("tui.addName.usage", msgAddNameUsage))
 		}
 		if strings.HasPrefix(name, "+") && isASCIIDigits(name[1:]) {
-			return true, r.printf("%s\n", msgAddModelUsage)
+			return true, r.printf("%s", r.t("tui.add.usage", msgAddModelUsage))
 		}
 		prefixID := ""
 		if id, problem := resolveAddConfig(r, name, candidates, active, member); problem != "" {
 			return true, r.printf("%s", problem)
 		} else if id != "" {
 			if !configPrefixOnly(name, id) {
-				return true, r.printf(msgAddNameFlagsConfig, name, id, id)
+				return true, r.printf("%s", r.t("tui.addName.flagsConfig", msgAddNameFlagsConfig, name, id, id))
 			}
 			prefixID = id
 		}
@@ -167,7 +167,7 @@ func cmdAddByName(ctx context.Context, r *REPL, fields, segs []string, candidate
 			return true, err
 		}
 		if prefixID != "" && len(matchDiscoveredName(r.modelSnap, name)) == 0 {
-			return true, r.printf(msgAddNameFlagsConfig, name, prefixID, prefixID)
+			return true, r.printf("%s", r.t("tui.addName.flagsConfig", msgAddNameFlagsConfig, name, prefixID, prefixID))
 		}
 		return true, addByOneName(ctx, r, name, "", a, active, member)
 	}
@@ -194,7 +194,7 @@ func cmdAddByName(ctx context.Context, r *REPL, fields, segs []string, candidate
 		typo := miss(0) && anyRowHasEfforts(ms) && len(matchDiscoveredName(r.modelSnap, segs[1])) == 0
 		// 第二段以 + 开头，或是在场成员、总结成员的前缀时，它指的是 +编号 或配置里的人，
 		// 不当敲错的强度，照多段说（W1b minor 1）。
-		typo = typo && !strings.HasPrefix(segs[1], "+") && addSegmentNotFound(r, segs[1], active, member) == fmt.Sprintf(msgAddNameNotFound, segs[1])
+		typo = typo && !strings.HasPrefix(segs[1], "+") && addSegmentNotFound(r, segs[1], active, member) == r.t("tui.addName.notFound", msgAddNameNotFound, segs[1])
 		if effortOfAny(ms, segs[1]) || typo {
 			return true, addByOneName(ctx, r, segs[0], segs[1], addNameArgs{}, active, member)
 		}
@@ -206,7 +206,7 @@ func cmdAddByName(ctx context.Context, r *REPL, fields, segs []string, candidate
 		problem := problems[i]
 		if miss(i) {
 			if len(matchDiscoveredName(r.modelSnap, seg)) > 0 {
-				problem = fmt.Sprintf(msgAddNameOneAtATime, seg, seg)
+				problem = r.t("tui.addName.oneAtATime", msgAddNameOneAtATime, seg, seg)
 			} else {
 				problem = addSegmentNotFound(r, seg, active, member)
 			}
@@ -319,7 +319,7 @@ func addByOneName(ctx context.Context, r *REPL, name, second string, a addNameAr
 	case len(ms) == 0:
 		return r.printf("%s", addSegmentNotFound(r, name, active, member))
 	case len(ms) > 1:
-		if err := r.printf(msgAddNameAmbiguous, name, len(ms)); err != nil {
+		if err := r.printf("%s", r.t("tui.addName.ambiguous", msgAddNameAmbiguous, name, len(ms))); err != nil {
 			return err
 		}
 		for _, mt := range ms {
@@ -342,17 +342,17 @@ func addByOneName(ctx context.Context, r *REPL, name, second string, a addNameAr
 	effort, haveEffort := a.effort, a.haveEffort
 	if mt.byID && mt.effort != "" {
 		if second != "" {
-			return r.printf(msgAddNameEffortTwice, name, mt.effort, second)
+			return r.printf("%s", r.t("tui.addName.effortTwice", msgAddNameEffortTwice, name, mt.effort, second))
 		}
 		if haveEffort && effort != mt.effort {
-			return r.printf(msgAddNameEffortTwice, name, mt.effort, effort)
+			return r.printf("%s", r.t("tui.addName.effortTwice", msgAddNameEffortTwice, name, mt.effort, effort))
 		}
 		effort, haveEffort = mt.effort, true
 	} else if second != "" {
 		effort, haveEffort = second, true
 	}
 	if r.rn == nil {
-		return r.printf("%s\n", msgNoRunner)
+		return r.printf("%s\n", r.t("tui.repl.noRunner", msgNoRunner))
 	}
 	return addDiscoveredModel(ctx, r, mt.row.m, effort, haveEffort, a.newID, a.haveID, name)
 }

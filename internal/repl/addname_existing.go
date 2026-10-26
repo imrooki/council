@@ -47,15 +47,15 @@ func addNameExisting(ctx context.Context, r *REPL, name string, m provider.Disco
 	case len(s) == 0:
 		return false, nil
 	case len(present) > 0 && len(m.Efforts) > 0:
-		return true, r.printf(msgAddNamePresentEffort, name, strings.Join(present, ", "), name)
+		return true, r.printf("%s", r.t("tui.addName.presentEffort", msgAddNamePresentEffort, name, strings.Join(present, ", "), name))
 	case len(present) > 0:
-		return true, r.printf(msgAddNamePresent, name, strings.Join(present, ", "))
+		return true, r.printf("%s", r.t("tui.addName.present", msgAddNamePresent, name, strings.Join(present, ", ")))
 	case len(s) == 1:
 		return true, joinConfiguredAgent(ctx, r, s[0])
 	case len(m.Efforts) > 0:
-		return true, r.printf(msgAddNameConfiguredEffort, name, strings.Join(s, ", "), name)
+		return true, r.printf("%s", r.t("tui.addName.configuredEffort", msgAddNameConfiguredEffort, name, strings.Join(s, ", "), name))
 	}
-	return true, r.printf(msgAddNameConfigured, name, strings.Join(s, ", "))
+	return true, r.printf("%s", r.t("tui.addName.configured", msgAddNameConfigured, name, strings.Join(s, ", ")))
 }
 
 // sameModelAgents 按 configuredAgentFor 的判据（provider 相同，model 等于 Model 或非空的
@@ -86,7 +86,7 @@ func joinConfiguredAgent(ctx context.Context, r *REPL, id string) error {
 		JoinedAt:    time.Now().UTC(),
 	}
 	if err := r.svc.Join(ctx, r.cur.ID, p); err != nil {
-		return r.reportErr("加入失败", err)
+		return r.reportErr(r.t("tui.err.join", "加入失败"), err)
 	}
-	return r.printf("%s 已加入会话 %s\n", id, r.cur.ID)
+	return r.printf("%s", r.t("tui.add.joined", "%s 已加入会话 %s\n", id, r.cur.ID))
 }

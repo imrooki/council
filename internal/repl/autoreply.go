@@ -58,15 +58,15 @@ func cmdAuto(_ context.Context, r *REPL, args cmdArgs) error {
 	case len(args.fields) == 1 && args.fields[0] == "off":
 		r.autoReply = false
 	default:
-		return r.printf("%s\n", msgAutoUsage)
+		return r.printf("%s\n", r.t("tui.auto.usage", msgAutoUsage))
 	}
 	if r.autoReply {
 		if r.cfg.Summary.Agent == "" {
-			return r.printf("%s\n", msgAutoOnNoSummary)
+			return r.printf("%s\n", r.t("tui.auto.onNoSummary", msgAutoOnNoSummary))
 		}
-		return r.printf("%s\n", msgAutoOn)
+		return r.printf("%s\n", r.t("tui.auto.on", msgAutoOn))
 	}
-	return r.printf("%s\n", msgAutoOff)
+	return r.printf("%s\n", r.t("tui.auto.off", msgAutoOff))
 }
 
 // autoReplyRound 在一条裸文本落库之后定名单，再经 roundCmd 问一轮。
@@ -121,7 +121,7 @@ func autoReplyRound(ctx context.Context, r *REPL, text string) error {
 	stray := hasStrayAt(text, known, names)
 	if mentions := ParseMentions(text); len(mentions) > 0 {
 		if stray {
-			if err := r.printf("%s\n", msgAutoStrayAtPartly); err != nil {
+			if err := r.printf("%s\n", r.t("tui.auto.strayAtPartly", msgAutoStrayAtPartly)); err != nil {
 				return err
 			}
 		}
@@ -132,13 +132,13 @@ func autoReplyRound(ctx context.Context, r *REPL, text string) error {
 			}
 		}
 		if len(ids) == 0 {
-			return r.printf("%s\n", msgAutoNoneMentioned)
+			return r.printf("%s\n", r.t("tui.auto.noneMentioned", msgAutoNoneMentioned))
 		}
 	} else if stray {
-		return r.printf("%s\n", msgAutoStrayAt)
+		return r.printf("%s\n", r.t("tui.auto.strayAt", msgAutoStrayAt))
 	}
 	if len(ids) == 0 {
-		return r.printf("%s\n", msgAutoNoMembers)
+		return r.printf("%s\n", r.t("tui.auto.noMembers", msgAutoNoMembers))
 	}
 	fields := append(append([]string(nil), ids...), "--go")
 	return r.runCommand(ctx, roundCmd, cmdArgs{fields: fields, rest: strings.Join(fields, " ")})

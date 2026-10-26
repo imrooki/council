@@ -652,7 +652,7 @@ func (m Model) chrome() []string {
 	}
 	ruleWidth := min(width, 120)
 
-	header := fmt.Sprintf("council %s   %s", m.version, headerStatus(m.busy, m.status, m.run, m.elapsed))
+	header := fmt.Sprintf("council %s   %s", m.version, headerStatus(m.lang, m.busy, m.status, m.run, m.elapsed))
 	rule := strings.Repeat("─", ruleWidth)
 	lines := []string{header, rule}
 	if m.floor == 0 {
@@ -671,7 +671,7 @@ func (m Model) chrome() []string {
 			if row.done {
 				board[i] = memberDoneLine(row.ev, idW)
 			} else {
-				board[i] = memberRunningLine(row.id, idW, used)
+				board[i] = memberRunningLine(m.lang, row.id, idW, used)
 			}
 		}
 	}

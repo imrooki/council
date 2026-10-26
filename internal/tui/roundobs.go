@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"council/internal/i18n"
 	"council/internal/repl"
 	"council/internal/turn"
 )
@@ -62,7 +63,7 @@ func endBlockLines(ev repl.RoundEndEvent) []string {
 		}
 	}
 	lines := make([]string, 0, 1+len(ev.Results))
-	lines = append(lines, segmentCell(roundRun{
+	lines = append(lines, segmentCell(ev.Lang, roundRun{
 		has:     true,
 		label:   ev.Label,
 		k:       ev.K,
@@ -91,7 +92,7 @@ func memberIDWidth(results []repl.MemberDoneEvent) int {
 
 // memberDoneLine 是终态行：状态词、id、时间格，标记非空时再接标记串。
 func memberDoneLine(ev repl.MemberDoneEvent, idW int) string {
-	line := "  " + padCells(outcomeWord(ev.Outcome), 6) + "  " + padCells(ev.AgentID, idW) + "  " + outcomeTime(ev)
+	line := "  " + padCells(outcomeWord(ev.Lang, ev.Outcome), 6) + "  " + padCells(ev.AgentID, idW) + "  " + outcomeTime(ev)
 	if marks := outcomeMarks(ev); marks != "" {
 		line += "  " + marks
 	}
@@ -99,13 +100,13 @@ func memberDoneLine(ev repl.MemberDoneEvent, idW int) string {
 }
 
 // memberRunningLine 是在跑行。已用时间由调用方按本段起点算好。
-func memberRunningLine(id string, idW int, used time.Duration) string {
-	return "  " + padCells("在跑", 6) + "  " + padCells(id, idW) + "  " + formatElapsed(used)
+func memberRunningLine(lang i18n.Lang, id string, idW int, used time.Duration) string {
+	return "  " + padCells(i18n.TF(lang, "tui.round.running", "在跑"), 6) + "  " + padCells(id, idW) + "  " + formatElapsed(used)
 }
 
-// outcomeWord 委托 repl.OutcomeWord；格式只有一份，简洁档成员头与此共用。
-func outcomeWord(o turn.Outcome) string {
-	return repl.OutcomeWord(o)
+// outcomeWord 委托 repl.OutcomeWordLang；格式只有一份，简洁档成员头与此共用。
+func outcomeWord(lang i18n.Lang, o turn.Outcome) string {
+	return repl.OutcomeWordLang(lang, o)
 }
 
 // outcomeTime 印时间格。没起来是问号；拒绝、丢失、未知是横线；其余是子进程时长。
@@ -116,28 +117,28 @@ func outcomeTime(ev repl.MemberDoneEvent) string {
 	case turn.OutcomeRefused, turn.OutcomeLost:
 		return "-"
 	case turn.OutcomeSpoke, turn.OutcomePostRejected, turn.OutcomeProviderFailed, turn.OutcomeUnparsable, turn.OutcomeTimeout, turn.OutcomeCanceled:
-		return wallText(ev.WallMS)
+		return wallText(ev.Lang, ev.WallMS)
 	default:
 		return "-"
 	}
 }
 
 // wallText 委托 repl.FormatWall；格式只有一份，简洁档成员头与此共用。
-func wallText(ms int) string {
-	return repl.FormatWall(ms) + " 子进程"
+func wallText(lang i18n.Lang, ms int) string {
+	return repl.FormatWall(ms) + i18n.TF(lang, "tui.round.childProcess", " 子进程")
 }
 
 // outcomeMarks 按「可能已吃下、正文见上方、前缀已断」的顺序拼标记。
 func outcomeMarks(ev repl.MemberDoneEvent) string {
 	var marks []string
 	if ev.MaybeAdvanced {
-		marks = append(marks, "可能已吃下")
+		marks = append(marks, i18n.TF(ev.Lang, "tui.round.maybeAdvanced", "可能已吃下"))
 	}
 	if ev.Dropped {
-		marks = append(marks, "正文见上方")
+		marks = append(marks, i18n.TF(ev.Lang, "tui.round.droppedText", "正文见上方"))
 	}
 	if ev.Drifted {
-		marks = append(marks, "(前缀已断)")
+		marks = append(marks, i18n.TF(ev.Lang, "tui.round.prefixBroken", "(前缀已断)"))
 	}
 	return strings.Join(marks, "  ")
 }
@@ -168,19 +169,19 @@ type roundRun struct {
 }
 
 // headerStatus 按契约 §3.1 拼状态格。不忙时只有 status；忙时在有段处接段，再接已用时间。
-func headerStatus(busy bool, status string, run roundRun, elapsed time.Duration) string {
+func headerStatus(lang i18n.Lang, busy bool, status string, run roundRun, elapsed time.Duration) string {
 	if !busy {
 		return status
 	}
 	cell := status
 	if run.has {
-		cell += "  " + segmentCell(run)
+		cell += "  " + segmentCell(lang, run)
 	}
 	return cell + "  " + formatElapsed(elapsed)
 }
 
 // segmentCell 拼段：label、仅 n > 1 时的 k/n、仅 roundID 非空时的末 6 位、回来计数。
-func segmentCell(run roundRun) string {
+func segmentCell(lang i18n.Lang, run roundRun) string {
 	seg := run.label
 	if run.n > 1 {
 		seg += fmt.Sprintf(" %d/%d", run.k, run.n)
@@ -188,7 +189,7 @@ func segmentCell(run roundRun) string {
 	if run.roundID != "" {
 		seg += " (" + last6(run.roundID) + ")"
 	}
-	seg += fmt.Sprintf("  回来 %d/%d", run.back, run.members)
+	seg += i18n.TF(lang, "tui.round.backCount", "  回来 %d/%d", run.back, run.members)
 	return seg
 }
 

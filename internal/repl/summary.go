@@ -75,12 +75,12 @@ func runSummary(ctx context.Context, r *REPL, asked []turn.Record, sumID string)
 	}
 	if sumID == "" {
 		if r.concise {
-			return r.printf("%s\n", msgSummaryNotConfigured)
+			return r.printf("%s\n", r.t("tui.summary.notConfigured", msgSummaryNotConfigured))
 		}
 		return nil
 	}
 	if !replied {
-		return r.printf("%s\n", msgSummaryNoReply)
+		return r.printf("%s\n", r.t("tui.summary.noReply", msgSummaryNoReply))
 	}
 	parts, err := r.svc.Participants(ctx, r.cur.ID, true)
 	if err != nil {
@@ -92,7 +92,7 @@ func runSummary(ctx context.Context, r *REPL, asked []turn.Record, sumID string)
 			continue
 		}
 		if !p.Active {
-			return r.printf("总的来看：没有总结（%s 已退出当前会话；要恢复总结用 /join %s）\n", sumID, sumID)
+			return r.printf("%s\n", r.t("tui.summary.agentLeft", "总的来看：没有总结（%s 已退出当前会话；要恢复总结用 /join %s）", sumID, sumID))
 		}
 		joined = true
 	}
@@ -116,11 +116,13 @@ func runSummary(ctx context.Context, r *REPL, asked []turn.Record, sumID string)
 	var missing []string
 	for _, id := range order {
 		if rec := last[id]; rec.Message == nil {
-			missing = append(missing, r.displayName(id)+"（"+OutcomeWord(rec.Outcome)+"）")
+			missing = append(missing, r.displayName(id)+"（"+OutcomeWordLang(r.lang, rec.Outcome)+"）")
 		}
 	}
 	if len(missing) > 0 {
-		if err := r.write("这些成员最后一次没有回复，总结看不到他们这一次的话：" + strings.Join(missing, "、") + "\n"); err != nil {
+		head := r.t("tui.summary.missingHead", "这些成员最后一次没有回复，总结看不到他们这一次的话：")
+		sep := r.t("tui.list.sep", "、")
+		if err := r.write(head + strings.Join(missing, sep) + "\n"); err != nil {
 			return err
 		}
 	}
@@ -129,6 +131,6 @@ func runSummary(ctx context.Context, r *REPL, asked []turn.Record, sumID string)
 		Judges:   []string{},
 		Skipped:  []turn.SkipReason{},
 	}
-	_, err = runOneRound(ctx, r, plan, true, summaryLabel, 0, 0, snap, writeSummaryRecord, nil)
+	_, err = runOneRound(ctx, r, plan, true, r.t("tui.round.labelSummary", summaryLabel), 0, 0, snap, writeSummaryRecord, nil)
 	return err
 }

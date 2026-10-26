@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"council/internal/i18n"
 )
 
 // append.go 给 /add +编号 用（00_DECISIONS.md #45）：把一段 [agents."<id>"]
@@ -34,23 +36,29 @@ var windowsDeviceNames = map[string]bool{
 //  4. 已存在：配置里已经有这个 id。
 //  5. 折叠后撞名：#36(g)，见 foldAgentID。只比新 id 与配置里已有的 id。
 func NewAgentIDProblem(c *Config, id string) string {
-	const hint = "；用 --id <新 id> 换一个"
+	return NewAgentIDProblemLang(i18n.LangZh, c, id)
+}
+
+// NewAgentIDProblemLang 是 NewAgentIDProblem 带语言的那一半。调用方按界面
+// 语言取；中文目录与 fallback 逐字节相同，所以旧调用方的输出不变。
+func NewAgentIDProblemLang(lang i18n.Lang, c *Config, id string) string {
+	hint := i18n.TF(lang, "cli.add.id.hint", "；用 --id <新 id> 换一个")
 	if !idRegexp.MatchString(id) {
-		return fmt.Sprintf("id %s 不合法（要匹配 %s）", id, idPattern) + hint
+		return i18n.TF(lang, "cli.add.id.invalid", "id %s 不合法（要匹配 %s）", id, idPattern) + hint
 	}
 	if reservedAgentIDs[id] {
-		return fmt.Sprintf("id %s 是保留名", id) + hint
+		return i18n.TF(lang, "cli.add.id.reserved", "id %s 是保留名", id) + hint
 	}
 	if windowsDeviceNames[strings.SplitN(id, ".", 2)[0]] {
-		return fmt.Sprintf("id %s 是 Windows 保留设备名，不能当工作目录名", id) + hint
+		return i18n.TF(lang, "cli.add.id.windowsDevice", "id %s 是 Windows 保留设备名，不能当工作目录名", id) + hint
 	}
 	if _, ok := c.Agents[id]; ok {
-		return fmt.Sprintf("配置里已经有 agent %s", id) + hint
+		return i18n.TF(lang, "cli.add.id.exists", "配置里已经有 agent %s", id) + hint
 	}
 	fold := foldAgentID(id)
 	for _, other := range sortedIDs(c.Agents) {
 		if foldAgentID(other) == fold {
-			return fmt.Sprintf("id %s 与已有的 agent %s 只差点号、下划线或连字符，claude 会把两者的工作目录落进同一个项目目录", id, other) + hint
+			return i18n.TF(lang, "cli.add.id.folds", "id %s 与已有的 agent %s 只差点号、下划线或连字符，claude 会把两者的工作目录落进同一个项目目录", id, other) + hint
 		}
 	}
 	return ""
@@ -139,17 +147,23 @@ const maxBackupAttempts = 99
 // 已经在了，返回它的路径；原文件没有被替换，不需要恢复。orig 给调用方在写后校验
 // 失败时 RestoreFile 用。
 func AppendBlock(path, block string) (backupPath string, orig []byte, err error) {
+	return AppendBlockLang(i18n.LangZh, path, block)
+}
+
+// AppendBlockLang 是 AppendBlock 带语言的那一半：三个阶段的错误前缀
+// （读原文件 / 备份 / 写入）跟着界面语言走，中文值与 AppendBlock 逐字节相同。
+func AppendBlockLang(lang i18n.Lang, path, block string) (backupPath string, orig []byte, err error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", nil, fmt.Errorf("读原文件: %w", err)
+		return "", nil, fmt.Errorf("%s%w", i18n.TF(lang, "cli.add.readOriginalPrefix", "读原文件: "), err)
 	}
 	orig, err = os.ReadFile(path)
 	if err != nil {
-		return "", nil, fmt.Errorf("读原文件: %w", err)
+		return "", nil, fmt.Errorf("%s%w", i18n.TF(lang, "cli.add.readOriginalPrefix", "读原文件: "), err)
 	}
 	backupPath, err = writeBackup(path, orig, time.Now())
 	if err != nil {
-		return "", nil, fmt.Errorf("备份: %w", err)
+		return "", nil, fmt.Errorf("%s%w", i18n.TF(lang, "cli.add.backupPrefix", "备份: "), err)
 	}
 	sep := ""
 	if len(orig) > 0 {
@@ -164,7 +178,7 @@ func AppendBlock(path, block string) (backupPath string, orig []byte, err error)
 	content = append(content, sep...)
 	content = append(content, block...)
 	if err := writeFileAtomic(path, content, info.Mode().Perm()); err != nil {
-		return backupPath, orig, fmt.Errorf("写入: %w", err)
+		return backupPath, orig, fmt.Errorf("%s%w", i18n.TF(lang, "cli.add.writePrefix", "写入: "), err)
 	}
 	return backupPath, orig, nil
 }

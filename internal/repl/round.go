@@ -8,6 +8,7 @@ import (
 
 	"council/internal/config"
 	"council/internal/conversation"
+	"council/internal/i18n"
 	"council/internal/turn"
 )
 
@@ -87,7 +88,7 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 		if err != nil || !spawned || !r.concise || r.roundObs != nil {
 			return
 		}
-		err = r.printf("总用时 %s\n", FormatWall(int(r.clock().Sub(start)/time.Millisecond)))
+		err = r.printf("%s", r.t("tui.round.totalElapsed", "总用时 %s\n", FormatWall(int(r.clock().Sub(start)/time.Millisecond))))
 	}()
 	goRun := false
 	withJudge := false
@@ -111,11 +112,11 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 			// 值必须是下一个 fields 元素。写成 --rounds=3 或把 --rounds
 			// 放在行尾，都当解析失败拒绝：默认 1 会把没写清的次数跑出去。
 			if roundsSet || i+1 >= len(args.fields) {
-				return r.printf("拒绝: --rounds 需要一个不小于 1 的整数。\n")
+				return r.printf("%s", r.t("tui.round.needRounds", "拒绝: --rounds 需要一个不小于 1 的整数。\n"))
 			}
 			n, err := fmt.Sscanf(args.fields[i+1], "%d", &rounds)
 			if err != nil || n != 1 || fmt.Sprintf("%d", rounds) != args.fields[i+1] {
-				return r.printf("拒绝: --rounds 需要一个不小于 1 的整数。\n")
+				return r.printf("%s", r.t("tui.round.needRounds", "拒绝: --rounds 需要一个不小于 1 的整数。\n"))
 			}
 			roundsSet = true
 			i++
@@ -124,12 +125,12 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 		given = append(given, f)
 	}
 	if rounds < 1 {
-		return r.printf("拒绝: --rounds 需要一个不小于 1 的整数。\n")
+		return r.printf("%s", r.t("tui.round.needRounds", "拒绝: --rounds 需要一个不小于 1 的整数。\n"))
 	}
 	// N>1 而不带 --go 会把同一份计划印 N 遍，用户无法从屏幕上判断哪一次
 	// 是要确认的那轮。拒绝发生在取名单之前，计划一行都不印。
 	if rounds > 1 && !goRun {
-		return r.printf("拒绝: --rounds %d 只在 --go 下可用。\n", rounds)
+		return r.printf("%s", r.t("tui.round.roundsNeedGo", "拒绝: --rounds %d 只在 --go 下可用。\n", rounds))
 	}
 
 	parts, err := r.svc.Participants(ctx, r.cur.ID, false)
@@ -155,7 +156,7 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 			ids = append(ids, canon)
 		}
 		if len(unknown) > 0 {
-			return r.printf("拒绝: 不是当前活跃成员: %s\n", strings.Join(unknown, ", "))
+			return r.printf("%s", r.t("tui.round.notActive", "拒绝: 不是当前活跃成员: %s\n", strings.Join(unknown, ", ")))
 		}
 	} else {
 		mentions, mErr := lastUserMentionIDs(ctx, r)
@@ -170,7 +171,7 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 		}
 	}
 	if len(ids) == 0 {
-		return r.printf("拒绝: 名单为空。给了 id 才用给的；没给则取当前会话最后一条用户发言里的 mention 与当前活跃成员的交集。不会默认全员。\n")
+		return r.printf("%s", r.t("tui.round.emptyRoster", "拒绝: 名单为空。给了 id 才用给的；没给则取当前会话最后一条用户发言里的 mention 与当前活跃成员的交集。不会默认全员。\n"))
 	}
 
 	// 分类只做一次。轮与轮之间要看见的是新 rules / 新 cfg，那是
@@ -188,7 +189,7 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 	if sumID != "" {
 		for _, id := range ids {
 			if id == sumID {
-				return r.printf("拒绝: %s 是总结成员（config.toml 的 [summary]），不在 /round 里发言；它的话只给你看，其余成员看不到。\n", id)
+				return r.printf("%s", r.t("tui.round.summaryMember", "拒绝: %s 是总结成员（config.toml 的 [summary]），不在 /round 里发言；它的话只给你看，其余成员看不到。\n", id))
 			}
 		}
 	}
@@ -196,7 +197,7 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 	// 分类跳过是整条命令的属性。放进下面的 for 会在 --rounds 3 时把
 	// 同一份名单印三遍。no_delta 不在这里：它要等每一轮的预算才知道，
 	// 依据列已经写了「无新内容，本轮跳过」。空串不印，避免没人被跳过时多一行空白。
-	if text := renderSkipped(plan.Skipped); text != "" {
+	if text := renderSkippedLang(r.lang, plan.Skipped); text != "" {
 		if err := r.printf("%s", text); err != nil {
 			return err
 		}
@@ -208,7 +209,7 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 	// 会在 --rounds 3 时把同一行印三遍。带了 --with-judge 不印：
 	// 那些人随后以裁判轮出现，这行会把即将要问的人说成不问。
 	if !withJudge {
-		if text := renderUnaskedJudges(plan.Judges); text != "" {
+		if text := renderUnaskedJudgesLang(r.lang, plan.Judges); text != "" {
 			if err := r.printf("%s", text); err != nil {
 				return err
 			}
@@ -217,7 +218,7 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 	// 字典序和去重发生在 PlanRound，屏幕原先不解释，用户会对着键入顺序找人。
 	// 与上面相邻，同一次、在循环外。不放进 renderBudget：那份输出被逐行断言。
 	if !r.concise {
-		if err := r.printf("发言顺序按字典序，重复的 id 已去重，只问一次。\n"); err != nil {
+		if err := r.printf("%s", r.t("tui.round.sortedNote", "发言顺序按字典序，重复的 id 已去重，只问一次。\n")); err != nil {
 			return err
 		}
 	}
@@ -233,7 +234,7 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 		// 只在两轮之间看 ctx。正在跑的那一轮已经起了进程，钱花了，
 		// 由 runOneRound 收完；这里停的是还没开始的轮。
 		if ctx.Err() != nil {
-			return r.printf("已跑 %d/%d 轮，其余取消\n", finished, rounds)
+			return r.printf("%s", r.t("tui.round.cancelledRounds", "已跑 %d/%d 轮，其余取消\n", finished, rounds))
 		}
 		// 第一轮复用分类那次。分类与第一轮之间没有第二个时刻。
 		snap := snap0
@@ -243,7 +244,7 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 				return r.reportErr("round", err)
 			}
 		}
-		ran, err := runOneRound(ctx, r, plan, goRun, "发言轮", k, rounds, snap, writeAskRecord, &asked)
+		ran, err := runOneRound(ctx, r, plan, goRun, r.t("tui.round.labelSpeak", "发言轮"), k, rounds, snap, writeAskRecord, &asked)
 		if err != nil {
 			return err
 		}
@@ -263,7 +264,7 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 		// 裁判只在发言轮循环停下之后跑一次。每个发言轮跟一次就是把一次 flag
 		// 收成 N 倍入场费。裁判轮自己再取快照，看见的是发言轮写完之后的历史。
 		if ctx.Err() != nil {
-			return r.printf("已跑 %d/%d 轮，其余取消\n", finished, rounds)
+			return r.printf("%s", r.t("tui.round.cancelledRounds", "已跑 %d/%d 轮，其余取消\n", finished, rounds))
 		}
 		judgeSnap, err := r.rn.TakeRoundSnap(ctx, r.cur.ID)
 		if err != nil {
@@ -275,7 +276,7 @@ func cmdRound(ctx context.Context, r *REPL, args cmdArgs) (err error) {
 			Judges:   []string{},
 			Skipped:  []turn.SkipReason{},
 		}
-		judgeRan, err := runOneRound(ctx, r, judgePlan, goRun, "裁判轮", 0, 0, judgeSnap, writeAskRecord, &asked)
+		judgeRan, err := runOneRound(ctx, r, judgePlan, goRun, r.t("tui.round.labelJudge", "裁判轮"), 0, 0, judgeSnap, writeAskRecord, &asked)
 		if judgeRan {
 			spawned = true
 		}
@@ -324,20 +325,20 @@ func runOneRound(ctx context.Context, r *REPL, plan turn.Plan, goRun bool, label
 		return false, r.reportErr("round", err)
 	}
 	if !r.concise || !goRun {
-		if err := r.printf("%s", renderBudget(rows)); err != nil {
+		if err := r.printf("%s", renderBudgetLang(r.lang, rows)); err != nil {
 			return false, err
 		}
 	}
 	if !goRun {
 		return false, nil
 	}
-	if msg := argvRefusal(rows); msg != "" {
+	if msg := argvRefusalLang(r.lang, rows); msg != "" {
 		if err := r.printf("%s", msg); err != nil {
 			return false, err
 		}
 		return false, nil
 	}
-	plan = skipNoDelta(plan, rows)
+	plan = skipNoDeltaLang(r.lang, plan, rows)
 	if r.concise {
 		var noDelta []turn.SkipReason
 		for _, s := range plan.Skipped {
@@ -345,7 +346,7 @@ func runOneRound(ctx context.Context, r *REPL, plan turn.Plan, goRun bool, label
 				noDelta = append(noDelta, s)
 			}
 		}
-		if text := renderSkipped(noDelta); text != "" {
+		if text := renderSkippedLang(r.lang, noDelta); text != "" {
 			if err := r.printf("%s", text); err != nil {
 				return false, err
 			}
@@ -354,7 +355,7 @@ func runOneRound(ctx context.Context, r *REPL, plan turn.Plan, goRun bool, label
 	// 空 Speakers 仍调 RunRoundPreparedStream 会落下 round_started 与
 	// round_finished 两条系统消息，事实源里多出一轮什么都没问的轮。
 	if len(plan.Speakers) == 0 {
-		if err := r.printf("这一轮没有人可问。\n"); err != nil {
+		if err := r.printf("%s", r.t("tui.round.nobody", "这一轮没有人可问。\n")); err != nil {
 			return false, err
 		}
 		return false, nil
@@ -367,7 +368,7 @@ func runOneRound(ctx context.Context, r *REPL, plan turn.Plan, goRun bool, label
 	// 契约 4.6 点名了这条，写锁会把已经拆掉的理由又说回去。
 	// 代价：每个真正起进程的轮都印一次，含裁判轮；没到这一步的拒绝不印。
 	if !r.concise {
-		if err := r.printf("扇出期间 REPL 不接受任何命令，约 1 x 5 分钟（并发，最慢的那个成员说了算）。命令派发是串行的。\n"); err != nil {
+		if err := r.printf("%s", r.t("tui.round.fanoutNote", "扇出期间 REPL 不接受任何命令，约 1 x 5 分钟（并发，最慢的那个成员说了算）。命令派发是串行的。\n")); err != nil {
 			return false, err
 		}
 	}
@@ -375,7 +376,7 @@ func runOneRound(ctx context.Context, r *REPL, plan turn.Plan, goRun bool, label
 	// 五分钟静默里用户至少该知道这一轮问了几个人、分别是谁。用的是
 	// skipNoDelta 之后的 plan.Speakers，屏幕上的名单与真正起进程的那批
 	// 因此是同一份。
-	if err := r.printf("本轮问 %d 个: %s\n", len(plan.Speakers), strings.Join(plan.Speakers, ", ")); err != nil {
+	if err := r.printf("%s", r.t("tui.round.asking", "本轮问 %d 个: %s\n", len(plan.Speakers), strings.Join(plan.Speakers, ", "))); err != nil {
 		return false, err
 	}
 	// 观察者只在这一处读一次。本段三种事件都经这个局部变量发，不再读字段。
@@ -383,8 +384,7 @@ func runOneRound(ctx context.Context, r *REPL, plan turn.Plan, goRun bool, label
 	obs := r.roundObs
 	if obs != nil {
 		obs.RoundStart(RoundStartEvent{Label: label, K: k, N: n, Members: len(plan.Speakers), Speakers: append([]string(nil), plan.Speakers...)})
-	}
-	// 逐条渲染从「全部回来之后的循环」挪进回调：谁回来先打谁。最慢的
+	}	// 逐条渲染从「全部回来之后的循环」挪进回调：谁回来先打谁。最慢的
 	// 那个成员不再替其余人压着输出。经 render 回调：发言轮与裁判轮传
 	// writeAskRecord、总结段传 writeSummaryRecord，两者共用 writeRecord 这一份
 	// 格式，不另写一份——两份格式会分叉，而分叉的那一天没有任何测试会红。
@@ -415,7 +415,7 @@ func runOneRound(ctx context.Context, r *REPL, plan turn.Plan, goRun bool, label
 		// 中止只会吞掉后面几个人已经到手的结果。非 nil 的返回只留给
 		// 写屏幕失败。
 		if rec.Err != nil {
-			if err := r.printf("/round %s: %s\n", rec.AgentID, askCause(rec.Err)); err != nil {
+			if err := r.printf("/round %s: %s\n", rec.AgentID, askCauseLang(r.lang, rec.Err)); err != nil {
 				writeErr = err
 				return
 			}
@@ -431,6 +431,7 @@ func runOneRound(ctx context.Context, r *REPL, plan turn.Plan, goRun bool, label
 				Dropped:       rec.DroppedText != "",
 				WallMS:        rec.WallMS,
 				RoundID:       rec.RoundID,
+				Lang:          r.lang,
 			})
 		}
 	})
@@ -458,12 +459,12 @@ func runOneRound(ctx context.Context, r *REPL, plan turn.Plan, goRun bool, label
 	settled := turn.Settle(recs)
 	if r.concise {
 		if settled.SpawnFailed > 0 {
-			if err := r.printf("%s", spawnFailedLine(settled.SpawnFailed)); err != nil {
+			if err := r.printf("%s", spawnFailedLineLang(r.lang, settled.SpawnFailed)); err != nil {
 				return false, err
 			}
 		}
 	} else {
-		if err := r.printf("%s", renderSettlement(settled, forecastCold, unexpected, label)); err != nil {
+		if err := r.printf("%s", renderSettlementLang(r.lang, settled, forecastCold, unexpected, label)); err != nil {
 			return false, err
 		}
 	}
@@ -479,9 +480,10 @@ func runOneRound(ctx context.Context, r *REPL, plan turn.Plan, goRun bool, label
 				Dropped:       rec.DroppedText != "",
 				WallMS:        rec.WallMS,
 				RoundID:       rec.RoundID,
+				Lang:          r.lang,
 			})
 		}
-		obs.RoundEnd(RoundEndEvent{Label: label, K: k, N: n, Results: results, Concise: r.concise})
+		obs.RoundEnd(RoundEndEvent{Label: label, K: k, N: n, Results: results, Concise: r.concise, Lang: r.lang})
 	}
 	return true, nil
 }
@@ -525,12 +527,17 @@ func lastUserMentionIDs(ctx context.Context, r *REPL) ([]string, error) {
 // 点名裁判在 renderUnaskedJudges。
 // 代价：Reason 里通常已经带了 id，行上会再出现一次。
 func renderSkipped(skipped []turn.SkipReason) string {
+	return renderSkippedLang(i18n.LangZh, skipped)
+}
+
+// renderSkippedLang 是 renderSkipped 带语言的那一半。
+func renderSkippedLang(lang i18n.Lang, skipped []turn.SkipReason) string {
 	if len(skipped) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	for _, s := range skipped {
-		fmt.Fprintf(&b, "跳过 %s（%s）：%s", s.AgentID, s.Kind, s.Reason)
+		fmt.Fprintf(&b, "%s", i18n.TF(lang, "tui.round.skippedRow", "跳过 %s（%s）：%s", s.AgentID, s.Kind, s.Reason))
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -547,10 +554,16 @@ func renderSkipped(skipped []turn.SkipReason) string {
 // flag 时人随后以裁判轮出现，调用方不要印，免得把即将要问的人说成不问。
 // 顺序与去重沿用传入切片，这里不再排一次。
 func renderUnaskedJudges(judges []string) string {
+	return renderUnaskedJudgesLang(i18n.LangZh, judges)
+}
+
+// renderUnaskedJudgesLang 是 renderUnaskedJudges 带语言的那一半。
+func renderUnaskedJudgesLang(lang i18n.Lang, judges []string) string {
 	if len(judges) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("裁判 %s 本命令不问，要用 --with-judge 才问。\n", strings.Join(judges, "、"))
+	return i18n.TF(lang, "tui.round.unaskedJudges", "裁判 %s 本命令不问，要用 --with-judge 才问。\n",
+		strings.Join(judges, i18n.TF(lang, "tui.list.sep", "、")))
 }
 
 // renderBudget 把已经算好的预报行收成屏幕文本。
@@ -562,19 +575,24 @@ func renderUnaskedJudges(judges []string) string {
 // 合计只加 InputTokens。金额不加：只有一部分 provider 报金额，为了凑
 // 总额去编汇率，就是把没这个数写成一个数。Cold 是冷暖预报，不是价钱。
 func renderBudget(rows []turn.BudgetRow) string {
+	return renderBudgetLang(i18n.LangZh, rows)
+}
+
+// renderBudgetLang 是 renderBudget 带语言的那一半。中文档的输出与 renderBudget 逐字节相同。
+func renderBudgetLang(lang i18n.Lang, rows []turn.BudgetRow) string {
 	var b strings.Builder
-	b.WriteString("成员  输入token  金额  冷启动  在飞  命令行余量  依据\n")
+	b.WriteString(i18n.TF(lang, "tui.round.budgetHeader", "成员  输入token  金额  冷启动  在飞  命令行余量  依据\n"))
 	sum := 0
 	uncal := 0
 	for _, row := range rows {
 		fmt.Fprintf(&b, "%s  %s  %s  %s  %s  %s  %s\n",
 			row.AgentID,
-			budgetTokens(row),
-			budgetCost(row),
-			budgetCold(row),
-			budgetFlight(row),
-			budgetHeadroom(row),
-			budgetBasis(row),
+			budgetTokensLang(lang, row),
+			budgetCostLang(lang, row),
+			budgetColdLang(lang, row),
+			budgetFlightLang(lang, row),
+			budgetHeadroomLang(lang, row),
+			budgetBasisLang(lang, row),
 		)
 		if row.Calibrated && row.InputTokens != nil {
 			sum += *row.InputTokens
@@ -584,63 +602,75 @@ func renderBudget(rows []turn.BudgetRow) string {
 		}
 	}
 	if uncal > 0 {
-		fmt.Fprintf(&b, "合计输入token %d（只含已标定的行）\n", sum)
+		fmt.Fprintf(&b, "%s", i18n.TF(lang, "tui.round.budgetTotalCalibrated", "合计输入token %d（只含已标定的行）\n", sum))
 	} else {
-		fmt.Fprintf(&b, "合计输入token %d\n", sum)
+		fmt.Fprintf(&b, "%s", i18n.TF(lang, "tui.round.budgetTotal", "合计输入token %d\n", sum))
 	}
 	// 0 是数过之后的「没有未标定」，不是量不出。全员已标定时这行是废话。
 	// 只省这一行，合计行的两种写法不动。
 	if uncal > 0 {
-		fmt.Fprintf(&b, "另有 %d 名未标定\n", uncal)
+		fmt.Fprintf(&b, "%s", i18n.TF(lang, "tui.round.budgetUncalibrated", "另有 %d 名未标定\n", uncal))
 	}
 	return b.String()
 }
 
-func budgetTokens(row turn.BudgetRow) string {
+func budgetTokens(row turn.BudgetRow) string { return budgetTokensLang(i18n.LangZh, row) }
+
+func budgetTokensLang(lang i18n.Lang, row turn.BudgetRow) string {
 	if !row.Calibrated || row.InputTokens == nil {
-		return "未标定"
+		return i18n.TF(lang, "tui.round.uncalibrated", "未标定")
 	}
 	return fmt.Sprintf("%d", *row.InputTokens)
 }
 
-func budgetCost(row turn.BudgetRow) string {
+func budgetCost(row turn.BudgetRow) string { return budgetCostLang(i18n.LangZh, row) }
+
+func budgetCostLang(lang i18n.Lang, row turn.BudgetRow) string {
 	// 金额和 token 分开认。标定过但样本没报金额时，只这一格是未标定。
 	if !row.Calibrated || row.CostUSD == nil {
-		return "未标定"
+		return i18n.TF(lang, "tui.round.uncalibrated", "未标定")
 	}
 	return fmt.Sprintf("%g USD", *row.CostUSD)
 }
 
-func budgetCold(row turn.BudgetRow) string {
+func budgetCold(row turn.BudgetRow) string { return budgetColdLang(i18n.LangZh, row) }
+
+func budgetColdLang(lang i18n.Lang, row turn.BudgetRow) string {
 	if row.Cold {
-		return "预报冷"
+		return i18n.TF(lang, "tui.round.forecastCold", "预报冷")
 	}
-	return "预报非冷"
+	return i18n.TF(lang, "tui.round.forecastNotCold", "预报非冷")
 }
 
-func budgetFlight(row turn.BudgetRow) string {
+func budgetFlight(row turn.BudgetRow) string { return budgetFlightLang(i18n.LangZh, row) }
+
+func budgetFlightLang(lang i18n.Lang, row turn.BudgetRow) string {
 	if row.InFlight {
-		return "在飞"
+		return i18n.TF(lang, "tui.round.inFlight", "在飞")
 	}
-	return "不在飞"
+	return i18n.TF(lang, "tui.round.notInFlight", "不在飞")
 }
 
-func budgetHeadroom(row turn.BudgetRow) string {
+func budgetHeadroom(row turn.BudgetRow) string { return budgetHeadroomLang(i18n.LangZh, row) }
+
+func budgetHeadroomLang(lang i18n.Lang, row turn.BudgetRow) string {
 	// nil 是量不出余量，不是 0。负数是真的超了，夹到 0 会把闸藏掉。
 	if row.ArgvHeadroom == nil {
-		return "余量未知"
+		return i18n.TF(lang, "tui.round.headroomUnknown", "余量未知")
 	}
 	return fmt.Sprintf("%d", *row.ArgvHeadroom)
 }
 
-func budgetBasis(row turn.BudgetRow) string {
+func budgetBasis(row turn.BudgetRow) string { return budgetBasisLang(i18n.LangZh, row) }
+
+func budgetBasisLang(lang i18n.Lang, row turn.BudgetRow) string {
 	// NoDelta 不是「没取到样本」。token 格仍印未标定，只为了不编一个 0；
 	// 依据列改印跳过，这行才不会和普通的标定失败长得一样。
 	if row.NoDelta {
-		return "无新内容，本轮跳过"
+		return i18n.TF(lang, "tui.round.noDeltaSkipped", "无新内容，本轮跳过")
 	}
 	if row.Basis == "" {
-		return "无样本"
+		return i18n.TF(lang, "tui.round.noSamples", "无样本")
 	}
 	return row.Basis
 }
@@ -652,74 +682,91 @@ func budgetBasis(row turn.BudgetRow) string {
 // 实测冷启动只数冷暖确知的成员：判据是 turn.Record.MeasuredCold，Settle 据它收成 Cold 与 ColdUnknown。
 // HaveCacheRead 为 false，或没有一个成员冷暖确知时，实测冷启动印未知；有人冷暖未知时数字带限定语（见 measuredCold）。
 func renderSettlement(s turn.RoundSettlement, forecastCold int, unexpectedCold []string, label string) string {
+	return renderSettlementLang(i18n.LangZh, s, forecastCold, unexpectedCold, label)
+}
+
+// renderSettlementLang 是 renderSettlement 带语言的那一半。label 由调用方
+// 按界面语言取好（发言轮 / 裁判轮 / 总结轮），这里只负责拼。
+func renderSettlementLang(lang i18n.Lang, s turn.RoundSettlement, forecastCold int, unexpectedCold []string, label string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s结算\n", label)
-	fmt.Fprintf(&b, "确知起进程 %d\n", s.Spawned)
-	b.WriteString(spawnFailedLine(s.SpawnFailed))
-	fmt.Fprintf(&b, "用量 输入 %s  输出 %s  cache_read %s  cache_create %s  thinking %s%s\n",
-		settledTokens(s.HaveIn, s.InputTokens),
-		settledTokens(s.HaveOut, s.OutputTokens),
-		settledTokens(s.HaveCacheRead, s.CacheRead),
-		settledTokens(s.HaveCacheCreate, s.CacheCreate),
-		settledTokens(s.HaveThinking, s.ThinkingTokens),
-		usageUnknownNote(s.UsageUnknown),
-	)
-	fmt.Fprintf(&b, "金额 %s\n", settledCost(s))
-	fmt.Fprintf(&b, "冷启动 预报 %d  实测 %s\n", forecastCold, measuredCold(s))
+	fmt.Fprintf(&b, "%s", i18n.TF(lang, "tui.round.settlementHead", "%s结算\n", label))
+	fmt.Fprintf(&b, "%s", i18n.TF(lang, "tui.round.settlementSpawned", "确知起进程 %d\n", s.Spawned))
+	b.WriteString(spawnFailedLineLang(lang, s.SpawnFailed))
+	fmt.Fprintf(&b, "%s", i18n.TF(lang, "tui.round.settlementUsage", "用量 输入 %s  输出 %s  cache_read %s  cache_create %s  thinking %s%s\n",
+		settledTokensLang(lang, s.HaveIn, s.InputTokens),
+		settledTokensLang(lang, s.HaveOut, s.OutputTokens),
+		settledTokensLang(lang, s.HaveCacheRead, s.CacheRead),
+		settledTokensLang(lang, s.HaveCacheCreate, s.CacheCreate),
+		settledTokensLang(lang, s.HaveThinking, s.ThinkingTokens),
+		usageUnknownNoteLang(lang, s.UsageUnknown),
+	))
+	fmt.Fprintf(&b, "%s", i18n.TF(lang, "tui.round.settlementCost", "金额 %s\n", settledCostLang(lang, s)))
+	fmt.Fprintf(&b, "%s", i18n.TF(lang, "tui.round.settlementCold", "冷启动 预报 %d  实测 %s\n", forecastCold, measuredColdLang(lang, s)))
 	if len(unexpectedCold) > 0 {
-		fmt.Fprintf(&b, "意外冷启动 %s\n", strings.Join(unexpectedCold, ", "))
+		fmt.Fprintf(&b, "%s", i18n.TF(lang, "tui.round.settlementUnexpectedCold", "意外冷启动 %s\n", strings.Join(unexpectedCold, ", ")))
 	}
 	return b.String()
 }
 
 // spawnFailedLine 是「分不清进程是否起来」那一行。
 // 详细档的结算块与简洁档那一行共用它，格式只有一份。renderSettlement 的输出逐字节不变。
-func spawnFailedLine(n int) string {
-	line := fmt.Sprintf("分不清进程是否起来 %d", n)
+func spawnFailedLine(n int) string { return spawnFailedLineLang(i18n.LangZh, n) }
+
+// spawnFailedLineLang 是 spawnFailedLine 带语言的那一半。
+func spawnFailedLineLang(lang i18n.Lang, n int) string {
+	line := i18n.TF(lang, "tui.round.spawnFailed", "分不清进程是否起来 %d", n)
 	if n > 0 {
-		line += "（不在 PATH、服务睡着、起来后立刻非零退出，三者无法区分）"
+		line += i18n.TF(lang, "tui.round.spawnFailedWhy", "（不在 PATH、服务睡着、起来后立刻非零退出，三者无法区分）")
 	}
 	return line + "\n"
 }
 
-func settledTokens(have bool, n int) string {
+func settledTokens(have bool, n int) string { return settledTokensLang(i18n.LangZh, have, n) }
+
+func settledTokensLang(lang i18n.Lang, have bool, n int) string {
 	if !have {
-		return "未知"
+		return i18n.TF(lang, "tui.round.unknown", "未知")
 	}
 	return fmt.Sprintf("%d", n)
 }
 
-func usageUnknownNote(k int) string {
+func usageUnknownNote(k int) string { return usageUnknownNoteLang(i18n.LangZh, k) }
+
+func usageUnknownNoteLang(lang i18n.Lang, k int) string {
 	if k <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("（%d 名成员用量未知，合计只含其余人）", k)
+	return i18n.TF(lang, "tui.round.usageUnknownNote", "（%d 名成员用量未知，合计只含其余人）", k)
 }
 
-func settledCost(s turn.RoundSettlement) string {
+func settledCost(s turn.RoundSettlement) string { return settledCostLang(i18n.LangZh, s) }
+
+func settledCostLang(lang i18n.Lang, s turn.RoundSettlement) string {
 	if !s.HaveCost {
 		if s.CostUnreported > 0 {
-			return fmt.Sprintf("未知（%d 名成员未报金额）", s.CostUnreported)
+			return i18n.TF(lang, "tui.round.costUnknownMembers", "未知（%d 名成员未报金额）", s.CostUnreported)
 		}
-		return "未知"
+		return i18n.TF(lang, "tui.round.unknown", "未知")
 	}
 	text := fmt.Sprintf("%g USD", s.CostUSD)
 	if s.CostUnreported > 0 {
-		text += fmt.Sprintf("（%d 名成员未报金额，合计只含其余人）", s.CostUnreported)
+		text += i18n.TF(lang, "tui.round.costUnknownNote", "（%d 名成员未报金额，合计只含其余人）", s.CostUnreported)
 	}
 	return text
 }
 
 // measuredCold 的 excluded 只取 ColdUnknown：按 Settle 的口径它已经含五个用量都没有数的成员
 // （UsageUnknown 数的人全在其中），再加 UsageUnknown 就把同一个人数了两次。excluded 为 0 时不带限定语。
-func measuredCold(s turn.RoundSettlement) string {
+func measuredCold(s turn.RoundSettlement) string { return measuredColdLang(i18n.LangZh, s) }
+
+func measuredColdLang(lang i18n.Lang, s turn.RoundSettlement) string {
 	excluded := s.ColdUnknown
 	knownN := s.Spawned - excluded
 	if !s.HaveCacheRead || knownN <= 0 {
-		return "未知"
+		return i18n.TF(lang, "tui.round.unknown", "未知")
 	}
 	if excluded > 0 {
-		return fmt.Sprintf("%d（%d 名成员冷暖未知，只数其余人）", s.Cold, excluded)
+		return i18n.TF(lang, "tui.round.measuredColdNote", "%d（%d 名成员冷暖未知，只数其余人）", s.Cold, excluded)
 	}
 	return fmt.Sprintf("%d", s.Cold)
 }
@@ -728,21 +775,23 @@ func measuredCold(s turn.RoundSettlement) string {
 //
 // nil 不当成 0：量不出余量不是「已经超了」。只跳过超限的那几个、其余人照跑，
 // 会花掉还能跑的那些人的钱，留下残缺的一轮；整轮不跑比这个便宜。
-func argvRefusal(rows []turn.BudgetRow) string {
+func argvRefusal(rows []turn.BudgetRow) string { return argvRefusalLang(i18n.LangZh, rows) }
+
+// argvRefusalLang 是 argvRefusal 带语言的那一半。
+func argvRefusalLang(lang i18n.Lang, rows []turn.BudgetRow) string {
 	var over []string
 	for _, row := range rows {
 		if row.ArgvHeadroom == nil || *row.ArgvHeadroom >= 0 {
 			continue
 		}
-		over = append(over, fmt.Sprintf("%s 超了 %d 字节", row.AgentID, -*row.ArgvHeadroom))
+		over = append(over, i18n.TF(lang, "tui.round.overByBytes", "%s 超了 %d 字节", row.AgentID, -*row.ArgvHeadroom))
 	}
 	if len(over) == 0 {
 		return ""
 	}
-	return fmt.Sprintf(
+	return i18n.TF(lang, "tui.round.argvRefusal",
 		"拒绝整轮: %s。命令行余量为负的人这一轮必然失败。若只把他们拿掉、其余人继续跑，其余人的钱照花，用户拿到残缺的一轮（五个人里两个必然失败、另外三个的钱照花，就是这个形状）；整轮不跑比部分跑更便宜。\n",
-		strings.Join(over, "；"),
-	)
+		strings.Join(over, i18n.TF(lang, "tui.list.sepSemi", "；")))
 }
 
 // skipNoDelta 把预报判为没有新内容的发言者追加进 Skipped。
@@ -751,6 +800,12 @@ func argvRefusal(rows []turn.BudgetRow) string {
 // not_in_config / not_on_roster / mode。留在 Speakers 里则会把明知
 // 没有 delta 的人送进这一轮的 ask。
 func skipNoDelta(plan turn.Plan, rows []turn.BudgetRow) turn.Plan {
+	return skipNoDeltaLang(i18n.LangZh, plan, rows)
+}
+
+// skipNoDeltaLang 是 skipNoDelta 带语言的那一半：追加进 Skipped 的 Reason
+// 会随 renderSkippedLang 上屏，所以按界面语言取。
+func skipNoDeltaLang(lang i18n.Lang, plan turn.Plan, rows []turn.BudgetRow) turn.Plan {
 	noDelta := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		if row.NoDelta {
@@ -769,7 +824,7 @@ func skipNoDelta(plan turn.Plan, rows []turn.BudgetRow) turn.Plan {
 		plan.Skipped = append(plan.Skipped, turn.SkipReason{
 			AgentID: id,
 			Kind:    turn.SkipNoDelta,
-			Reason:  fmt.Sprintf("%s 无新内容，本轮跳过", id),
+			Reason:  i18n.TF(lang, "tui.round.noDeltaReason", "%s 无新内容，本轮跳过", id),
 		})
 	}
 	plan.Speakers = kept

@@ -17,12 +17,12 @@ package repl
 // 它——与改动前的单文件行为逐字节一致。这也是任务书 §B 最后一条的要求。
 
 import (
-	"fmt"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"council/internal/config"
+	"council/internal/i18n"
 )
 
 // reloadLayers 求这次重读要读的配置层，高优先级在前。
@@ -86,10 +86,16 @@ func configLayerPaths(layers []config.Layer) []string {
 // 只在详细档（-verbose）打印：默认档（简洁）下用户没有要求过程信息，
 // 层信息仍然会在错误文案与 /config 里出现，不会丢。
 func configLayersNotice(paths []string) string {
+	return configLayersNoticeLang(i18n.LangZh, paths)
+}
+
+// configLayersNoticeLang 是 configLayersNotice 带语言的那一半。
+func configLayersNoticeLang(lang i18n.Lang, paths []string) string {
 	if len(paths) < 2 {
 		return ""
 	}
-	return fmt.Sprintf("配置来自 %d 层（高到低）：%s\n", len(paths), strings.Join(paths, "、"))
+	return i18n.TF(lang, "tui.config.layersNotice", "配置来自 %d 层（高到低）：%s\n",
+		len(paths), strings.Join(paths, i18n.TF(lang, "tui.list.sep", "、")))
 }
 
 // configReadErrPrefix 在多层时给读配置失败那一行补上层次。
@@ -97,8 +103,15 @@ func configLayersNotice(paths []string) string {
 // 单层时原样返回 prefix：/add 的既有测试逐字钉住了「读配置文件失败: ...」
 // 那一行，不能在常见路径上多出括号。
 func configReadErrPrefix(prefix string, layers []config.Layer) string {
+	return configReadErrPrefixLang(i18n.LangZh, prefix, layers)
+}
+
+// configReadErrPrefixLang 是 configReadErrPrefix 带语言的那一半。
+func configReadErrPrefixLang(lang i18n.Lang, prefix string, layers []config.Layer) string {
 	if len(layers) < 2 {
 		return prefix
 	}
-	return prefix + "（合并 " + strings.Join(configLayerPaths(layers), "、") + "）"
+	return prefix + i18n.TF(lang, "tui.config.mergedOpen", "（合并 ") +
+		strings.Join(configLayerPaths(layers), i18n.TF(lang, "tui.list.sep", "、")) +
+		i18n.TF(lang, "tui.config.mergedClose", "）")
 }

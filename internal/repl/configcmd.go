@@ -11,10 +11,10 @@ package repl
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"council/internal/config"
+	"council/internal/i18n"
 	"council/internal/turn"
 )
 
@@ -30,18 +30,18 @@ func cmdConfig(ctx context.Context, r *REPL, args cmdArgs) error {
 		return cmdConfigShow(r)
 	}
 	if args.fields[0] != "reload" {
-		return r.printf("用法: /config 或 /config reload [--apply]\n")
+		return r.printf("%s", r.t("tui.config.usage", "用法: /config 或 /config reload [--apply]\n"))
 	}
 	switch len(args.fields) {
 	case 1:
 		return cmdConfigReload(ctx, r, false)
 	case 2:
 		if args.fields[1] != "--apply" {
-			return r.printf("用法: /config reload [--apply]\n")
+			return r.printf("%s", r.t("tui.config.usageReload", "用法: /config reload [--apply]\n"))
 		}
 		return cmdConfigReload(ctx, r, true)
 	default:
-		return r.printf("用法: /config reload [--apply]\n")
+		return r.printf("%s", r.t("tui.config.usageReload", "用法: /config reload [--apply]\n"))
 	}
 }
 
@@ -54,15 +54,15 @@ func cmdConfig(ctx context.Context, r *REPL, args cmdArgs) error {
 // 层列表优先用 r.cfgLayers（重读成功时记下的那一份，与内存里的 r.cfg 对应）；
 // 还没重读过就按默认位置现求一次，只读不写任何状态。
 func cmdConfigShow(r *REPL) error {
-	line := "配置文件: " + r.rulesCtx.ConfigPath
+	line := r.t("tui.config.header", "配置文件: ") + r.rulesCtx.ConfigPath
 	if layers := r.knownConfigLayers(); len(layers) > 1 {
-		line += "（合并 " + strings.Join(layers[1:], "、") + "）"
+		line += r.t("tui.config.mergedOpen", "（合并 ") + strings.Join(layers[1:], r.t("tui.list.sep", "、")) + r.t("tui.config.mergedClose", "）")
 	}
 	if err := r.printf("%s\n", line); err != nil {
 		return err
 	}
-	return r.printf("agent %d，provider %d，team %d\n",
-		len(r.cfg.Agents), len(r.cfg.Providers), len(r.cfg.Teams))
+	return r.printf("%s", r.t("tui.config.counts", "agent %d，provider %d，team %d\n",
+		len(r.cfg.Agents), len(r.cfg.Providers), len(r.cfg.Teams)))
 }
 
 // knownConfigLayers 是 /config 展示用的层列表，高优先级在前。
@@ -107,10 +107,10 @@ func (r *REPL) knownConfigLayers() []string {
 // 提前 return（AuditDrift 报错、某一行 printf 失败）都不可能让两处分道扬镳。
 func cmdConfigReload(ctx context.Context, r *REPL, apply bool) error {
 	if r.svc == nil {
-		return r.printf("%s\n", msgNoStore)
+		return r.printf("%s\n", r.t("tui.repl.noStore", msgNoStore))
 	}
 	if r.rn == nil {
-		return r.printf("%s\n", msgNoRunner)
+		return r.printf("%s\n", r.t("tui.repl.noRunner", msgNoRunner))
 	}
 
 	// 配置是多层合并的：这次读哪几层见 configlayers.go。用户显式用
@@ -132,9 +132,9 @@ func cmdConfigReload(ctx context.Context, r *REPL, apply bool) error {
 		ves, ok := err.(config.ValidationErrors)
 		if !ok {
 			// 读失败旧配置原样生效：连一份新对象都没有，无从换。
-			return r.reportErr(configReadErrPrefix("重读配置文件失败", layers), err)
+			return r.reportErr(configReadErrPrefixLang(r.lang, r.t("tui.err.reloadConfig", "重读配置文件失败"), layers), err)
 		}
-		if err := r.printf("配置非法，旧配置原样生效:\n"); err != nil {
+		if err := r.printf("%s", r.t("tui.config.invalid", "配置非法，旧配置原样生效:\n")); err != nil {
 			return err
 		}
 		// Error() 已按 Path 字典序（同 Path 再按 Msg）排好。逐条打，
@@ -155,7 +155,7 @@ func cmdConfigReload(ctx context.Context, r *REPL, apply bool) error {
 	// 提前 return，层信息是理解后面所有报告的前提。只在详细档（-verbose）
 	// 打印，默认档的错误文案与 /config 里仍有层信息，不会丢。
 	if !r.concise {
-		if notice := configLayersNotice(merged.Layers); notice != "" {
+		if notice := configLayersNoticeLang(r.lang, merged.Layers); notice != "" {
 			if err := r.printf("%s", notice); err != nil {
 				return err
 			}
@@ -168,13 +168,13 @@ func cmdConfigReload(ctx context.Context, r *REPL, apply bool) error {
 	// rules_file 换掉则与 /rules reload 抢同一份规则正文的事实源，两条命令
 	// 会各执一词。两个键都是「只能重启生效」。
 	if newCfg.DataDir != r.cfg.DataDir || newCfg.RulesFile != r.cfg.RulesFile {
-		return r.printf("data_dir 与 rules_file 只能重启生效，本轮一个字都不换；规则正文改动请用 /rules reload\n")
+		return r.printf("%s", r.t("tui.config.restartOnly", "data_dir 与 rules_file 只能重启生效，本轮一个字都不换；规则正文改动请用 /rules reload\n"))
 	}
 
 	added := agentIDsOnlyIn(newCfg, r.cfg)
 	gone := agentIDsOnlyIn(r.cfg, newCfg)
 	brain := brainColumnChanges(r.cfg, newCfg)
-	cmdChanged := providerCommandChanges(r.cfg, newCfg)
+	cmdChanged := providerCommandChangesLang(r.lang, r.cfg, newCfg)
 
 	// 「已消失但仍是会话成员」AuditDrift 答不上来：没开过口的成员根本没有
 	// provider_sessions 行。要自己拿新旧 Agents 去扫 participants。含已退出
@@ -183,7 +183,7 @@ func cmdConfigReload(ctx context.Context, r *REPL, apply bool) error {
 	// 都不换：报告出不来还去 --apply，用户看不见代价。
 	stillMembers, err := goneButStillMembers(ctx, r, gone)
 	if err != nil {
-		return r.reportErr("列出会话成员失败", err)
+		return r.reportErr(r.t("tui.err.listConvMembers", "列出会话成员失败"), err)
 	}
 
 	for _, w := range cmdChanged {
@@ -210,13 +210,13 @@ func cmdConfigReload(ctx context.Context, r *REPL, apply bool) error {
 
 	drift, auditErr := r.rn.AuditDrift(ctx)
 	if auditErr != nil {
-		return r.reportErr("计算漂移名单失败", auditErr)
+		return r.reportErr(r.t("tui.err.driftList", "计算漂移名单失败"), auditErr)
 	}
 
 	if err := printConfigDrift(r, drift); err != nil {
 		return err
 	}
-	if err := printIDList(r, "配置里新增的 agent", added); err != nil {
+	if err := printIDList(r, r.t("tui.config.addedTitle", "配置里新增的 agent"), added); err != nil {
 		return err
 	}
 	if err := printGoneMembers(r, stillMembers); err != nil {
@@ -234,11 +234,11 @@ func cmdConfigReload(ctx context.Context, r *REPL, apply bool) error {
 			}
 		}
 		if n1 > 0 {
-			return r.printf("要应用请敲 /config reload --apply（会换掉 REPL 与 Runner 两处持有的配置；其中 %d 条身份已变的会话要重建才能接着用，各付一次入场费）\n", n1)
+			return r.printf("%s", r.t("tui.config.applyHintDrift", "要应用请敲 /config reload --apply（会换掉 REPL 与 Runner 两处持有的配置；其中 %d 条身份已变的会话要重建才能接着用，各付一次入场费）\n", n1))
 		}
-		return r.printf("要应用请敲 /config reload --apply（会换掉 REPL 与 Runner 两处持有的配置）\n")
+		return r.printf("%s", r.t("tui.config.applyHint", "要应用请敲 /config reload --apply（会换掉 REPL 与 Runner 两处持有的配置）\n"))
 	}
-	return r.printf("已应用新配置\n")
+	return r.printf("%s", r.t("tui.config.applied", "已应用新配置\n"))
 }
 
 // providerCommandChanges 找出两边都有、但 command 字符串变了的 provider。
@@ -251,6 +251,11 @@ func cmdConfigReload(ctx context.Context, r *REPL, apply bool) error {
 //
 // 遍历前先把 key 排序，否则输出顺序随机、测试会随机失败。
 func providerCommandChanges(oldCfg, newCfg *config.Config) []string {
+	return providerCommandChangesLang(i18n.LangZh, oldCfg, newCfg)
+}
+
+// providerCommandChangesLang 是 providerCommandChanges 带语言的那一半。
+func providerCommandChangesLang(lang i18n.Lang, oldCfg, newCfg *config.Config) []string {
 	var lines []string
 	for _, id := range sortedKeys(newCfg.Providers) {
 		oldP, ok := oldCfg.Providers[id]
@@ -261,7 +266,7 @@ func providerCommandChanges(oldCfg, newCfg *config.Config) []string {
 		if oldP.Command == newP.Command {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf(
+		lines = append(lines, i18n.TF(lang, "tui.config.commandChanged",
 			"警告: provider %s 的 command 从 %q 改为 %q。身份指纹的前缀摘要只摘命令行参数，Command.Path 是 BuildTurn 之后从 cfg.Providers 回填的、从来不进摘要，所以这次改动指纹一个字都不会动。若可执行文件确实换了，请对相关成员敲 /session rebuild",
 			id, oldP.Command, newP.Command,
 		))
@@ -357,9 +362,9 @@ func goneButStillMembers(ctx context.Context, r *REPL, gone []string) ([]goneMem
 
 func printConfigDrift(r *REPL, drift []turn.DriftRow) error {
 	if len(drift) == 0 {
-		return r.printf("没有成员会因此漂移\n")
+		return r.printf("%s", r.t("tui.config.noDrift", "没有成员会因此漂移\n"))
 	}
-	if err := r.printf("%d 个成员会漂移:\n", len(drift)); err != nil {
+	if err := r.printf("%s", r.t("tui.config.driftCount", "%d 个成员会漂移:\n", len(drift))); err != nil {
 		return err
 	}
 	for _, row := range drift {
@@ -383,11 +388,11 @@ func printIDList(r *REPL, title string, ids []string) error {
 }
 
 func printGoneMembers(r *REPL, members []goneMember) error {
-	if err := r.printf("配置里已消失但仍是会话成员的 agent（%d）:\n", len(members)); err != nil {
+	if err := r.printf("%s", r.t("tui.config.goneTitle", "配置里已消失但仍是会话成员的 agent（%d）:\n", len(members))); err != nil {
 		return err
 	}
 	for _, m := range members {
-		if err := r.printf("  %s（会话 %s）\n", m.id, strings.Join(m.convIDs, ", ")); err != nil {
+		if err := r.printf("%s", r.t("tui.config.goneRow", "  %s（会话 %s）\n", m.id, strings.Join(m.convIDs, ", "))); err != nil {
 			return err
 		}
 	}
@@ -395,7 +400,7 @@ func printGoneMembers(r *REPL, members []goneMember) error {
 }
 
 func printBrainChanges(r *REPL, changes []brainChange) error {
-	if err := r.printf("脑子三列有变化的 agent（%d）:\n", len(changes)); err != nil {
+	if err := r.printf("%s", r.t("tui.config.brainTitle", "脑子三列有变化的 agent（%d）:\n", len(changes))); err != nil {
 		return err
 	}
 	for _, c := range changes {

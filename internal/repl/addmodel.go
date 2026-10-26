@@ -11,6 +11,7 @@ import (
 
 	"council/internal/config"
 	"council/internal/conversation"
+	"council/internal/i18n"
 	"council/internal/provider"
 )
 
@@ -204,12 +205,12 @@ func ensureModelSnapshot(ctx context.Context, r *REPL, pids []string) (canceled 
 	if r.modelSnap != nil {
 		return false, nil
 	}
-	if err := r.printf("正在识别模型: %s\n", strings.Join(pids, ", ")); err != nil {
+	if err := r.printf("%s", r.t("tui.add.recognizing", "正在识别模型: %s\n", strings.Join(pids, ", "))); err != nil {
 		return false, err
 	}
 	snap := takeModelSnapshot(ctx, r, pids)
 	if ctx.Err() != nil {
-		return true, r.printf("识别被取消；下次 /add 会重新识别\n")
+		return true, r.printf("%s", r.t("tui.add.recognizeCancelled", "识别被取消；下次 /add 会重新识别\n"))
 	}
 	r.modelSnap = snap
 	return false, nil
@@ -229,7 +230,7 @@ func printModelSnapshot(r *REPL, snap *modelSnapshot) error {
 		}
 	}
 	if len(visible) > 0 {
-		if err := r.printf("识别出、配置里还没有的模型（本会话的快照，/add --refresh 重新识别）:\n"); err != nil {
+		if err := r.printf("%s", r.t("tui.add.snapshotHead", "识别出、配置里还没有的模型（本会话的快照，/add --refresh 重新识别）:\n")); err != nil {
 			return err
 		}
 		tw := r.newTabWriter()
@@ -246,31 +247,31 @@ func printModelSnapshot(r *REPL, snap *modelSnapshot) error {
 		who := "claude"
 		for _, row := range visible {
 			if row.m.Provider == "codex" {
-				who = "claude 与 codex"
+				who = r.t("tui.add.effortProviders", "claude 与 codex")
 				break
 			}
 		}
-		if err := r.printf("用 /add +编号 加入；--id <新 id> 改名；%s 可加 --effort <强度> 换档，EFFORTS 列是它支持的档\n", who); err != nil {
+		if err := r.printf("%s", r.t("tui.add.snapshotHint", "用 /add +编号 加入；--id <新 id> 改名；%s 可加 --effort <强度> 换档，EFFORTS 列是它支持的档\n", who)); err != nil {
 			return err
 		}
 	} else if snap.okCount > 0 {
-		if err := r.printf("识别出的模型都已经在配置里了\n"); err != nil {
+		if err := r.printf("%s", r.t("tui.add.allConfigured", "识别出的模型都已经在配置里了\n")); err != nil {
 			return err
 		}
 	}
 	// 只在确实跳过了 custom/ 行时说明一句，带数量。
 	if snap.custom > 0 {
-		if err := r.printf("codex 目录里还有 %d 个 custom/ 开头的模型没有列出：它们是你在 codex 配置里自定义转发的模型，多半是别家的（例如 grok、gemini），要用就加那一家的成员\n", snap.custom); err != nil {
+		if err := r.printf("%s", r.t("tui.add.customSkipped", "codex 目录里还有 %d 个 custom/ 开头的模型没有列出：它们是你在 codex 配置里自定义转发的模型，多半是别家的（例如 grok、gemini），要用就加那一家的成员\n", snap.custom)); err != nil {
 			return err
 		}
 	}
 	for _, f := range snap.failures {
-		if err := r.printf("识别 %s 的模型失败: %s\n", f.provider, discoveryFailureText(f.err, r.discoverTimeout)); err != nil {
+		if err := r.printf("%s", r.t("tui.add.discoveryFailed", "识别 %s 的模型失败: %s\n", f.provider, discoveryFailureTextLang(r.lang, f.err, r.discoverTimeout))); err != nil {
 			return err
 		}
 	}
 	if len(snap.failures) > 0 {
-		return r.printf("失败的结果也会留在本会话的快照里；要重新识别用 /add --refresh\n")
+		return r.printf("%s", r.t("tui.add.failureKept", "失败的结果也会留在本会话的快照里；要重新识别用 /add --refresh\n"))
 	}
 	return nil
 }
@@ -285,13 +286,18 @@ func effortsCell(efforts []string) string {
 // discoveryFailureText 是四种失败的中文说法。ErrDiscoveryFailed 与其它未归类
 // 的错误原样打 err.Error()。
 func discoveryFailureText(err error, timeout time.Duration) string {
+	return discoveryFailureTextLang(i18n.LangZh, err, timeout)
+}
+
+// discoveryFailureTextLang 是 discoveryFailureText 带语言的那一半。
+func discoveryFailureTextLang(lang i18n.Lang, err error, timeout time.Duration) string {
 	switch {
 	case errors.Is(err, provider.ErrDiscoveryTimeout):
-		return fmt.Sprintf("超时（%v 内没有回来）", timeout)
+		return i18n.TF(lang, "tui.add.discoveryTimeout", "超时（%v 内没有回来）", timeout)
 	case errors.Is(err, provider.ErrDiscoveryEmpty):
-		return "一个模型都没列出来（没登录？）"
+		return i18n.TF(lang, "tui.add.discoveryEmpty", "一个模型都没列出来（没登录？）")
 	case errors.Is(err, provider.ErrDiscoveryUnparseable):
-		return "输出认不出来（CLI 版本变了？）"
+		return i18n.TF(lang, "tui.add.discoveryUnparseable", "输出认不出来（CLI 版本变了？）")
 	default:
 		return err.Error()
 	}
@@ -317,7 +323,7 @@ func (s *modelSnapshot) row(n int) (snapRow, bool) {
 func cmdAddDiscovered(ctx context.Context, r *REPL, fields []string) error {
 	tok := fields[0]
 	if !isASCIIDigits(tok[1:]) {
-		return r.printf("%s\n", msgAddModelUsage)
+		return r.printf("%s", r.t("tui.add.usage", msgAddModelUsage))
 	}
 	var newID, effort string
 	haveID, haveEffort := false, false
@@ -325,30 +331,30 @@ func cmdAddDiscovered(ctx context.Context, r *REPL, fields []string) error {
 		switch fields[i] {
 		case "--id":
 			if haveID || i+1 >= len(fields) {
-				return r.printf("%s\n", msgAddModelUsage)
+				return r.printf("%s", r.t("tui.add.usage", msgAddModelUsage))
 			}
 			haveID = true
 			newID = fields[i+1]
 			i++
 		case "--effort":
 			if haveEffort || i+1 >= len(fields) {
-				return r.printf("%s\n", msgAddModelUsage)
+				return r.printf("%s", r.t("tui.add.usage", msgAddModelUsage))
 			}
 			haveEffort = true
 			effort = fields[i+1]
 			i++
 		default:
-			return r.printf("%s\n", msgAddModelUsage)
+			return r.printf("%s", r.t("tui.add.usage", msgAddModelUsage))
 		}
 	}
 	if r.rn == nil {
-		return r.printf("%s\n", msgNoRunner)
+		return r.printf("%s\n", r.t("tui.repl.noRunner", msgNoRunner))
 	}
 	if r.modelSnap == nil {
 		if len(discoverableProviders(r.cfg)) == 0 {
-			return r.printf("配置里没有能识别模型的 provider，/add +编号 用不了\n")
+			return r.printf("%s", r.t("tui.add.noDiscoveryProviders", "配置里没有能识别模型的 provider，/add +编号 用不了\n"))
 		}
-		return r.printf("还没有识别结果：先敲 /add 列出识别出的模型，再用 /add +编号 加入\n")
+		return r.printf("%s", r.t("tui.add.noSnapshot", "还没有识别结果：先敲 /add 列出识别出的模型，再用 /add +编号 加入\n"))
 	}
 	n, err := strconv.Atoi(tok[1:])
 	row, ok := snapRow{}, false
@@ -356,7 +362,7 @@ func cmdAddDiscovered(ctx context.Context, r *REPL, fields []string) error {
 		row, ok = r.modelSnap.row(n)
 	}
 	if !ok {
-		return r.printf("识别结果里没有 %s，不带参数的 /add 能列出现有编号\n", tok)
+		return r.printf("%s", r.t("tui.add.noSuchIndex", "识别结果里没有 %s，不带参数的 /add 能列出现有编号\n", tok))
 	}
 	return addDiscoveredModel(ctx, r, row.m, effort, haveEffort, newID, haveID, tok)
 }
@@ -396,13 +402,13 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 	// claude 与 codex 的强度在 council 里选，只给该模型自己支持的档（codex 的档已由识别层按模型收窄）。
 	case m.Provider != "claude" && m.Provider != "codex":
 		if haveEffort {
-			return r.printf("%s 的强度不在 council 里选（grok 写在它自己的配置里，agy 写在模型名里），不能带 --effort\n", m.Provider)
+			return r.printf("%s", r.t("tui.add.effortNotInCouncil", "%s 的强度不在 council 里选（grok 写在它自己的配置里，agy 写在模型名里），不能带 --effort\n", m.Provider))
 		}
 		effort = ""
 	case !haveEffort:
 		effort = m.DefaultEffort()
 	case len(m.Efforts) == 0:
-		return r.printf("%s 没有可选的强度，不能带 --effort\n", m.Model)
+		return r.printf("%s", r.t("tui.add.noEfforts", "%s 没有可选的强度，不能带 --effort\n", m.Model))
 	default:
 		found := false
 		for _, e := range m.Efforts {
@@ -412,23 +418,23 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 			}
 		}
 		if !found {
-			return r.printf("%s 支持的强度是 %s，没有 %s\n", m.Model, strings.Join(m.Efforts, "|"), effort)
+			return r.printf("%s", r.t("tui.add.effortNotSupported", "%s 支持的强度是 %s，没有 %s\n", m.Model, strings.Join(m.Efforts, "|"), effort))
 		}
 	}
 
 	if dup := sameBrainAgent(r.cfg, m, effort); dup != "" {
-		return r.printf("配置里已经有同一个模型、同一强度的 agent %s，直接 /add %s\n", dup, dup)
+		return r.printf("%s", r.t("tui.add.sameBrain", "配置里已经有同一个模型、同一强度的 agent %s，直接 /add %s\n", dup, dup))
 	}
 	if !haveID {
 		newID = m.SuggestedID(effort)
 	}
-	if problem := config.NewAgentIDProblem(r.cfg, newID); problem != "" {
+	if problem := config.NewAgentIDProblemLang(r.lang, r.cfg, newID); problem != "" {
 		return r.printf("%s\n", problem)
 	}
 
 	path := r.rulesCtx.ConfigPath
 	if path == "" {
-		return r.printf("不知道配置文件在哪，没法写入\n")
+		return r.printf("%s", r.t("tui.add.unknownConfigPath", "不知道配置文件在哪，没法写入\n"))
 	}
 	// 写回永远只落最高优先层那一份文件（默认就是项目配置），绝不把合并
 	// 结果整体落盘——那会把全局层的 providers 抄进项目文件。reloadLayers
@@ -465,18 +471,18 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 	// 错误（open item (r)）。
 	onDisk, err := config.LoadMerged(layers)
 	if err != nil {
-		return r.reportErr(configReadErrPrefix("读配置文件失败", layers), err)
+		return r.reportErr(configReadErrPrefixLang(r.lang, r.t("tui.err.readConfig", "读配置文件失败"), layers), err)
 	}
 	if onDisk.Config.DataDir != r.cfg.DataDir || onDisk.Config.RulesFile != r.cfg.RulesFile {
-		return r.printf("配置文件里改了 data_dir 或 rules_file，这两个键只能重启生效：重启 council 之后先敲 /add 看编号，再用 /add +编号 加入\n")
+		return r.printf("%s", r.t("tui.add.restartOnly", "配置文件里改了 data_dir 或 rules_file，这两个键只能重启生效：重启 council 之后先敲 /add 看编号，再用 /add +编号 加入\n"))
 	}
 	if !reflect.DeepEqual(onDisk.Config, r.cfg) {
 		if len(layers) > 1 {
 			// 多层时补一句比较范围：否则用户不知道该去改哪一份文件。
-			return r.printf("配置文件在上次加载之后被改过（比较的是合并后的 %d 层：%s），先 /config reload --apply 让它生效，再 /add %s\n",
-				len(layers), strings.Join(onDisk.Layers, "、"), tok)
+			return r.printf("%s", r.t("tui.add.configChangedLayers", "配置文件在上次加载之后被改过（比较的是合并后的 %d 层：%s），先 /config reload --apply 让它生效，再 /add %s\n",
+				len(layers), strings.Join(onDisk.Layers, r.t("tui.list.sep", "、")), tok))
 		}
-		return r.printf("配置文件在上次加载之后被改过，先 /config reload --apply 让它生效，再 /add %s\n", tok)
+		return r.printf("%s", r.t("tui.add.configChanged", "配置文件在上次加载之后被改过，先 /config reload --apply 让它生效，再 /add %s\n", tok))
 	}
 
 	ac := config.AgentConfig{
@@ -488,13 +494,13 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 		Permissions: config.PermissionRead,
 		Mode:        config.ModeDiscussion,
 	}
-	comment := fmt.Sprintf("council /add 追加：%s 识别出的 %s（%s）", m.Provider, m.Model, m.Source.Label())
-	backup, orig, err := config.AppendBlock(writePath, config.AgentBlockTOML(newID, ac, comment))
+	comment := r.t("cli.add.comment", "council /add 追加：%s 识别出的 %s（%s）", m.Provider, m.Model, m.Source.Label())
+	backup, orig, err := config.AppendBlockLang(r.lang, writePath, config.AgentBlockTOML(newID, ac, comment))
 	if err != nil {
 		if backup != "" {
-			return r.printf("写配置文件失败（原文件备份在 %s）: %v\n", backup, err)
+			return r.printf("%s", r.t("tui.add.writeFailedBackup", "写配置文件失败（原文件备份在 %s）: %v\n", backup, err))
 		}
-		return r.reportErr("写配置文件失败", err)
+		return r.reportErr(r.t("tui.err.writeConfig", "写配置文件失败"), err)
 	}
 
 	// 写后再合并一次（不是 LoadAndValidate 单文件）：追加块引用的 provider
@@ -503,9 +509,9 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 	merged, err := config.LoadMerged(layers)
 	if err != nil {
 		if rerr := config.RestoreFile(writePath, orig); rerr != nil {
-			return r.printf("写入后的配置没通过加载或校验，恢复原文件也失败了（备份在 %s）: %v；%v\n", backup, err, rerr)
+			return r.printf("%s", r.t("tui.add.verifyFailedRestoreFailed", "写入后的配置没通过加载或校验，恢复原文件也失败了（备份在 %s）: %v；%v\n", backup, err, rerr))
 		}
-		return r.printf("写入后的配置没通过加载或校验，已恢复原文件（备份在 %s）: %v\n", backup, err)
+		return r.printf("%s", r.t("tui.add.verifyFailedRestored", "写入后的配置没通过加载或校验，已恢复原文件（备份在 %s）: %v\n", backup, err))
 	}
 	newCfg := merged.Config
 
@@ -532,7 +538,7 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 	r.rulesFileBase = merged.RulesFileBase
 	r.svc.SetThoughtPolicy(newCfg.StoreThought)
 
-	if err := r.printf("已把 agent %s 追加进 %s（原文件备份在 %s）\n", newID, writePath, backup); err != nil {
+	if err := r.printf("%s", r.t("tui.add.appended", "已把 agent %s 追加进 %s（原文件备份在 %s）\n", newID, writePath, backup)); err != nil {
 		return err
 	}
 	joined := newCfg.Agents[newID]
@@ -545,7 +551,7 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 		JoinedAt:    time.Now().UTC(),
 	}
 	if err := r.svc.Join(ctx, r.cur.ID, p); err != nil {
-		return r.reportErr("加入失败", err)
+		return r.reportErr(r.t("tui.err.join", "加入失败"), err)
 	}
-	return r.printf("%s 已加入会话 %s\n", newID, r.cur.ID)
+	return r.printf("%s", r.t("tui.add.joined", "%s 已加入会话 %s\n", newID, r.cur.ID))
 }

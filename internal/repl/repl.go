@@ -330,7 +330,7 @@ func (r *REPL) farewell() error {
 // write 把一段文本写到注入的 out，写失败时带上下文包装返回。
 func (r *REPL) write(s string) error {
 	if _, err := io.WriteString(r.out, s); err != nil {
-		return fmt.Errorf("repl: 写输出失败: %w", err)
+		return fmt.Errorf("%s%w", r.t("tui.repl.writeFailedPrefix", "repl: 写输出失败: "), err)
 	}
 	return nil
 }

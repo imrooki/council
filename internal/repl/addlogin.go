@@ -3,6 +3,7 @@ package repl
 import (
 	"context"
 
+	"council/internal/i18n"
 	"council/internal/provider"
 )
 
@@ -30,27 +31,41 @@ var loginCommands = map[string]string{
 // 用的都是它。首次运行一家都没找到时的安装说明（app 包的 msgFirstRunNoneFound）另写着各家的
 // 登录办法，不经它（19f §7 (j)）。不认识的 id 返回空串。
 func LoginCommand(providerID string) string {
+	return LoginCommandLang(i18n.LangZh, providerID)
+}
+
+// LoginCommandLang 是 LoginCommand 带语言的那一半。只有 agy 的兜底说明是
+// 一句话，其余三家的值本来就是命令行，原样返回。
+func LoginCommandLang(lang i18n.Lang, providerID string) string {
+	if providerID == "agy" {
+		return i18n.TF(lang, "tui.add.login.agyHint", "agy（按提示登录）")
+	}
 	return loginCommands[providerID]
 }
 
 // LoginText 是登录状态的说法，四档之一；claude 已登录时带上订阅的原值，已登录（API key）
 // 时带上 key 来源的原值（OB2）。首次运行的结果行与 /add 的登录段用的都是它。
 func LoginText(l provider.LoginInfo) string {
+	return LoginTextLang(i18n.LangZh, l)
+}
+
+// LoginTextLang 是 LoginText 带语言的那一半。
+func LoginTextLang(lang i18n.Lang, l provider.LoginInfo) string {
 	switch l.State {
 	case provider.LoginYes:
 		if l.Subscription != "" {
-			return "已登录（订阅：" + l.Subscription + "）"
+			return i18n.TF(lang, "tui.add.login.yesSubscription", "已登录（订阅：%s）", l.Subscription)
 		}
-		return "已登录"
+		return i18n.TF(lang, "tui.add.login.yes", "已登录")
 	case provider.LoginAPIKey:
 		if l.KeySource != "" {
-			return "已登录（API key：" + l.KeySource + "）"
+			return i18n.TF(lang, "tui.add.login.yesAPIKeySource", "已登录（API key：%s）", l.KeySource)
 		}
-		return "已登录（API key）"
+		return i18n.TF(lang, "tui.add.login.yesAPIKey", "已登录（API key）")
 	case provider.LoginNo:
-		return "没登录"
+		return i18n.TF(lang, "tui.add.login.no", "没登录")
 	default:
-		return "登录状态查不出"
+		return i18n.TF(lang, "tui.add.login.unknown", "登录状态查不出")
 	}
 }
 
@@ -95,17 +110,17 @@ func printLoginStatus(r *REPL, snap *modelSnapshot) error {
 	if len(snap.logins) == 0 {
 		return nil
 	}
-	if err := r.write(msgLoginHead); err != nil {
+	if err := r.write(r.t("tui.add.login.head", msgLoginHead)); err != nil {
 		return err
 	}
 	for _, l := range snap.logins {
 		if l.info.State == provider.LoginNo {
-			if err := r.printf("  %-6s  %s；在终端里运行 %s，登录之后 /add --refresh\n", l.provider, LoginText(l.info), LoginCommand(l.provider)); err != nil {
+			if err := r.printf("%s", r.t("tui.add.login.notLoggedIn", "  %-6s  %s；在终端里运行 %s，登录之后 /add --refresh\n", l.provider, LoginTextLang(r.lang, l.info), LoginCommandLang(r.lang, l.provider))); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := r.printf("  %-6s  %s\n", l.provider, LoginText(l.info)); err != nil {
+		if err := r.printf("  %-6s  %s\n", l.provider, LoginTextLang(r.lang, l.info)); err != nil {
 			return err
 		}
 	}

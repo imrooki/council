@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"council/internal/i18n"
 	"council/internal/turn"
 )
 
@@ -66,12 +67,12 @@ func cmdVerbose(_ context.Context, r *REPL, args cmdArgs) error {
 	case len(args.fields) == 1 && args.fields[0] == "off":
 		r.concise = true
 	default:
-		return r.printf("%s\n", msgVerboseUsage)
+		return r.printf("%s\n", r.t("tui.verbose.usage", msgVerboseUsage))
 	}
 	if r.concise {
-		return r.printf("%s\n", msgConciseOn)
+		return r.printf("%s\n", r.t("tui.verbose.concise", msgConciseOn))
 	}
-	return r.printf("%s\n", msgVerboseOn)
+	return r.printf("%s\n", r.t("tui.verbose.verbose", msgVerboseOn))
 }
 
 // FormatWall 是子进程用时的唯一格式。负数当 0；不足一分钟向零截断到十分之一秒
@@ -106,27 +107,35 @@ func FormatElapsed(d time.Duration) string {
 
 // OutcomeWord 把结局印成六个显示宽以内的状态词。未知值归「未知」。
 // 从 internal/tui/roundobs.go 原样搬来。简洁档失败行的结局词与 TUI 看板、段终态块的状态词是同一份。
+//
+// OutcomeWord 是中文固定值，保留旧签名给既有调用方与测试；
+// 需要按界面语言取词的地方用 OutcomeWordLang。
 func OutcomeWord(o turn.Outcome) string {
+	return OutcomeWordLang(i18n.LangZh, o)
+}
+
+// OutcomeWordLang 是 OutcomeWord 带语言的那一半。零值 / 未知语言走中文目录。
+func OutcomeWordLang(lang i18n.Lang, o turn.Outcome) string {
 	switch o {
 	case turn.OutcomeSpoke:
-		return "完成"
+		return i18n.TF(lang, "tui.outcome.spoke", "完成")
 	case turn.OutcomePostRejected:
-		return "未入库"
+		return i18n.TF(lang, "tui.outcome.postRejected", "未入库")
 	case turn.OutcomeProviderFailed:
-		return "报错"
+		return i18n.TF(lang, "tui.outcome.providerFailed", "报错")
 	case turn.OutcomeUnparsable:
-		return "认不出"
+		return i18n.TF(lang, "tui.outcome.unparsable", "认不出")
 	case turn.OutcomeTimeout:
-		return "超时"
+		return i18n.TF(lang, "tui.outcome.timeout", "超时")
 	case turn.OutcomeSpawnFailed:
-		return "没起来"
+		return i18n.TF(lang, "tui.outcome.spawnFailed", "没起来")
 	case turn.OutcomeRefused:
-		return "拒绝"
+		return i18n.TF(lang, "tui.outcome.refused", "拒绝")
 	case turn.OutcomeCanceled:
-		return "取消"
+		return i18n.TF(lang, "tui.outcome.canceled", "取消")
 	case turn.OutcomeLost:
-		return "丢失"
+		return i18n.TF(lang, "tui.outcome.lost", "丢失")
 	default:
-		return "未知"
+		return i18n.TF(lang, "tui.outcome.unknown", "未知")
 	}
 }
