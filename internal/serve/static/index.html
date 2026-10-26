@@ -7,7 +7,7 @@
 <!-- 没有 favicon 时 Chromium 会给窗口和任务栏一个默认的地球图标，-app 窗口下尤其显眼。
      这里用内联 SVG：黑底圆角方块 + 白色圆点，与顶栏品牌标记同一套形；
      用 data URI 而不是加一个路由，少一个端点、也少一次请求。 -->
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23101215'/%3E%3Ccircle cx='32' cy='32' r='13' fill='%23ffffff'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23101215'/%3E%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cg stroke='%23ffffff' stroke-opacity='.5' stroke-width='2.6'%3E%3Cline x1='32' y1='32' x2='32' y2='13'/%3E%3Cline x1='32' y1='32' x2='48.5' y2='41.5'/%3E%3Cline x1='32' y1='32' x2='15.5' y2='41.5'/%3E%3C/g%3E%3Ccircle cx='32' cy='32' r='7.5' fill='%23ffffff'/%3E%3Ccircle cx='32' cy='13' r='5' fill='%23ffffff'/%3E%3Ccircle cx='48.5' cy='41.5' r='5' fill='%23ffffff'/%3E%3Ccircle cx='15.5' cy='41.5' r='5' fill='%23ffffff'/%3E%3C/svg%3E">
 <style>
   /* 设计令牌照 deepseek-harness 的那一套：中性偏冷的灰阶（neutral-bluish）、
      几乎不可见的描边（黑/白 6%–12% 的透明度，而不是实心灰线）、近黑作为
@@ -190,11 +190,15 @@
     border-bottom: 1px solid var(--line);
   }
   .brand { display: flex; align-items: center; gap: 9px; font-size: var(--text-body); font-weight: 600; }
+  /* 品牌标记＝委员会的形态：中间一张桌子、周围三席。用 mask 而不是画死颜色，
+     这样它跟着 --brand 在浅/深色主题里走；favicon 用同一套形状（深底白席），
+     任务栏图标和顶栏标记才是同一个东西。 */
   .brand::before {
     content: "";
     width: 18px; height: 18px;
-    border-radius: 6px;
     background: var(--brand);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cg stroke='%23ffffff' stroke-opacity='.5' stroke-width='2.6'%3E%3Cline x1='32' y1='32' x2='32' y2='13'/%3E%3Cline x1='32' y1='32' x2='48.5' y2='41.5'/%3E%3Cline x1='32' y1='32' x2='15.5' y2='41.5'/%3E%3C/g%3E%3Ccircle cx='32' cy='32' r='7.5' fill='%23ffffff'/%3E%3Ccircle cx='32' cy='13' r='5' fill='%23ffffff'/%3E%3Ccircle cx='48.5' cy='41.5' r='5' fill='%23ffffff'/%3E%3Ccircle cx='15.5' cy='41.5' r='5' fill='%23ffffff'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cg stroke='%23ffffff' stroke-opacity='.5' stroke-width='2.6'%3E%3Cline x1='32' y1='32' x2='32' y2='13'/%3E%3Cline x1='32' y1='32' x2='48.5' y2='41.5'/%3E%3Cline x1='32' y1='32' x2='15.5' y2='41.5'/%3E%3C/g%3E%3Ccircle cx='32' cy='32' r='7.5' fill='%23ffffff'/%3E%3Ccircle cx='32' cy='13' r='5' fill='%23ffffff'/%3E%3Ccircle cx='48.5' cy='41.5' r='5' fill='%23ffffff'/%3E%3Ccircle cx='15.5' cy='41.5' r='5' fill='%23ffffff'/%3E%3C/svg%3E") center / contain no-repeat;
   }
   .brand small {
     font-size: 11px;
