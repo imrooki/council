@@ -1888,8 +1888,11 @@
   }
   .settings-result[hidden] { display: none; }
   /* A2：保存结果按 reloaded 分两色。热加载成功是中性/成功色；需要重启是
-     警告色——用户不应该把「已写入」误读成「已生效」。 */
+     警告色——用户不应该把「已写入」误读成「已生效」。A3 增加第三档：
+     身份字段热换成功、但重置了该成员的 provider 会话（上下文不再续接），
+     用警告色是因为它虽然已经生效，代价却是不可撤销的。 */
   .settings-result.is-hot { background: var(--accent-soft); border-color: var(--accent); }
+  .settings-result.is-reset { background: var(--warn-soft); border-color: var(--warn); }
   .settings-result.is-restart { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
   /* 保存前预览里的生效判定。比普通说明更醒目：这是用户决定「现在保存」
      之前唯一一次知道「要不要重启」的机会。 */
@@ -1905,6 +1908,7 @@
   }
   .settings-reload-hint[hidden] { display: none; }
   .settings-reload-hint.is-hot { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .settings-reload-hint.is-reset { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
   .settings-reload-hint.is-restart { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
   .settings-error {
     margin: 12px 0 0;
@@ -7554,12 +7558,18 @@
 
   const SETTINGS_SOURCES = { config: 'config', claude: 'claude' };
   const SETTINGS_EDIT_FIELDS = ['display_name', 'provider', 'model', 'effort', 'permissions', 'mode'];
-  // A2：字段分级表由服务端 /api/settings 的 reload 给出；这里的副本只在
+  // A2/A3：字段分级表由服务端 /api/settings 的 reload 给出；这里的副本只在
   // 服务端没给（旧响应 / 直接构造的测试响应）时兜底，字段名必须与
   // internal/serve/settings_reload.go 保持一致。
+  //
+  // identity_fields 是「能热更、但会重置该成员 provider 会话」的那一组。
+  // 它不能并进 restart_fields：改这些字段**不需要重启**，代价是上下文丢失，
+  // 两句话必须分开说。restart_fields 当前为空表（所有 agent 字段都能热更），
+  // 仍然保留，给「将来出现一个真正无法热更的字段」留位置。
   const SETTINGS_RELOAD_FALLBACK = {
     hot_fields: ['mode'],
-    restart_fields: ['display_name', 'role', 'provider', 'model', 'effort', 'prompt', 'permissions'],
+    identity_fields: ['display_name', 'role', 'provider', 'model', 'effort', 'prompt', 'permissions'],
+    restart_fields: [],
   };
   const SETTINGS_RELOAD_LABELS = {
     display_name: '名称或角色变了',
@@ -7589,12 +7599,14 @@
   function settingsReloadPolicy() {
     const policy = state.settings && state.settings.reload;
     // 关键区别：服务端明确给了 []（例如热更字段全部移进身份指纹之后）
-    // 必须当成「没有可热更字段」，不能因为 length===0 就退回内置兜底表。
+    // 必须当成「没有这一类字段」，不能因为 length===0 就退回内置兜底表。
     // 只有字段整个缺席（旧响应）才用兜底。
     const hot = policy && Array.isArray(policy.hot_fields) ? policy.hot_fields : null;
+    const identity = policy && Array.isArray(policy.identity_fields) ? policy.identity_fields : null;
     const restart = policy && Array.isArray(policy.restart_fields) ? policy.restart_fields : null;
     return {
       hot_fields: hot !== null ? hot : SETTINGS_RELOAD_FALLBACK.hot_fields,
+      identity_fields: identity !== null ? identity : SETTINGS_RELOAD_FALLBACK.identity_fields,
       restart_fields: restart !== null ? restart : SETTINGS_RELOAD_FALLBACK.restart_fields,
     };
   }
@@ -7602,11 +7614,17 @@
   // settingsPreviewVerdict 是保存前预览用的分级判定。它只拿表单旧值与
   // 新值比，不重新实现服务端的配置合并；服务端还会按 RunCfg（启动时的
   // 执行配置）再判一次，两边不一致时以服务端响应为准。
+  //
+  // 返回值三档：reloaded=false 需要重启；reloaded=true 且 resetSessions=true
+  // 立即生效但该成员的 provider 会话会被重置（上下文不再续接）；
+  // 其余是纯热更。resetSessions 必须单独一位，不能靠 reasons 推断：
+  // 身份字段的改动没有「重启原因」，只有代价。
   function settingsPreviewVerdict(preview) {
-    if (!preview) return { reloaded: true, reasons: [] };
+    if (!preview) return { reloaded: true, resetSessions: false, reasons: [] };
     if (preview.kind === 'delete') {
       return {
         reloaded: false,
+        resetSessions: false,
         reasons: [t('ui.settings.previewReasonDeleted', '删除了成员 {id}', { id: preview.id })],
       };
     }
@@ -7615,18 +7633,19 @@
       // 不经过这个预览框。
       return {
         reloaded: false,
+        resetSessions: false,
         reasons: [t('ui.settings.previewReasonNew', '新增成员 {id}', { id: preview.id })],
       };
     }
     const policy = settingsReloadPolicy();
     const reasons = [];
+    let resetSessions = false;
     const addReason = (field) => {
       const label = settingsReloadLabel(field);
       if (!reasons.includes(label)) reasons.push(label);
     };
-    // 上一次「改了 display_name / model 但没重启」留下的待重启字段
-    // 也算数：服务端按 RunCfg 判定，这一次只改可热更的 mode 仍然不能
-    // 热换。
+    // 上一次保存被拒 / 失败留下的待重启字段也算数：服务端按 RunCfg 判定，
+    // 这一次只改可热更的 mode 仍然不能热换。
     const current = settingsAgentByID(preview.id);
     if (current) {
       if (current.runnable === false) {
@@ -7636,10 +7655,12 @@
     }
     for (const change of preview.changes) {
       if (change.old === change.new) continue;
+      if (policy.identity_fields.includes(change.field)) resetSessions = true;
       if (!policy.restart_fields.includes(change.field)) continue;
       addReason(change.field);
     }
-    return { reloaded: reasons.length === 0, reasons };
+    // 需要重启时不再提「立即生效」：两句话同时出现会让用户以为改完就能用。
+    return { reloaded: reasons.length === 0, resetSessions: reasons.length === 0 && resetSessions, reasons };
   }
 
   function settingsAgentByID(agentID) {
@@ -8290,16 +8311,22 @@
     settingsPreviewBackup.textContent = t('ui.settings.previewBackup',
       '写入前会先把原文备份成 <配置文件名>.bak-<YYYYMMDD-HHmmss>，备份路径在成功提示里显示。');
 
-    // A2：保存前就把「立即生效 / 需要重启」摆在确认按钮上面。
+    // A2/A3：保存前就把「立即生效 / 立即生效但会话会被重置 / 需要重启」
+    // 摆在确认按钮上面。三档文案不能合并：身份字段的改动确实不用重启，
+    // 但如果不说「上下文不再续接」，用户会在保存之后才发现成员失忆了。
     const verdict = settingsPreviewVerdict(preview);
-    settingsPreviewReload.textContent = verdict.reloaded
-      ? t('ui.settings.previewHot',
-        '保存后立即生效（只改了不影响身份指纹的字段，不需要重启 serve）。')
-      : t('ui.settings.previewRestart', '本次改动需要重启 serve 后生效：{reasons}', {
-        reasons: verdict.reasons.join(t('ui.common.listSeparator', '、')) ||
-          t('ui.settings.previewConfigChange', '配置变更'),
-      });
-    settingsPreviewReload.className = 'settings-reload-hint ' + (verdict.reloaded ? 'is-hot' : 'is-restart');
+    if (verdict.reloaded) {
+      settingsPreviewReload.textContent = verdict.resetSessions
+        ? t('ui.settings.previewReset', '保存后立即生效；该成员的 provider 会话会被重置，之前的上下文不再续接。')
+        : t('ui.settings.previewHot', '保存后立即生效（只改了不影响身份指纹的字段，不需要重启 serve）。');
+    } else {
+      settingsPreviewReload.textContent = t('ui.settings.previewRestart', '本次改动需要重启 serve 后生效：{reasons}', {
+          reasons: verdict.reasons.join(t('ui.common.listSeparator', '、')) ||
+            t('ui.settings.previewConfigChange', '配置变更'),
+        });
+    }
+    settingsPreviewReload.className = 'settings-reload-hint '
+      + (verdict.reloaded ? (verdict.resetSessions ? 'is-reset' : 'is-hot') : 'is-restart');
     settingsPreviewReload.hidden = false;
 
     settingsPreviewDiffBody.replaceChildren();
@@ -8381,16 +8408,23 @@
           ? t('ui.settings.deletedFrom', '已从 {path}', { path: result.write_target })
           : t('ui.settings.savedTo', '已写入 {path}', { path: result.write_target }));
       }
-      // A2：结果区第一行按 reloaded 明说「已经生效」还是「还差一次重启」。
+      // A2/A3：结果区第一行按 reloaded 明说「已经生效」还是「还差一次
+      // 重启」；三个热更分支也分开——重置过会话的那一档必须把「上下文
+      // 不再续接」说出来，它和「什么都没丢」不是同一件事。
       // 只在文件真的改过时显示（没有生成备份＝内容逐字节没变），否则
       // 一次「什么都没改」的保存会被说成需要重启。
       const changed = Boolean(result && result.backup_path);
+      const sessionsReset = Number(result && result.sessions_reset) || 0;
       if (changed) {
         const reasons = result && Array.isArray(result.restart_reasons)
           ? result.restart_reasons.filter(Boolean)
           : [];
         if (result.reloaded) {
-          lines.push(t('ui.settings.hotResult', '已热加载：本次改动立即生效，无需重启 serve。'));
+          if (sessionsReset > 0) {
+            lines.push(t('ui.settings.resetResult', '已热加载；该成员的 provider 会话已重置，下一轮用新模型重新开始。'));
+          } else {
+            lines.push(t('ui.settings.hotResult', '已热加载：本次改动立即生效，无需重启 serve。'));
+          }
         } else if (reasons.length > 0) {
           lines.push(t('ui.settings.restartResult', '需要重启 serve 后生效：{reasons}。', {
             reasons: reasons.join(t('ui.common.listSeparator', '、')),
@@ -8415,7 +8449,9 @@
       settingsPreviewReload.hidden = true;
       settingsFormOverlay.hidden = true;
       settingsResult.className = 'settings-result '
-        + (result && result.reloaded ? 'is-hot' : 'is-restart');
+        + (result && result.reloaded
+          ? (sessionsReset > 0 ? 'is-reset' : 'is-hot')
+          : 'is-restart');
       setSettingsResult(state.settingsResult);
       await loadSettings();
       // 工作台的成员列表也要立刻反映新配置：/api/options 读的是同一份

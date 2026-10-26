@@ -56,17 +56,20 @@ func (s *Server) memberFor(p conversation.Participant) memberJSON {
 	}
 }
 
-// agentModel 先查启动时从配置拍下来的 s.models（NewServer 的入参，写模式
-// 装配时已经含 Claude 导入并合并进 cfg.Agents 的成员），没有再回配置里
-// 找一次。两次都不中回空串：这是「配置里已经没这个 id」，不是错误。
+// agentModel 先读当前生效的配置，再回退到启动时从配置拍下来的 s.models
+// （NewServer 的入参，写模式装配时已经含 Claude 导入并合并进 cfg.Agents 的
+// 成员）。两次都不中回空串：这是「配置里已经没这个 id」，不是错误。
+//
+// A3 起 model 是能热换的身份字段：若先查 s.models，改完模型不重启时右侧
+// 「成员与费用」仍会显示旧模型——用户刚被告知「立即生效」，界面却在说别的。
+// 读模式没有 currentCfg（s.write 为 nil），自然走 s.models 这条回退。
 func (s *Server) agentModel(agentID string) string {
-	if model := s.models[agentID]; model != "" {
-		return model
-	}
 	if cfg := s.currentCfg(); cfg != nil {
-		return cfg.Agents[agentID].Model
+		if model := cfg.Agents[agentID].Model; model != "" {
+			return model
+		}
 	}
-	return ""
+	return s.models[agentID]
 }
 
 // memberWriteGate 是成员两个写端点共用的前四道门，顺序与 rename /

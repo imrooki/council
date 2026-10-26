@@ -49,7 +49,20 @@ func serveEnvInt(name string) int {
 // runServeFakeProviderCLI 打一份 claude 适配器认得的成功 JSON。
 // COUNCIL_FAKE_SLEEP_ALL_MS 让每次调用先睡一会儿，供「观察者断开后
 // 议会仍跑完」制造在飞窗口；正文与金额可由环境变量覆盖。
+// COUNCIL_FAKE_ARGV_FILE 非空时把自己收到的 argv 追加成一行 JSON：
+// 设置页热换之后真正发给 provider 的 --model / --resume 只有 argv 能证明，
+// 配置与指纹都可能是内存里自洽而命令行没变的。
 func runServeFakeProviderCLI() {
+	// A3：先记 argv 再读 stdin。正文很长时读 stdin 会等到 EOF，而 argv
+	// 与正文无关；先记下来，后面即使进程被取消也有证据。
+	if path := os.Getenv("COUNCIL_FAKE_ARGV_FILE"); path != "" {
+		if line, marshalErr := json.Marshal(os.Args[1:]); marshalErr == nil {
+			if f, openErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); openErr == nil {
+				_, _ = f.Write(append(line, '\n'))
+				_ = f.Close()
+			}
+		}
+	}
 	_, _ = io.ReadAll(os.Stdin)
 	if ms := serveEnvInt("COUNCIL_FAKE_SLEEP_ALL_MS"); ms > 0 {
 		time.Sleep(time.Duration(ms) * time.Millisecond)

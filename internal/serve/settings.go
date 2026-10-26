@@ -8,19 +8,23 @@ package serve
 //   - 写之前先备份原文，路径回给前端显示；
 //   - 写之前先把新内容当「临时最高层」合并 + Validate 一遍，失败回 400
 //     且目标文件一个字节没动（config.WriteAgentSection 负责）；
-//   - 写完先替换 s.write.Cfg（展示用）。A2 起再分级：只碰 mode 且没有
-//     轮次在跑时，把同一份配置热换进 RunCfg 与 Runner，响应
-//     reloaded=true；碰到 display_name / role / provider / model / effort /
-//     prompt / permissions、或新增 / 删除成员时，仍然要下次重启 serve 才
-//     真正生效，响应 reloaded=false 并在 restart_reasons 里点名原因
-//     （display_name / role 会进身份指纹，分级表与热换实现在
-//     settings_reload.go）。
+//   - 写完先替换 s.write.Cfg（展示用），再分级热换（settings_reload.go）：
+//     mode 与七个身份字段都能当场生效，响应 reloaded=true。身份字段
+//     （display_name / role / provider / model / effort / prompt /
+//     permissions）的全部代价是「重置该成员的 provider 会话」——它们进
+//     身份指纹，不重置的话旧会话下一轮必然撞漂移。响应里的
+//     sessions_reset 就是删掉的行数，note 明写「上下文不再续接」。
+//     新增 / 删除成员、以及「其它成员在磁盘上变了」仍然要下次重启 serve
+//     才真正生效，响应 reloaded=false 并在 restart_reasons 里点名原因。
+//     有轮次在跑时：身份字段的改动在**写盘之前**就回 409 拒绝，mode 之类
+//     不碰会话的改动照旧写盘但不热换（reloaded=false + 原因）。
 //
 // providers 与 teams 在本片只读：provider 的 command 指向登录过的 CLI，
 // 改错等于把成员换成另一个账户或另一个程序，风险比改一个模型名高一个
 // 数量级；teams 的改动会牵动summary 与 round 的成员校验，留给以后的片。
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -141,15 +145,21 @@ type settingsAgentRequest struct {
 // settingsWriteResponse 是保存 / 删除成功的响应。
 //
 // reloaded 回答的是「Runner 已经换成本次写盘的新配置了吗」，而不是
-// 「磁盘上的配置变了吗」。A2 之前它恒为 false；现在只有可热更字段
-// （当前只有 mode）、无轮次在跑、且 SetConfig 成功时才为 true。
+// 「磁盘上的配置变了吗」。A2 之前它恒为 false；现在只要本次改动落在可热更
+// 字段（mode 与七个身份字段）、无轮次在跑、且 SetConfig 成功就为 true。
+//
+// sessions_reset 是这次热换删掉的 provider_sessions 行数：改 mode 恒为 0，
+// 改身份字段时是该成员在**全部会话**里的记录数（0 表示它还没开过口）。
+// 只要它大于 0，用户就必须知道「这个人的上下文不再续接」——结果区与 note
+// 都要说这句话。
 //
 // restart_reasons 只在 reloaded=false 且确实有改动时出现：它逐条点名
-// 为什么必须重启（例如 "model 变了"），前端结果区原样显示。
+// 为什么必须重启（例如 "新增成员 p9"），前端结果区原样显示。
 type settingsWriteResponse struct {
 	BackupPath     string   `json:"backup_path"`
 	WriteTarget    string   `json:"write_target"`
 	Reloaded       bool     `json:"reloaded"`
+	SessionsReset  int      `json:"sessions_reset"`
 	RestartReasons []string `json:"restart_reasons,omitempty"`
 	Note           string   `json:"note"`
 }
@@ -167,10 +177,11 @@ func (s *Server) currentCfg() *config.Config {
 }
 
 // runCfg 返回 Runner 当前真正在用的那一份配置。启动之后它只在两种情况下
-// 变化：A2 的可热更字段（mode）热换把它换成磁盘上的新配置；「从模型添加」
-// 那条既有热路径也会换它。需要重启的设置页改动不碰它——/api/ask 的校验与
-// 执行必须和 Runner 看同一份，否则会出现「设置页刚加的成员校验通过、
-// Runner 不认识它」的错位。
+// 变化：A2/A3 的可热更字段热换把它换成磁盘上的新配置（mode 与七个身份
+// 字段；身份字段还会重置该成员的 provider 会话）；「从模型添加」那条既有
+// 热路径也会换它。需要重启的设置页改动不碰它——/api/ask 的校验与执行必须
+// 和 Runner 看同一份，否则会出现「设置页刚加的成员校验通过、Runner 不
+// 认识它」的错位。
 func (s *Server) runCfg() *config.Config {
 	if s.write == nil {
 		return nil
@@ -423,6 +434,32 @@ func (s *Server) handleSettingsAgentSave(w http.ResponseWriter, r *http.Request)
 		fallback = prev
 	}
 
+	// A3：有轮次在跑时，身份字段的改动在写盘之前就拒绝。
+	//
+	// 这次改动必须与「重置该成员的 provider 会话」同时生效，而重置只能在
+	// 没有轮次时做。若先照旧写盘、再退化成「需要重启」，用户会得到一份
+	// 「磁盘上是新 model、Runner 还是旧的、会话还在」的中间态，而且下一次
+	// 保存之前谁也看不出它没生效。拒绝时一个字节都不写，用户等这一轮跑完
+	// 再点一次保存即可。
+	//
+	// 这道闸放在字段校验之前：拒绝时什么都没写，用户重新保存时会拿到真正
+	// 的校验错误；反过来先写一遍再校验，等于把文件动了才拒绝——那正是
+	// 这一闸要避免的事。
+	//
+	// 只拦身份字段。mode 这类不碰会话、不进指纹的字段照旧写盘后降级为
+	// 「reloaded=false + 有轮次正在运行」，那是既有行为，也不会留下危险状态。
+	//
+	// 这道闸与写盘之间不抢 reloadMu：恰在这几毫秒里有新的一轮进表时，写盘
+	// 会照旧发生，随后 settingsHotReload 里的 runningCount 闸会发现它并退化
+	// 成 reloaded=false——会话一行都不删，落盘的新配置等重启生效。那正是这次
+	// 改动之前的状态，不会更糟；为了消掉这个窗口去阻塞所有 /api/ask 不划算。
+	if s.runningJobs() > 0 && settingsSaveResetsSessions(s.runCfg(), id, settingsAgentAfterSave(agent, fallback)) {
+		writeError(w, http.StatusConflict,
+			"有轮次正在运行：这次改动会重置成员 "+id+
+				" 的 provider 会话，必须在没有轮次时保存。等它结束后再保存，或重启 council serve。本次没有写入任何配置文件。")
+		return
+	}
+
 	res, err := config.WriteAgentSection(layers, id, agent, fallback)
 	if err != nil {
 		s.writeSettingsError(w, err)
@@ -457,14 +494,27 @@ func (s *Server) handleSettingsAgentSave(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
+	resetSessions := false
+	sessionsReset := 0
 	if len(reasons) == 0 {
-		// 本次只碰了可热更字段。热换本身还要过「没有轮次在跑」这道闸；
-		// 有 job 在跑时退化成需要重启，绝不打断进行中的议会。
-		if reloadErr := s.settingsHotReload(res.Config); reloadErr != nil {
+		// 本次改动全部落在可热更字段（mode 或身份字段）。热换本身还要过
+		// 「没有轮次在跑」这道闸；有 job 在跑时退化成需要重启，绝不打断
+		// 进行中的议会，也绝不删会话。ctx 去掉请求取消：保存已经用户确认，
+		// 浏览器中途断开不该把「删会话」这一步留在半路。
+		resetSessions = settingsIdentityChanged(oldRun, res.Config, id)
+		n, reloadErr := s.settingsHotReload(context.WithoutCancel(r.Context()), res.Config, id, resetSessions)
+		if reloadErr != nil {
 			switch {
 			case errors.Is(reloadErr, errSettingsJobsRunning),
 				errors.Is(reloadErr, errSettingsNoRunner):
 				reasons = append(reasons, reloadErr.Error())
+			case errors.Is(reloadErr, errSettingsSessionReset):
+				// 会话没删成，RunCfg 也没换（重置排在 SetConfig 之前）。
+				// 不能套用下面那句「已回滚」——这里根本没换过。
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf(
+					"配置已写入 %s（备份：%s），但没有热加载：%v。旧的 Runner 配置仍然生效，重启 council serve 后新配置可生效。",
+					res.WriteTarget, res.BackupPath, reloadErr))
+				return
 			default:
 				// 文件与展示配置都已经换了，回滚它们会制造「磁盘上写着 A、
 				// 界面显示 B」的更坏状态。RunCfg 已在 settingsHotReload
@@ -475,6 +525,7 @@ func (s *Server) handleSettingsAgentSave(w http.ResponseWriter, r *http.Request)
 				return
 			}
 		}
+		sessionsReset = n
 	}
 
 	resp := settingsWriteResponse{
@@ -483,7 +534,12 @@ func (s *Server) handleSettingsAgentSave(w http.ResponseWriter, r *http.Request)
 	}
 	if len(reasons) == 0 {
 		resp.Reloaded = true
-		resp.Note = settingsHotReloadNote
+		resp.SessionsReset = sessionsReset
+		if resetSessions {
+			resp.Note = settingsHotReloadResetNote(sessionsReset)
+		} else {
+			resp.Note = settingsHotReloadNote
+		}
 	} else {
 		resp.RestartReasons = reasons
 		resp.Note = settingsRestartNote(reasons)

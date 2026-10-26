@@ -52,9 +52,10 @@ type Server struct {
 	// /api/ask 与 /api/jobs 才会真正工作。只读模式保持 nil，两个端点回 405。
 	write *WriteDeps
 	// cfgMu 保护 write.Cfg 与 write.RunCfg。设置页保存成功后会换展示配置；
-	// A2 起，只碰可热更字段（mode）的保存还会把同一份配置热换进 RunCfg，
-	// 于是两份指针都要在同一把锁下读写，/api/options、/api/ask 与成员管理
-	// 才能看到一致的一对（见 WriteDeps.RunCfg 与 settings_reload.go）。
+	// A2/A3 起，改动落在可热更字段（mode 或身份字段）的保存还会把同一份
+	// 配置热换进 RunCfg，于是两份指针都要在同一把锁下读写，/api/options、
+	// /api/ask 与成员管理才能看到一致的一对（见 WriteDeps.RunCfg 与
+	// settings_reload.go）。
 	cfgMu sync.RWMutex
 	// reloadMu 是设置页热换与「新 job 进入任务表」之间的闸。热换要先确认
 	// 此刻没有在跑的轮次，再改 RunCfg / Runner 的配置；handleAsk 在 jobs.add
@@ -275,10 +276,10 @@ type memberJSON struct {
 	AgentID     string `json:"agent_id"`
 	DisplayName string `json:"display_name"`
 	Provider    string `json:"provider"`
-	// Model 来自启动时加载的配置（s.models，装配后含 Claude 导入的成员）。
-	// participants 表没有 model 列：会话里记的是当时那次 join 的
-	// display_name / provider 快照，模型名只能回配置里取。空串表示
-	// 这个 id 已经不在配置里，而不是编一个默认模型。
+	// Model 来自当前生效的配置（写模式热换之后就是最新的那一份），
+	// 回退到启动时拍下来的 s.models。participants 表没有 model 列：
+	// 会话里记的是当时那次 join 的 display_name / provider 快照，模型名
+	// 只能回配置里取。空串表示这个 id 已经不在配置里，而不是编一个默认模型。
 	Model  string `json:"model"`
 	Active bool   `json:"active"`
 }
@@ -671,7 +672,7 @@ func (s *Server) buildUsage(ctx context.Context, convID string) (usageResponse, 
 		participantIDs[p.AgentID] = struct{}{}
 		row := ensure(p.AgentID)
 		row.Provider = p.Provider
-		row.Model = s.models[p.AgentID]
+		row.Model = s.agentModel(p.AgentID)
 	}
 
 	total := 0.0

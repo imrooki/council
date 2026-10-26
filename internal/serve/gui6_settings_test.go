@@ -6,8 +6,8 @@ package serve
 //  2. 保存前先备份，备份内容等于写前原文；
 //  3. 校验失败回 400，目标文件一个字节不动、不留备份与临时文件；
 //  4. 删除只移除目标段，其它段保留；删不存在的回 404，删继承来的回 409；
-//  5. 写完之后 /api/settings 与 /api/options 都反映新值，而 Runner 用的
-//     那份配置（RunCfg）保持启动时的内容；
+//  5. 写完之后 /api/settings 与 /api/options 都反映新值；已有成员的身份
+//     字段改动当场热换进 RunCfg（A3），新增成员仍然只在展示配置里；
 //  6. 只读模式下三个设置端点全部 405。
 //
 // 每个用例都在 t.TempDir() 里造「项目层 + 全局层」两份配置，并把 HOME /
@@ -354,11 +354,19 @@ func TestGui6SaveAgentEditsOnlyTargetFile(t *testing.T) {
 		if res.BackupPath == "" {
 			t.Errorf("备份路径为空")
 		}
-		if res.Reloaded {
-			t.Errorf("reloaded = true，期望 false（Runner 不重建）")
+		// A3：这个成员没有历史 provider 会话，但 display_name / model / effort
+		// 都是身份字段——保存当场热换（reloaded=true），会话重置数为 0。
+		if !res.Reloaded {
+			t.Errorf("reloaded = false，期望 true（身份字段热换，Runner 已换新配置）")
 		}
-		if !strings.Contains(res.Note, "重启") {
-			t.Errorf("note = %q，期望说明「重启后生效」", res.Note)
+		if res.SessionsReset != 0 {
+			t.Errorf("sessions_reset = %d，期望 0（这个成员还没开过口）", res.SessionsReset)
+		}
+		if !strings.Contains(res.Note, "立即生效") || !strings.Contains(res.Note, "无需重启") {
+			t.Errorf("note = %q，期望说明已经生效且无需重启", res.Note)
+		}
+		if got := env.srv.runCfg().Agents["p1"].Model; got != "opus-5.5" {
+			t.Errorf("RunCfg 里 p1 的 model = %q，期望热换后的 opus-5.5", got)
 		}
 
 		if got := gui6Read(t, env.globalConfig); got != globalBefore {
@@ -623,8 +631,9 @@ func TestGui6DeleteAgentRemovesOnlyItsSection(t *testing.T) {
 }
 
 // TestGui6SettingsAndOptionsReflectWrite 钉住「写完之后展示层立刻更新、
-// 执行层不变」：/api/settings 与 /api/options 反映新配置，RunCfg 仍是启动
-// 时那一份，/api/ask 也不会接受只在展示配置里存在的成员。
+// 执行层按分级跟着走」：/api/settings 与 /api/options 反映新配置；已有成员
+// 的身份字段改动当场热换（RunCfg 也换成新值）；设置页新增的成员在重启前
+// 只在展示配置里，/api/ask 不接受它。
 func TestGui6SettingsAndOptionsReflectWrite(t *testing.T) {
 	env := newGui6Env(t)
 
@@ -691,9 +700,10 @@ func TestGui6SettingsAndOptionsReflectWrite(t *testing.T) {
 	if got := gui6OptionByID(t, gui6OptionsAgents(t, env), "p1"); got.Model != "opus-5.5" {
 		t.Errorf("保存后 /api/options 里 p1 的 model = %q，期望 opus-5.5", got.Model)
 	}
-	// Runner 的那一份没被换掉：这就是「重启后生效」的机器可验证形态。
-	if got := env.srv.runCfg().Agents["p1"].Model; got != "sonnet" {
-		t.Errorf("RunCfg 里 p1 的 model = %q，期望仍是启动时的 sonnet", got)
+	// A3：model 是身份字段，保存当场热换——Runner 手里那份也换了。
+	// 代价是该成员的 provider 会话被重置（这个成员还没开过口，所以是 0 条）。
+	if got := env.srv.runCfg().Agents["p1"].Model; got != "opus-5.5" {
+		t.Errorf("RunCfg 里 p1 的 model = %q，期望热换后的 opus-5.5", got)
 	}
 	if got := env.srv.currentCfg().Agents["p1"].Model; got != "opus-5.5" {
 		t.Errorf("展示配置里 p1 的 model = %q，期望 opus-5.5", got)

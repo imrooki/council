@@ -77,8 +77,9 @@ type WriteDeps struct {
 	DataDir string
 	// RunCfg 是 Runner 真正在用的那一份配置，/api/ask 的校验与执行都按它
 	// 来。设置页保存成功后 Cfg 会先换成磁盘上的新配置；随后仅当本次改动
-	// 只碰可热更字段（mode）、且没有轮次在跑时，同一份才会热换进 RunCfg
-	// 与 Runner（A2，见 settings_reload.go）。需要重启的改动只换 Cfg，
+	// 全部落在可热更字段（mode 或七个身份字段）、且没有轮次在跑时，同一份
+	// 才会热换进 RunCfg 与 Runner（A2/A3，见 settings_reload.go）。身份字段
+	// 的热换会顺带重置该成员的 provider 会话。需要重启的改动只换 Cfg，
 	// RunCfg 保持不变，避免「设置页刚加的成员校验通过、Runner 不认识它」
 	// 的错位。
 	// 为空时 EnableWrite 把它设成 Cfg（同一个指针）；直接构造 WriteDeps 的
@@ -134,7 +135,7 @@ type WriteDeps struct {
 func (s *Server) EnableWrite(deps WriteDeps) {
 	if deps.RunCfg == nil {
 		// 启动时同一个指针。之后设置页可能替换 deps.Cfg（需要重启的改动）
-		// 或把新配置整体热换进 deps.RunCfg（A2 的可热更字段 mode），但两条
+		// 或把新配置整体热换进 deps.RunCfg（A2/A3 的可热更字段），但两条
 		// 路都只换指针、绝不原地改这份配置。
 		deps.RunCfg = deps.Cfg
 	}
@@ -417,8 +418,8 @@ type agentOption struct {
 	// 要按它渲染禁用态，而"配置里没有"与"配置里有但停用"是两种画法。
 	Active bool `json:"active"`
 	// Runnable 表示这个 id 在当前进程的 Runner 配置（WriteDeps.RunCfg）
-	// 里存在。需要重启的设置页保存只换展示配置，Runner 内容不变；A2 的
-	// 可热更字段（mode）保存才会热换 RunCfg。新加的成员在重启前能显示、
+	// 里存在。需要重启的设置页保存只换展示配置，Runner 内容不变；A2/A3 的
+	// 可热更字段保存才会热换 RunCfg。新加的成员在重启前能显示、
 	// 但不可执行——提交 /api/ask 必然 400。前端据此把它画成可见但不可选，
 	// 而不是在用户点「跑一轮」之后才报错。
 	Runnable bool   `json:"runnable"`
@@ -450,11 +451,11 @@ func newAgentOption(id string, ac config.AgentConfig, source string, runnable bo
 // runnableAgent 回答「这个 id 在 Runner 当前那份配置里存在吗」。
 //
 // 必须读 RunCfg 而不是 currentCfg：需要重启的设置页保存只换展示配置，
-// Runner 手里的内容不变；可热更字段（mode）的保存则会热换 RunCfg
-// （A2）。两种情况下这个函数都要和 /api/ask 的校验看到同一个快照，所以
-// 在 cfgMu 下取一次指针。RunCfg 为空时一律 false——没有执行配置就没有
-// 任何成员能被 Runner 执行，猜一份只会让前端放行一个必然失败的 id；这里
-// 也不回落到展示配置，那会把「重启后可用」误报成「现在可跑」。
+// Runner 手里的内容不变；可热更字段（mode 与七个身份字段）的保存则会
+// 热换 RunCfg（A2/A3）。两种情况下这个函数都要和 /api/ask 的校验看到同一
+// 个快照，所以在 cfgMu 下取一次指针。RunCfg 为空时一律 false——没有执行
+// 配置就没有任何成员能被 Runner 执行，猜一份只会让前端放行一个必然失败的
+// id；这里也不回落到展示配置，那会把「重启后可用」误报成「现在可跑」。
 func (s *Server) runnableAgent(id string) bool {
 	if s.write == nil {
 		return false
@@ -1338,7 +1339,7 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	// 说清根因，而不是让用户对着「配置里没有这个 agent」去改配置。
 	// 校验用 Runner 当前那一份（RunCfg），不是设置页刚换掉的展示配置：
 	// 需要重启的改动只换 Cfg，按新配置放行的成员在 Runner 眼里仍然不存在。
-	// 设置页保存后的提示里已经把「重启后生效」写清楚了；A2 的可热更字段
+	// 设置页保存后的提示里已经把「重启后生效」写清楚了；A2/A3 的可热更字段
 	// 热换则会连 RunCfg 一起换，校验与执行仍然一致。
 	if err := headless.Validate(opts, s.runCfg()); err != nil {
 		err = s.claudeProviderHint(err, opts.Members)
