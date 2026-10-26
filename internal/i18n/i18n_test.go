@@ -2,6 +2,7 @@ package i18n
 
 import (
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -196,5 +197,71 @@ func setLocaleEnv(t *testing.T, values map[string]string) {
 	}
 	for name, value := range values {
 		t.Setenv(name, value)
+	}
+}
+
+// TestEnglishPluralOneForms 钉住单数变体：英文界面里「1 messages」「1 members」
+// 是 i18n 改造漏掉的一类。约定 <key> 放复数、<key>.one 放单数；中文没有单复数，
+// 两份目录里的值必须一致（否则调用处还得按语言分支）。
+func TestEnglishPluralOneForms(t *testing.T) {
+	// 界面上这些 key 都带 {n} + 可数名词，必须有单数变体。
+	for _, key := range []string{
+		"ui.conversation.members",
+		"ui.conversation.messages",
+		"ui.messages.copied",
+		"ui.settings.workspaceCount",
+		"ui.sidebar.workspaceCountTitle",
+		"ui.preset.missingMembers",
+		"ui.preset.unrunnableMembers",
+		"ui.composer.skillsTitle",
+	} {
+		one, ok := en[key+".one"]
+		if !ok {
+			t.Errorf("英文目录缺少单数变体 %q", key+".one")
+			continue
+		}
+		if _, ok := zh[key+".one"]; !ok {
+			t.Errorf("中文目录缺少 %q（两份目录的 key 必须一致）", key+".one")
+		}
+		if one == en[key] {
+			t.Errorf("英文 %q 的单数与复数写法相同（%q），单数变体没有起作用", key, one)
+		}
+	}
+
+	// 反向：每个 .one 都必须有本体，中文两端同值。
+	for key, one := range en {
+		if !strings.HasSuffix(key, ".one") {
+			continue
+		}
+		base := strings.TrimSuffix(key, ".one")
+		if _, ok := en[base]; !ok {
+			t.Errorf("英文目录里 %q 没有对应的复数条目 %q", key, base)
+			continue
+		}
+		if zh[key] != zh[base] {
+			t.Errorf("中文没有单复数，%q 与 %q 必须同值：%q vs %q", key, base, zh[key], zh[base])
+		}
+		if one == en[base] {
+			t.Errorf("英文 %q 与本体 %q 完全相同，等于没加变体", key, base)
+		}
+	}
+}
+
+// TestExportHeaderBullets 钉住导出 Markdown 文件头的那组列表项：它们都由
+// buildMarkdown 逐行推进同一个列表，任何一条少了 "- " 前缀都会把列表截成
+// 两段（英文的 ui.export.scope 曾经就是如此）。
+func TestExportHeaderBullets(t *testing.T) {
+	for _, key := range []string{
+		"ui.export.conversationLabel",
+		"ui.export.directoryLabel",
+		"ui.export.membersLabel",
+		"ui.export.exportedAtLabel",
+		"ui.export.scope",
+	} {
+		for _, lang := range []Lang{LangZh, LangEn} {
+			if got := T(lang, key); !strings.HasPrefix(got, "- ") {
+				t.Errorf("T(%q, %q) = %q，应以 \"- \" 开头（导出文件头的列表项）", lang, key, got)
+			}
+		}
 	}
 }

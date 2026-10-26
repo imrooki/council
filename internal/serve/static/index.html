@@ -217,7 +217,7 @@
      没有存过宽度时回落到默认值。 */
   .workspace {
     display: grid;
-    grid-template-columns: var(--sidebar-w, 288px) minmax(0, 1fr) var(--inspector-w, 352px);
+    grid-template-columns: var(--sidebar-w, 288px) minmax(0, 1fr) var(--inspector-w, 384px);
     min-height: 0;
   }
   .sidebar, .inspector, .conversation { display: flex; flex-direction: column; min-height: 0; }
@@ -236,6 +236,13 @@
   }
   .side-head h2 {
     margin: 0;
+    /* 右栏宽度可拖到 260px，标题与「+ 添加成员」在同一行：中文的最小内容
+       宽度只有一个字，缺了 min-width: 0 时 h2 会被按钮挤成一列竖排；
+       英文会长到按钮底下。截断比换行可读，且与 .conv-head h2 同一套。 */
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: var(--text-meta);
     font-weight: 600;
     color: var(--muted-2);
@@ -743,7 +750,7 @@
   .member-sub {
     margin-top: 2px;
     /* 副行是「agent id · provider · model · 缓存说明」这一条混合文本，
-       整行等宽会把右栏 352px 里的中文说明挤成 4–5 行（实测），因此这里
+       整行等宽会把右栏 384px 里的中文说明挤成 4–5 行（实测），因此这里
        保留正文字体、只用 tabular-nums 对齐数字；纯 id/模型名的等宽见
        设置页 agent 表与路径字段。 */
     font-family: var(--font);
@@ -936,6 +943,11 @@
     font-size: 16px;
   }
   .chip-list { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+  /* 成员 chip 列表是工具条里唯一会长到一整行的弹性项：它一旦占满一行，
+     紧跟其后的「+」就被挤到下一行单独站着（1100×700 选中 3 个长模型名
+     时可见），和成员 chip 分家。让出 + 的 28px 与 6px 间距，加人按钮就
+     始终贴在最后一个 chip 后面。 */
+  #member-chips { max-width: calc(100% - 34px); }
   /* 技能 chip 贴在工具条右端：margin-left:auto 吃掉这一行剩下的空白，不挤
      前面的成员 chip；它为 0 时整块 hidden。.chip-wrap 自己有 display:inline-flex，
      会盖过 hidden 属性的 UA 样式，所以这条 [hidden] 必须显式写出来。 */
@@ -1296,7 +1308,7 @@
   #app.no-inspector .workspace { grid-template-columns: var(--sidebar-w, 288px) minmax(0, 1fr); }
   #app.no-inspector .inspector { display: none; }
   /* 收起左栏：与右栏对称，正文吃掉两栏让出来的宽度 */
-  #app.no-sidebar .workspace { grid-template-columns: minmax(0, 1fr) var(--inspector-w, 352px); }
+  #app.no-sidebar .workspace { grid-template-columns: minmax(0, 1fr) var(--inspector-w, 384px); }
   #app.no-sidebar .sidebar { display: none; }
   #app.no-sidebar.no-inspector .workspace { grid-template-columns: minmax(0, 1fr); }
   /* 拖动中的分隔条：给一条高亮线，并把整页光标锁成 col-resize。 */
@@ -1411,10 +1423,23 @@
     right: 0;
     bottom: auto;
     left: auto;
-    width: 180px;
+    /* 宽度按内容走：固定 180px 在中文下刚好，英文的
+       "Dialogue only (no system events)" 会被折成三行。
+       右对齐时向左长，窄窗口里最多占满一行再换行。 */
+    width: max-content;
+    max-width: min(360px, calc(100vw - 24px));
   }
   .export-menu .menu-item { font-size: 12.5px; }
-  .export-menu .menu-hint { margin-left: auto; font-size: 10.5px; color: var(--muted-2); }
+  /* 后缀（.md / .json）不参与断行：宽度按内容走之后，英文长句换行时
+     "-dialogue.md" 不会被拆成两截。 */
+  .export-menu .menu-hint {
+    flex: none;
+    margin-left: auto;
+    padding-left: 8px;
+    font-size: 10.5px;
+    color: var(--muted-2);
+    white-space: nowrap;
+  }
 
   /* 每条消息悬停时才出现的复制按钮：平时不占视线 */
   .msg-copy {
@@ -2674,6 +2699,20 @@
     return text;
   }
 
+  // tn 是带单复数的 t()：英文在 n === 1 时优先查 <key>.one，缺这条变体
+  // 就退回本体（页面不会因为漏一条变体冒出一串 key）。中文没有单复数，
+  // 两份目录里 .one 与本体同值，调用处不必按语言分支。
+  //
+  // 约定：<key> 放复数形式，<key>.one 放单数形式；只有英文需要不同值。
+  // 变体同样由 /api/i18n 一起下发（key 一律 ui. 前缀）。
+  function tn(key, n, fallback, vars) {
+    if (LANG === 'en' && Number(n) === 1) {
+      const one = MESSAGES[key + '.one'];
+      if (typeof one === 'string' && one !== '') return t(key + '.one', fallback, vars);
+    }
+    return t(key, fallback, vars);
+  }
+
   // 静态节点只换它自己的第一个文本节点：菜单项里还留着 .menu-hint、
   // 「已归档 N」里还留着计数 span，直接写 textContent 会把它们删掉。
   function setElementText(el, text) {
@@ -3064,7 +3103,10 @@
   // localStorage；双击归位，拿到焦点之后也可以用左右键微调。
   const RESIZE_LIMITS = {
     sidebar: { min: 200, max: 520, fallback: 288 },
-    inspector: { min: 260, max: 640, fallback: 352 },
+    // 384 而不是 352：英文的 TURNS / COST / Remove 比中文长，6 列表格在
+    // 352px 下最小内容宽度约 357px，右栏会出现横向滚动条、Remove 被挤出
+    // 可视区。384 留出约 10px 余量；中文下只是更宽松一点。
+    inspector: { min: 260, max: 640, fallback: 384 },
   };
   const RESIZE_KEYS = { sidebar: 'council.sidebar.width', inspector: 'council.inspector.width' };
 
@@ -3173,8 +3215,9 @@
   // 复制：127.0.0.1 是安全上下文，clipboard 可用；老终端里退回 execCommand。
   function copyText(text) {
     if (!text) return;
-    const done = () => showToast(t('ui.messages.copied', '已复制 {n} 个字符',
-      { n: Array.from(text).length }));
+    const copied = Array.from(text).length;
+    const done = () => showToast(tn('ui.messages.copied', copied, '已复制 {n} 个字符',
+      { n: copied }));
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(done, () => legacyCopy(text, done));
       return;
@@ -3873,7 +3916,7 @@
     skillsChip.appendChild(icon);
     skillsChip.appendChild(label);
     skillsChip.appendChild(caret);
-    skillsChip.title = t('ui.composer.skillsTitle',
+    skillsChip.title = tn('ui.composer.skillsTitle', total,
       '配置里可见的 {n} 个 skill：只读展示，Council 不执行', { n: total });
 
     for (const skill of state.skills) {
@@ -4154,9 +4197,9 @@
     const notes = [];
     const unavailable = preset.members.filter((id) => known.has(id) && !runnable.has(id)).length;
     const missing = preset.members.length - state.selectedAgents.length - unavailable;
-    if (missing > 0) notes.push(t('ui.preset.missingMembers', '{n} 位成员已不在配置里', { n: missing }));
+    if (missing > 0) notes.push(tn('ui.preset.missingMembers', missing, '{n} 位成员已不在配置里', { n: missing }));
     if (unavailable > 0) {
-      notes.push(t('ui.preset.unrunnableMembers',
+      notes.push(tn('ui.preset.unrunnableMembers', unavailable,
         '{n} 位成员是设置页新增的，重启 council serve 后可用', { n: unavailable }));
     }
     if (preset.summary === 'none' && rounds > 1) {
@@ -5457,7 +5500,7 @@
       const count = document.createElement('span');
       count.className = 'workspace-count';
       count.textContent = workspaceCountText(group);
-      count.title = t('ui.sidebar.workspaceCountTitle', '当前视图共 {n} 场会话', { n: group.total });
+      count.title = tn('ui.sidebar.workspaceCountTitle', group.total, '当前视图共 {n} 场会话', { n: group.total });
       head.appendChild(count);
 
       // 未分组不是真实工作区，没有名字可改、也不能删。
@@ -5948,8 +5991,8 @@
     const meta = document.createElement('span');
     meta.className = 'meta';
     const bits = [];
-    bits.push(t('ui.conversation.members', '{n} 人', { n: conversation.members }));
-    bits.push(t('ui.conversation.messages', '{n} 条', { n: conversation.message_count }));
+    bits.push(tn('ui.conversation.members', conversation.members, '{n} 人', { n: conversation.members }));
+    bits.push(tn('ui.conversation.messages', conversation.message_count, '{n} 条', { n: conversation.message_count }));
     if (conversation.last_activity) bits.push(formatTime(conversation.last_activity));
     meta.textContent = bits.join(' · ');
     button.appendChild(meta);
@@ -6985,8 +7028,11 @@
   function updateMembersMeta() {
     if (!state.detail || state.detail.id !== state.currentId) return;
     const active = (state.detail.members || []).filter((member) => member && member.active).length;
-    messagesMeta.textContent = t('ui.messages.meta', '{messages} 条 · {members} 位成员',
-      { messages: messageList.children.length, members: active });
+    const messages = messageList.children.length;
+    messagesMeta.textContent = t('ui.messages.meta', '{messages} · {members}', {
+      messages: tn('ui.conversation.messages', messages, '{n} 条', { n: messages }),
+      members: tn('ui.conversation.members', active, '{n} 人', { n: active }),
+    });
   }
 
   // addMember 同时服务「添加成员」与「重新加入」：后端是同一个端点，
@@ -7527,6 +7573,12 @@
       note += ' ' + t('ui.settings.languageFlagOverride',
         '启动参数 -lang {value} 优先于配置；去掉它才会跟随这里的选择。',
         { value: settings.language_flag });
+    } else if (settings && settings.language_env) {
+      // 环境变量与 -lang 同样是「启动时压过配置」。只说了 -lang 的话，
+      // COUNCIL_LANG=en 的用户会以为下拉框没生效。
+      note += ' ' + t('ui.settings.languageEnvOverride',
+        '环境变量 COUNCIL_LANG={value} 优先于配置；清掉它才会跟随这里的选择。',
+        { value: settings.language_env });
     }
     settingsLanguageNote.textContent = note;
   }
@@ -7607,8 +7659,8 @@
       label.textContent = workspace.name || t('ui.sidebar.workspaceUnnamed', '(未命名工作区)');
       const hint = document.createElement('div');
       hint.className = 'settings-row-hint';
-      hint.textContent = t('ui.settings.workspaceCount', '{n} 个会话',
-        { n: workspaceConversationCount(workspace) });
+      const count = workspaceConversationCount(workspace);
+      hint.textContent = tn('ui.settings.workspaceCount', count, '{n} 个会话', { n: count });
       main.append(label, hint);
 
       const actions = document.createElement('div');
@@ -8190,9 +8242,10 @@
       messagesTitle.textContent = detailRes.value.title || t('ui.conversation.untitled', '(无标题)');
       if (pageRes.status === 'fulfilled') {
         const members = (detailRes.value.members || []).filter((m) => m.active).length;
-        messagesMeta.textContent = t('ui.messages.meta', '{messages} 条 · {members} 位成员', {
-          messages: (pageRes.value.messages || []).length,
-          members: members,
+        const messages = (pageRes.value.messages || []).length;
+        messagesMeta.textContent = t('ui.messages.meta', '{messages} · {members}', {
+          messages: tn('ui.conversation.messages', messages, '{n} 条', { n: messages }),
+          members: tn('ui.conversation.members', members, '{n} 人', { n: members }),
         });
       }
       // 工作台的成员来自 /api/options，不跟会话走：这里不重画工具条，

@@ -249,6 +249,58 @@ func TestSettingsLanguageReadOnlyRejected(t *testing.T) {
 	}
 }
 
+// TestSettingsLanguageEnvOverrideExplained 覆盖「环境变量也压过配置」这条
+// 提示：COUNCIL_LANG 生效时设置页要能说出原因；-lang 在场时只报 -lang，
+// 不再重复解释环境变量（两条「为什么没生效」只会让人更糊涂）。
+func TestSettingsLanguageEnvOverrideExplained(t *testing.T) {
+	t.Setenv(i18n.EnvLang, "en")
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANG", "")
+
+	env := newGui6Env(t)
+	env.srv.SetLanguage("", config.LanguageAuto)
+	settings := gui6Settings(t, env)
+	if settings.LanguageEnv != "en" {
+		t.Errorf("settings.language_env = %q，期望 en", settings.LanguageEnv)
+	}
+	if settings.LanguageEffective != "en" {
+		t.Errorf("settings.language_effective = %q，期望 en", settings.LanguageEffective)
+	}
+	if settings.LanguageFlag != "" {
+		t.Errorf("没有 -lang 时 settings.language_flag = %q，期望空", settings.LanguageFlag)
+	}
+
+	// 保存语言时也不能说「已切换」：环境变量仍压着配置，提示要说出原因。
+	status, raw := gui6Post(t, env.http.URL+"/api/settings/language", `{"language":"zh"}`)
+	if status != 200 {
+		t.Fatalf("保存语言 = %d，期望 200；body=%s", status, raw)
+	}
+	var res settingsWriteResponse
+	if err := json.Unmarshal(raw, &res); err != nil {
+		t.Fatalf("响应不是合法 JSON: %v；%s", err, raw)
+	}
+	if !strings.Contains(res.Note, "COUNCIL_LANG") {
+		t.Errorf("环境变量优先时保存提示没有说明原因: %q", res.Note)
+	}
+
+	// -lang 压过环境变量：只保留 -lang 这一条提示。
+	env.srv.SetLanguage("zh", config.LanguageAuto)
+	settings = gui6Settings(t, env)
+	if settings.LanguageEnv != "" {
+		t.Errorf("-lang 在场时 settings.language_env = %q，期望空（只报 -lang）", settings.LanguageEnv)
+	}
+	if settings.LanguageFlag != "zh" || settings.LanguageEffective != "zh" {
+		t.Errorf("-lang zh 下 flag/effective = %q/%q，期望 zh/zh", settings.LanguageFlag, settings.LanguageEffective)
+	}
+
+	// 只读看板没有设置页，但方法本身仍要给出同一个事实。
+	ro := newI18nReadOnlyServer(t, "", config.LanguageAuto)
+	if got := ro.LanguageEnv(); got != "en" {
+		t.Errorf("只读 Server.LanguageEnv() = %q，期望 en", got)
+	}
+}
+
 // newTestServer 是 i18n 用例的小工具：httptest.Server + 自动关闭。
 func newTestServer(t *testing.T, srv *Server) *httptest.Server {
 	t.Helper()

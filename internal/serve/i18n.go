@@ -9,6 +9,7 @@ package serve
 
 import (
 	"net/http"
+	"os"
 	"strings"
 
 	"council/internal/i18n"
@@ -48,6 +49,25 @@ func (s *Server) LanguageFlag() string {
 	s.langMu.RLock()
 	defer s.langMu.RUnlock()
 	return s.langFlag
+}
+
+// LanguageEnv 返回启动时真正起作用的 COUNCIL_LANG（zh / en），没有则为空串。
+//
+// 它和 -lang 一样压过配置，设置页必须把这件事说出来：只显示「实际生效：
+// English」而不解释环境变量的话，用户会以为语言下拉框坏了。有 -lang 时
+// 环境变量不再决定任何东西，返回空串——两条「为什么没生效」同时出现只会
+// 让人更糊涂。
+func (s *Server) LanguageEnv() string {
+	if s.LanguageFlag() != "" {
+		return ""
+	}
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(i18n.EnvLang)))
+	if value != string(i18n.LangZh) && value != string(i18n.LangEn) {
+		// auto / 空串 / 乱写都不构成覆盖：它们要么继续往下一级看，
+		// 要么按默认处理，不该提示「环境变量优先」。
+		return ""
+	}
+	return value
 }
 
 // i18nResponse 是 GET /api/i18n 的响应。messages 只含 "ui." 前缀的界面

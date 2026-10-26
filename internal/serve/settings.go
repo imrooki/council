@@ -115,9 +115,12 @@ type settingsResponse struct {
 	// LanguageEffective 是本次进程实际生效的语言，用于「实际生效：…」；
 	// LanguageFlag 只在启动时显式给了 -lang zh/en 时非空：那种情况下
 	// 配置里的选择不会立刻改变界面，界面要把这个事实说出来。
+	// LanguageEnv 同理，对应环境变量 COUNCIL_LANG：它压在配置之上、-lang
+	// 之下；不说明的话用户会以为下拉框坏了。
 	Language          string `json:"language"`
 	LanguageEffective string `json:"language_effective"`
 	LanguageFlag      string `json:"language_flag,omitempty"`
+	LanguageEnv       string `json:"language_env,omitempty"`
 }
 
 // settingsAgentRequest 是 POST /api/settings/agents 的请求体。
@@ -262,6 +265,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		Language:          config.LanguageAuto,
 		LanguageEffective: string(s.Language()),
 		LanguageFlag:      s.LanguageFlag(),
+		LanguageEnv:       s.LanguageEnv(),
 	}
 	for _, layer := range layers {
 		exists := false
@@ -546,11 +550,21 @@ func (s *Server) handleSettingsLanguageSave(w http.ResponseWriter, r *http.Reque
 	s.adoptReloadedConfig(res.Config)
 	// 启动时显式的 -lang 仍然优先：保存配置不能悄悄推翻命令行。
 	s.SetLanguage(s.LanguageFlag(), res.Config.Language)
+	// 起作用的若不是刚写进去的那一种，成功提示不能说「已切换」：
+	// -lang 与 COUNCIL_LANG 都压在配置之上，用户必须看到真正的原因。
+	note := "语言已保存并立即生效：界面文案已切换，无需重启 council serve"
+	if flag := s.LanguageFlag(); flag != "" {
+		note = "语言已保存；但启动参数 -lang " + flag +
+			" 仍优先，界面文案要重启 serve 并去掉该参数后才会切换。"
+	} else if env := s.LanguageEnv(); env != "" {
+		note = "语言已保存；但环境变量 COUNCIL_LANG=" + env +
+			" 仍优先，界面文案要清掉它并重启 serve 后才会切换。"
+	}
 	writeJSON(w, http.StatusOK, settingsWriteResponse{
 		BackupPath:  res.BackupPath,
 		WriteTarget: res.WriteTarget,
 		Reloaded:    true,
-		Note:        "语言已保存并立即生效：界面文案已切换，无需重启 council serve",
+		Note:        note,
 	})
 }
 
