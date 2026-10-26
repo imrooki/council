@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"council/internal/conversation"
+	"council/internal/i18n"
 )
 
 const (
@@ -228,7 +229,7 @@ func resumeListCommand(archived bool) string {
 func cmdResume(ctx context.Context, r *REPL, args cmdArgs) error {
 	all, archived, token, ok := parseResumeArgs(args.fields)
 	if !ok {
-		return r.printf("%s\n", resumeUsage)
+		return r.printf("%s\n", r.t("tui.resume.usage", resumeUsage))
 	}
 	if token == "" {
 		return r.printResumeList(ctx, all, archived)
@@ -309,19 +310,19 @@ func (r *REPL) printResumeList(ctx context.Context, all, archived bool) error {
 		var line string
 		switch {
 		case archived && filter:
-			line = "本项目还没有归档会话，用 /resume --all --archived 看其它项目的"
+			line = r.t("tui.resume.emptyProjectArch", "本项目还没有归档会话，用 /resume --all --archived 看其它项目的")
 		case archived:
-			line = "还没有任何归档会话（在网页里归档的会话会出现在这里）"
+			line = r.t("tui.resume.emptyArchived", "还没有任何归档会话（在网页里归档的会话会出现在这里）")
 		case filter:
-			line = "本项目还没有会话，用 /new <标题> 建一个（/resume --all 看其它项目的）"
+			line = r.t("tui.resume.emptyProject", "本项目还没有会话，用 /new <标题> 建一个（/resume --all 看其它项目的）")
 		default:
-			line = "还没有任何会话，用 /new <标题> 建一个"
+			line = r.t("tui.resume.emptyAll", "还没有任何会话，用 /new <标题> 建一个")
 		}
 		if err := r.printf("%s\n", line); err != nil {
 			return err
 		}
 		if filter && hiddenUnbound > 0 {
-			return r.printf("%s\n", resumeUnboundHint(hiddenUnbound, archived))
+			return r.printf("%s\n", resumeUnboundHint(r.lang, hiddenUnbound, archived))
 		}
 		return nil
 	}
@@ -329,17 +330,17 @@ func (r *REPL) printResumeList(ctx context.Context, all, archived bool) error {
 	var head string
 	switch {
 	case archived && filter:
-		head = fmt.Sprintf("项目: %s（本项目 %d 个归档会话；/resume --all --archived 看全部）", r.projectDir, n)
+		head = r.t("tui.resume.headProjectArch", "项目: %s（本项目 %d 个归档会话；/resume --all --archived 看全部）", r.projectDir, n)
 	case archived && all:
-		head = fmt.Sprintf("全部归档会话（%d 个）", n)
+		head = r.t("tui.resume.headAllArch", "全部归档会话（%d 个）", n)
 	case archived:
-		head = fmt.Sprintf("没有项目目录，列出全部归档会话（%d 个）", n)
+		head = r.t("tui.resume.headNoProjArch", "没有项目目录，列出全部归档会话（%d 个）", n)
 	case filter:
-		head = fmt.Sprintf("项目: %s（本项目 %d 个会话；/resume --all 看全部）", r.projectDir, n)
+		head = r.t("tui.resume.headProject", "项目: %s（本项目 %d 个会话；/resume --all 看全部）", r.projectDir, n)
 	case all:
-		head = fmt.Sprintf("全部会话（%d 个）", n)
+		head = r.t("tui.resume.headAll", "全部会话（%d 个）", n)
 	default:
-		head = fmt.Sprintf("没有项目目录，列出全部会话（%d 个）", n)
+		head = r.t("tui.resume.headNoProject", "没有项目目录，列出全部会话（%d 个）", n)
 	}
 	if err := r.printf("%s\n", head); err != nil {
 		return err
@@ -370,11 +371,11 @@ func (r *REPL) printResumeList(ctx context.Context, all, archived bool) error {
 			// oneLine 之后仍是空串才写 (未绑定)，不要把「有路径」和「没绑」写成同一格。
 			proj := oneLine(c.Cwd)
 			if proj == "" {
-				proj = "(未绑定)"
+				proj = r.t("tui.resume.unboundCell", "(未绑定)")
 			}
 			cells = append(cells, proj)
 		}
-		cells = append(cells, resumeTitleCell(c.Title, archived))
+		cells = append(cells, resumeTitleCell(r.lang, c.Title, archived))
 		fmt.Fprintln(tw, strings.Join(cells, "\t"))
 	}
 	if err := tw.Flush(); err != nil {
@@ -389,16 +390,16 @@ func (r *REPL) printResumeList(ctx context.Context, all, archived bool) error {
 		for i, e := range row.readErrs {
 			parts[i] = e.Error()
 		}
-		if err := r.printf("会话 %s 读取失败（对应列显示 ?）: %s\n", row.conv.ID, strings.Join(parts, "; ")); err != nil {
+		if err := r.printf("%s\n", r.t("tui.resume.readFailed", "会话 %s 读取失败（对应列显示 ?）: %s", row.conv.ID, strings.Join(parts, "; "))); err != nil {
 			return err
 		}
 	}
 	if filter && hiddenUnbound > 0 {
-		if err := r.printf("%s\n", resumeUnboundHint(hiddenUnbound, archived)); err != nil {
+		if err := r.printf("%s\n", resumeUnboundHint(r.lang, hiddenUnbound, archived)); err != nil {
 			return err
 		}
 	}
-	return r.printf("%s\n", resumeNumberHint(archived))
+	return r.printf("%s\n", resumeNumberHint(r.lang, archived))
 }
 
 // resumeTitleCell 是 TITLE 那一格：压成一行、空标题换占位符，归档视图再在末尾加标记。
@@ -406,27 +407,27 @@ func (r *REPL) printResumeList(ctx context.Context, all, archived bool) error {
 // 标记按视图打，不按 c.Archived 打：归档列表里的每一行都来自 ArchivedConversations，
 // 视图本身就是「这些是归档的」这件事的唯一出处。再去看每行的布尔，等于把同一个
 // 判定写两遍；两处一旦不一致，同一张表里就会出现有标记、没标记混着的行。
-func resumeTitleCell(title string, archived bool) string {
+func resumeTitleCell(lang i18n.Lang, title string, archived bool) string {
 	cell := orPlaceholder(oneLine(title))
 	if archived {
-		return cell + resumeArchivedMark
+		return cell + i18n.TF(lang, "tui.resume.mark", resumeArchivedMark)
 	}
 	return cell
 }
 
 // resumeUnboundHint 是「另有 N 个未绑定项目的…」那行提示。
 // 归档视图指向 --all --archived：照着不带 --archived 的命令敲，看到的是另一张表。
-func resumeUnboundHint(n int, archived bool) string {
+func resumeUnboundHint(lang i18n.Lang, n int, archived bool) string {
 	if archived {
-		return fmt.Sprintf("另有 %d 个未绑定项目的归档会话，/resume --all --archived 查看", n)
+		return i18n.TF(lang, "tui.resume.unboundArchived", "另有 %d 个未绑定项目的归档会话，/resume --all --archived 查看", n)
 	}
-	return fmt.Sprintf("另有 %d 个未绑定项目的旧会话，/resume --all 查看", n)
+	return i18n.TF(lang, "tui.resume.unbound", "另有 %d 个未绑定项目的旧会话，/resume --all 查看", n)
 }
 
 // resumeNumberHint 是列表最后那句「怎么接上」。编号是按当次这张表算的，
 // 所以提示里的命令必须带上 --archived，照抄才能接上同一张表里的编号。
-func resumeNumberHint(archived bool) string {
-	return fmt.Sprintf("敲 %s <编号> 接上；编号按最近活动排序，每次重新计算", resumeListCommand(archived))
+func resumeNumberHint(lang i18n.Lang, archived bool) string {
+	return i18n.TF(lang, "tui.resume.numberHint", "敲 %s <编号> 接上；编号按最近活动排序，每次重新计算", resumeListCommand(archived))
 }
 
 // resumeLastActive 只在 lastKnown 时打时间。未知打一个 ASCII 问号：
@@ -471,7 +472,7 @@ func resumeCount64(n int64) string {
 func (r *REPL) resumeByIndex(ctx context.Context, all, archived bool, token string) error {
 	n, err := strconv.Atoi(token)
 	if err != nil {
-		return r.printf("%s\n", resumeUsage)
+		return r.printf("%s\n", r.t("tui.resume.usage", resumeUsage))
 	}
 	list, err := r.loadResumeRows(ctx, all, archived)
 	if err != nil {
@@ -539,14 +540,14 @@ func (r *REPL) resumeByPrefix(ctx context.Context, prefix string, archived bool)
 // 成员或消息读失败只打一行，不回滚已经切换的 r.cur，也不让命令返回错误。
 func (r *REPL) attachResume(ctx context.Context, c conversation.Conversation) error {
 	r.cur = &c
-	if err := r.printf("已接上会话 %s，标题: %s\n", c.ID, oneLine(c.Title)); err != nil {
+	if err := r.printf("%s\n", r.t("tui.resume.attached", "已接上会话 %s，标题: %s", c.ID, oneLine(c.Title))); err != nil {
 		return err
 	}
 	proj := c.Cwd
 	if proj == "" {
-		proj = "(未绑定)"
+		proj = r.t("tui.resume.unboundCell", "(未绑定)")
 	}
-	if err := r.printf("项目: %s\n", proj); err != nil {
+	if err := r.printf("%s\n", r.t("tui.resume.project", "项目: %s", proj)); err != nil {
 		return err
 	}
 	if err := r.printResumeMembers(ctx, c.ID); err != nil {

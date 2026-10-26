@@ -128,7 +128,7 @@ const copyPage = 50
 // 又不是「复制」。所以只说明这件事，与 /say 空参在两条入口上的分叉同一个体例
 // （见 seam.go 里 msgDraftNotInTUI 那段注释）。
 func cmdCopy(_ context.Context, r *REPL, _ cmdArgs) error {
-	return r.printf("%s\n", MsgCopyNotInTUI)
+	return r.printf("%s\n", r.t("tui.copy.notInTUI", MsgCopyNotInTUI))
 }
 
 // CopyRecent 取最近 n 条可复制的会话消息正文，供 TUI 的 /copy 直接调用。

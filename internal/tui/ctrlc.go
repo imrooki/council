@@ -23,12 +23,13 @@ type ctrlCExpireMsg struct {
 	gen uint64
 }
 
-// ctrlCArmHint 是武装时写进状态栏的那句话。
-func ctrlCArmHint(kind ctrlCKind) string {
+// ctrlCArmHint 是武装时写进状态栏的那句话。它是 Model 的方法而不是纯函数：
+// 文案要按当前语言取，语言是 Model 的状态。
+func (m Model) ctrlCArmHint(kind ctrlCKind) string {
 	if kind == ctrlCCancel {
-		return "再按一次 Ctrl-C 取消本轮"
+		return m.t("tui.ctrlc.armCancel", "再按一次 Ctrl-C 取消本轮")
 	}
-	return "再按一次 Ctrl-C 退出"
+	return m.t("tui.ctrlc.armQuit", "再按一次 Ctrl-C 退出")
 }
 
 // ctrlCClock 取武装用的时刻：m.now 非 nil 用它，否则 time.Now。
@@ -48,20 +49,20 @@ func (m Model) ctrlCClock() time.Time {
 // tick 又把作废的文案写回来 —— 「已复制 N 个字符」就永久挂在状态栏上了。
 func (m Model) ctrlCArm(kind ctrlCKind) Model {
 	m = m.copyStatusSettle()
-	if !m.ctrlCArmed || m.status != ctrlCArmHint(m.ctrlCKind) {
+	if !m.ctrlCArmed || m.status != m.ctrlCArmHint(m.ctrlCKind) {
 		m.ctrlCPrev = m.status
 	}
 	m.ctrlCArmed = true
 	m.ctrlCKind = kind
 	m.ctrlCAt = m.ctrlCClock()
 	m.ctrlCGen++
-	m.status = ctrlCArmHint(kind)
+	m.status = m.ctrlCArmHint(kind)
 	return m
 }
 
 // ctrlCDisarm 解除武装。状态栏仍是这次武装的提示时，恢复成记下的旧状态。
 func (m Model) ctrlCDisarm() Model {
-	if m.ctrlCArmed && m.status == ctrlCArmHint(m.ctrlCKind) {
+	if m.ctrlCArmed && m.status == m.ctrlCArmHint(m.ctrlCKind) {
 		m.status = m.ctrlCPrev
 	}
 	m.ctrlCArmed = false
@@ -141,7 +142,7 @@ func (m Model) ctrlCPress() (Model, tea.Cmd) {
 			if m.cancel != nil {
 				m.cancel()
 			}
-			m.status = "正在取消"
+			m.status = m.t("tui.status.canceling", "正在取消")
 			m.canceling = true
 			return m, nil
 		}
@@ -150,7 +151,7 @@ func (m Model) ctrlCPress() (Model, tea.Cmd) {
 	}
 	if m.ctrlCFresh(ctrlCQuit) {
 		m = m.ctrlCDisarm()
-		m.status = "正在退出"
+		m.status = m.t("tui.status.exiting", "正在退出")
 		return m, m.quitCmd()
 	}
 	m = m.ctrlCArm(ctrlCQuit)

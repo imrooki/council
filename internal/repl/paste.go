@@ -57,12 +57,12 @@ func (r *REPL) handlePasteInvalid(ctx context.Context, start, end bool) error {
 		r.pastePoisoned = false
 	}
 	if !r.inPaste {
-		return r.printf("%s\n", msgNotUTF8)
+		return r.printf("%s\n", r.t("tui.repl.notUTF8", msgNotUTF8))
 	}
 	var err error
 	if !r.pastePoisoned {
 		r.pastePoisoned = true
-		err = r.printf("%s\n", msgPasteBadEncoding)
+		err = r.printf("%s\n", r.t("tui.repl.pasteBadEncoding", msgPasteBadEncoding))
 	}
 	if end {
 		if ferr := r.finishPaste(ctx); ferr != nil && err == nil {

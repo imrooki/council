@@ -21,6 +21,7 @@ import (
 	"council/internal/config"
 	"council/internal/conversation"
 	"council/internal/headless"
+	"council/internal/i18n"
 	"council/internal/repl"
 	"council/internal/store"
 	"council/internal/tui"
@@ -62,6 +63,15 @@ type Options struct {
 	// 装配（配置、规则、库）仍走本函数的前半段，这样 headless 与交互模式
 	// 看到的是同一份生效配置、同一个 data_dir 锁。
 	Headless *headless.Options
+
+	// Lang 是本次进程界面使用的语言，由 cmd/council 用 i18n.Resolve 求好
+	// 传进来。零值空串表示调用方没指定：本包按 i18n.Resolve("", "") 再求
+	// 一次（环境变量、系统区域、中文默认），这样直接构造 Options 的测试
+	// 与嵌入式调用方不必关心语言这件事。
+	//
+	// 注入而不是在这里读全局的原因：语言只该解析一次，main 已经把结果
+	// 写进 COUNCIL_LANG；这里再排一遍优先级会和那次解析分叉。
+	Lang i18n.Lang
 }
 
 // Run 按固定顺序做五件事：求配置文件路径 -> 加载并校验 -> 求数据目录 ->
@@ -88,6 +98,16 @@ func Run(ctx context.Context, opts Options) error {
 		errOut = io.Discard
 	}
 
+	// 语言只解析一次。cmd 传了就用它；没传（直接构造 Options 的测试、
+	// 嵌入式调用方）时按环境变量与系统区域求一次，默认中文。
+	lang := opts.Lang
+	if lang == "" {
+		lang = i18n.Resolve("", "")
+	}
+	msg := func(key, fallback string, args ...any) string {
+		return i18n.TF(lang, key, fallback, args...)
+	}
+
 	// TUI 时把屏幕出口换成 LineWriter，且必须在 writeBanner 之前。
 	// 横幅、在飞对账、漂移通知、repl.New 的 out 全都写这个局部变量 out
 	// （见本函数后半：writeBanner / writeLostNotice / writeDriftNotice / repl.New）。
@@ -106,8 +126,8 @@ func Run(ctx context.Context, opts Options) error {
 
 	path, err := config.ResolveConfigPath(opts.ConfigPath)
 	if err != nil {
-		fmt.Fprintf(errOut, "无法确定配置文件位置: %v\n", err)
-		fmt.Fprintf(errOut, "可以用 --config <path> 直接指定配置文件，或设置环境变量 %s 指向它。\n", config.EnvConfigPath)
+		fmt.Fprint(errOut, msg("cli.startup.configPathFailed", "无法确定配置文件位置: %v\n", err))
+		fmt.Fprint(errOut, msg("cli.startup.configPathHint", "可以用 --config <path> 直接指定配置文件，或设置环境变量 %s 指向它。\n", config.EnvConfigPath))
 		return fmt.Errorf("解析配置文件路径失败: %w", err)
 	}
 
@@ -116,8 +136,8 @@ func Run(ctx context.Context, opts Options) error {
 	explicit := opts.ConfigPath != "" || os.Getenv(config.EnvConfigPath) != ""
 	layers, err := config.ResolveConfigLayers(opts.ConfigPath)
 	if err != nil {
-		fmt.Fprintf(errOut, "无法确定配置文件位置: %v\n", err)
-		fmt.Fprintf(errOut, "可以用 --config <path> 直接指定配置文件，或设置环境变量 %s 指向它。\n", config.EnvConfigPath)
+		fmt.Fprint(errOut, msg("cli.startup.configPathFailed", "无法确定配置文件位置: %v\n", err))
+		fmt.Fprint(errOut, msg("cli.startup.configPathHint", "可以用 --config <path> 直接指定配置文件，或设置环境变量 %s 指向它。\n", config.EnvConfigPath))
 		return fmt.Errorf("解析配置文件路径失败: %w", err)
 	}
 
@@ -156,7 +176,7 @@ func Run(ctx context.Context, opts Options) error {
 	primaryPath := layers[0].Path
 	merged, err := config.LoadMerged(layers)
 	if err != nil {
-		reportConfigError(errOut, primaryPath, err, explicit)
+		reportConfigError(errOut, lang, primaryPath, err, explicit)
 		return fmt.Errorf("加载配置失败 (%s): %w", primaryPath, err)
 	}
 	cfg := merged.Config
@@ -174,24 +194,24 @@ func Run(ctx context.Context, opts Options) error {
 	// 相对路径按定义 rules_file 的那一层解析，不是按最高优先层猜。
 	rules, err := config.LoadRules(merged.RulesFileBase, cfg.RulesFile)
 	if err != nil {
-		fmt.Fprintf(errOut, "规则文件读不出来: %v\n", err)
-		fmt.Fprintf(errOut, "全局规则找的是 %s（可用环境变量 %s 改），局部规则由配置里的 rules_file 指定。\n",
-			"~/.council/"+config.DefaultGlobalRulesName, config.EnvGlobalRules)
-		fmt.Fprintf(errOut, "文件不存在是正常的（等于没有规则）；这里报错说明它存在却读不了。\n")
+		fmt.Fprint(errOut, msg("cli.startup.rulesFailed", "规则文件读不出来: %v\n", err))
+		fmt.Fprint(errOut, msg("cli.startup.rulesHint", "全局规则找的是 %s（可用环境变量 %s 改），局部规则由配置里的 rules_file 指定。\n",
+			"~/.council/"+config.DefaultGlobalRulesName, config.EnvGlobalRules))
+		fmt.Fprint(errOut, msg("cli.startup.rulesMissing", "文件不存在是正常的（等于没有规则）；这里报错说明它存在却读不了。\n"))
 		return fmt.Errorf("加载规则文件失败: %w", err)
 	}
 
 	dataDir, err := config.ResolveDataDir(cfg.DataDir)
 	if err != nil {
-		fmt.Fprintf(errOut, "数据目录无效: %v\n", err)
-		fmt.Fprintf(errOut, "data_dir 必须是绝对路径，可以写在配置文件的 data_dir 里，或设置环境变量 %s。\n", config.EnvDataDir)
+		fmt.Fprint(errOut, msg("cli.startup.dataDirInvalid", "数据目录无效: %v\n", err))
+		fmt.Fprint(errOut, msg("cli.startup.dataDirHint", "data_dir 必须是绝对路径，可以写在配置文件的 data_dir 里，或设置环境变量 %s。\n", config.EnvDataDir))
 		return fmt.Errorf("解析数据目录失败: %w", err)
 	}
 
 	st, err := store.Open(ctx, dataDir)
 	if err != nil {
-		fmt.Fprintf(errOut, "无法打开本地库: %v\n", err)
-		fmt.Fprintf(errOut, "数据目录是 %s，可以在配置文件的 data_dir 里改，或设置环境变量 %s。\n", dataDir, config.EnvDataDir)
+		fmt.Fprint(errOut, msg("cli.startup.storeFailed", "无法打开本地库: %v\n", err))
+		fmt.Fprint(errOut, msg("cli.startup.storeHint", "数据目录是 %s，可以在配置文件的 data_dir 里改，或设置环境变量 %s。\n", dataDir, config.EnvDataDir))
 		// data_dir 排他锁（未决 #8）拦下的这种失败，没有再单独补一句：
 		// store.ErrDataDirLocked 的错误文本本身已经带了锁文件路径、
 		// "同一个 data_dir 只能同时跑一个 council 实例"这句事实、以及
@@ -203,7 +223,7 @@ func Run(ctx context.Context, opts Options) error {
 	// 包括 REPL 出错与 ctx 取消那两条。关闭失败只记一行，不动返回值。
 	defer func() {
 		if cerr := st.Close(); cerr != nil {
-			fmt.Fprintf(errOut, "关闭本地库失败: %v\n", cerr)
+			fmt.Fprint(errOut, msg("cli.startup.storeCloseFailed", "关闭本地库失败: %v\n", cerr))
 		}
 	}()
 
@@ -211,8 +231,8 @@ func Run(ctx context.Context, opts Options) error {
 	// 按启动失败处理：与其让用户进了 REPL 每敲一条命令报一次错，不如在门口挡住。
 	convs, err := st.Conversations(ctx)
 	if err != nil {
-		fmt.Fprintf(errOut, "读取会话列表失败: %v\n", err)
-		fmt.Fprintf(errOut, "库文件是 %s。\n", st.Path())
+		fmt.Fprint(errOut, msg("cli.startup.conversationsFailed", "读取会话列表失败: %v\n", err))
+		fmt.Fprint(errOut, msg("cli.startup.conversationsHint", "库文件是 %s。\n", st.Path()))
 		return fmt.Errorf("读取会话列表失败: %w", err)
 	}
 
@@ -235,7 +255,7 @@ func Run(ctx context.Context, opts Options) error {
 		if len(merged.Layers) > 1 {
 			shownConfigPath += "（合并 " + strings.Join(merged.Layers[1:], "、") + "）"
 		}
-		writeBanner(out, opts.Version, shownConfigPath, dataDir, st.Path(), convs, projectDir, cfg)
+		writeBannerLang(out, lang, opts.Version, shownConfigPath, dataDir, st.Path(), convs, projectDir, cfg)
 	}
 	noticeOut := out
 	if opts.Headless != nil {
@@ -277,16 +297,16 @@ func Run(ctx context.Context, opts Options) error {
 		// 少一句提醒，不该把整个 REPL 拦在门外。
 		lost, inflightErr := rn.AuditInflight(ctx)
 		if inflightErr != nil {
-			fmt.Fprintf(errOut, "启动在飞对账失败: %v\n", inflightErr)
+			fmt.Fprint(errOut, msg("cli.startup.inflightFailed", "启动在飞对账失败: %v\n", inflightErr))
 		} else if len(lost) > 0 {
 			// settle 失败同样不阻止进 REPL：拦住会让用户连 /log 都进不去，
 			// 是更糟的处置。但失败必须响亮，因为 settle 失败意味着
 			// baseline_suspect 留在 0，下一次 /ask 会自信地打印一个错数。
 			marked, settleErrs := rn.SettleLostTurns(ctx, lost)
 			for _, settleErr := range settleErrs {
-				fmt.Fprintf(errOut, "启动在飞对账补账失败: %v\n", settleErr)
+				fmt.Fprint(errOut, msg("cli.startup.settleFailed", "启动在飞对账补账失败: %v\n", settleErr))
 			}
-			writeLostNotice(noticeOut, lost, marked)
+			writeLostNoticeLang(noticeOut, lang, lost, marked)
 		}
 
 		// 启动漂移审计：把「静默作废重建」变响亮。这件事今天就在发生
@@ -305,9 +325,9 @@ func Run(ctx context.Context, opts Options) error {
 		// REPL 拦在门外。
 		if opts.Headless == nil || opts.Headless.Workspace == "" {
 			if rows, auditErr := rn.AuditDrift(ctx); auditErr != nil {
-				fmt.Fprintf(errOut, "启动漂移审计失败: %v\n", auditErr)
+				fmt.Fprint(errOut, msg("cli.startup.driftFailed", "启动漂移审计失败: %v\n", auditErr))
 			} else if len(rows) > 0 {
-				writeDriftNotice(noticeOut, rows)
+				writeDriftNoticeLang(noticeOut, lang, rows)
 			}
 		}
 	}
@@ -316,6 +336,8 @@ func Run(ctx context.Context, opts Options) error {
 	// 构造好的 Runner，只把控制权交给一次 ask，不再进任何读循环。
 	// rn 在 svc 为 nil 时是 nil，headless.Run 会把它报成错误退 1。
 	if opts.Headless != nil {
+		headlessOpts := *opts.Headless
+		headlessOpts.Lang = lang
 		return headless.Run(ctx, headless.Deps{
 			Cfg:        cfg,
 			Svc:        svc,
@@ -325,7 +347,7 @@ func Run(ctx context.Context, opts Options) error {
 			Out:        out,
 			Err:        errOut,
 			Verbose:    opts.Verbose,
-		}, *opts.Headless)
+		}, headlessOpts)
 	}
 	// 复用本函数开头那个 err（config.ResolveConfigPath 那次声明的），不另开一个：
 	// 到这里它已经被查过并且是 nil，而 var err error 会与它撞名编译不过。
@@ -334,16 +356,18 @@ func Run(ctx context.Context, opts Options) error {
 		// 句柄用 InFile / OutFile，不用 In / Out：后者是接口，没有 Fd。
 		lw := out.(*tui.LineWriter)
 		r := repl.New(cfg, svc, rn, in, lw, rulesCtx)
+		r.SetLang(lang)
 		r.SetConcise(!opts.Verbose)
 		r.SetAutoReply(!opts.NoAuto)
 		r.SetCLIDetector(config.DetectProviders)
 		r.SetLoginStatusExec(turn.RunLoginStatus)
 		r.SetAddByName(true)
 		r.SetProjectDir(projectDir)
-		err = tui.Run(ctx, r, lw, opts.Version, opts.InFile, opts.OutFile)
+		err = tui.RunLang(ctx, r, lw, opts.Version, opts.InFile, opts.OutFile, lang)
 	} else {
 		// 行式与 TUI 都在 Run 之前设档位与对话模式。
 		r := repl.New(cfg, svc, rn, in, out, rulesCtx)
+		r.SetLang(lang)
 		r.SetConcise(!opts.Verbose)
 		r.SetAutoReply(!opts.NoAuto)
 		r.SetCLIDetector(config.DetectProviders)
@@ -360,7 +384,7 @@ func Run(ctx context.Context, opts Options) error {
 		if errors.Is(err, context.Canceled) || errors.Is(err, tea.ErrProgramKilled) || ctx.Err() != nil {
 			return nil
 		}
-		fmt.Fprintf(errOut, "REPL 异常结束: %v\n", err)
+		fmt.Fprint(errOut, msg("cli.startup.replFailed", "REPL 异常结束: %v\n", err))
 		return fmt.Errorf("REPL 异常结束: %w", err)
 	}
 	return nil
@@ -373,12 +397,22 @@ func Run(ctx context.Context, opts Options) error {
 // 项目目录行的数字用 repl.SameProjectDir，与 /resume 的过滤是同一个口径。
 // 这里不打会话编号或列表，避免和 /resume 的排序对不上。
 func writeBanner(out io.Writer, version, configPath, dataDir, dbPath string, convs []conversation.Conversation, projectDir string, cfg *config.Config) {
+	writeBannerLang(out, i18n.LangZh, version, configPath, dataDir, dbPath, convs, projectDir, cfg)
+}
+
+// writeBannerLang 是 writeBanner 带语言的那一半。writeBanner 保留中文固定值，
+// 是因为既有单元测试按旧签名直接调它；生产路径一律经 app.Run 传解析后的 lang。
+// 文案里的换行留在目录里，这样中英两版的换行位置只有一处定义。
+func writeBannerLang(out io.Writer, lang i18n.Lang, version, configPath, dataDir, dbPath string, convs []conversation.Conversation, projectDir string, cfg *config.Config) {
+	msg := func(key, fallback string, args ...any) string {
+		return i18n.TF(lang, key, fallback, args...)
+	}
 	if version != "" {
 		fmt.Fprintf(out, "council %s\n", version)
 	}
-	fmt.Fprintf(out, "配置文件: %s\n", configPath)
-	fmt.Fprintf(out, "数据目录: %s\n", dataDir)
-	fmt.Fprintf(out, "库文件: %s (已有 %d 个会话)\n", dbPath, len(convs))
+	fmt.Fprint(out, msg("tui.banner.config", "配置文件: %s\n", configPath))
+	fmt.Fprint(out, msg("tui.banner.dataDir", "数据目录: %s\n", dataDir))
+	fmt.Fprint(out, msg("tui.banner.database", "库文件: %s (已有 %d 个会话)\n", dbPath, len(convs)))
 	if projectDir != "" {
 		n, unbound := 0, 0
 		for _, c := range convs {
@@ -389,15 +423,15 @@ func writeBanner(out io.Writer, version, configPath, dataDir, dbPath string, con
 				unbound++
 			}
 		}
-		fmt.Fprintf(out, "项目目录: %s（本项目 %d 个会话，/resume 列出并接上）\n", projectDir, n)
+		fmt.Fprint(out, msg("tui.banner.project", "项目目录: %s（本项目 %d 个会话，/resume 列出并接上）\n", projectDir, n))
 		if unbound > 0 {
-			fmt.Fprintf(out, "另有 %d 个未绑定项目的旧会话，/resume --all 查看\n", unbound)
+			fmt.Fprint(out, msg("tui.banner.projectUnbound", "另有 %d 个未绑定项目的旧会话，/resume --all 查看\n", unbound))
 		}
 	} else {
-		fmt.Fprintf(out, "项目目录: 未知（/resume 将列出全部会话）\n")
+		fmt.Fprint(out, msg("tui.banner.projectUnknown", "项目目录: 未知（/resume 将列出全部会话）\n"))
 	}
-	fmt.Fprintf(out, "已加载 %d 个 agent，%d 个 team\n", len(cfg.Agents), len(cfg.Teams))
-	fmt.Fprintf(out, "输入 /help 查看可用命令，/quit 退出。\n")
+	fmt.Fprint(out, msg("tui.banner.loaded", "已加载 %d 个 agent，%d 个 team\n", len(cfg.Agents), len(cfg.Teams)))
+	fmt.Fprint(out, msg("tui.banner.hint", "输入 /help 查看可用命令，/quit 退出。\n"))
 	fmt.Fprintln(out)
 }
 
@@ -406,6 +440,11 @@ func writeBanner(out io.Writer, version, configPath, dataDir, dbPath string, con
 // n2（AskRefused 为真，按当前配置必被拒、不花钱）大于 0 时再印第二句。
 // 之后逐行列出全部 rows，顺序与 AuditDrift 返回的相同；明细格式不冻结。
 func writeDriftNotice(out io.Writer, rows []turn.DriftRow) {
+	writeDriftNoticeLang(out, i18n.LangZh, rows)
+}
+
+// writeDriftNoticeLang 是带语言的那一半；中文值与原格式逐字节相同。
+func writeDriftNoticeLang(out io.Writer, lang i18n.Lang, rows []turn.DriftRow) {
 	n1, n2 := 0, 0
 	for _, row := range rows {
 		if row.AskRefused() {
@@ -415,13 +454,13 @@ func writeDriftNotice(out io.Writer, rows []turn.DriftRow) {
 		}
 	}
 	if n1 > 0 {
-		fmt.Fprintf(out, "注意: 有 %d 条 provider 会话的身份已变，下次 /ask 会各重建一次（每条一次入场费）\n", n1)
+		fmt.Fprint(out, i18n.TF(lang, "cli.notice.driftHeadRebuild", "注意: 有 %d 条 provider 会话的身份已变，下次 /ask 会各重建一次（每条一次入场费）\n", n1))
 	}
 	if n2 > 0 {
-		fmt.Fprintf(out, "注意: 有 %d 条 provider 会话按当前配置 /ask 会被拒，不花钱；其中原因是「配置里已无此 agent」的，先 /use 那个会话再敲 /session rebuild <成员> 即可清掉\n", n2)
+		fmt.Fprint(out, i18n.TF(lang, "cli.notice.driftHeadRefused", "注意: 有 %d 条 provider 会话按当前配置 /ask 会被拒，不花钱；其中原因是「配置里已无此 agent」的，先 /use 那个会话再敲 /session rebuild <成员> 即可清掉\n", n2))
 	}
 	for _, row := range rows {
-		fmt.Fprintf(out, "  会话 %s / 成员 %s: %s\n", row.ConvID, row.AgentID, row.Reason)
+		fmt.Fprint(out, i18n.TF(lang, "cli.notice.driftRow", "  会话 %s / 成员 %s: %s\n", row.ConvID, row.AgentID, row.Reason))
 	}
 	fmt.Fprintln(out)
 }
@@ -439,22 +478,27 @@ func writeDriftNotice(out io.Writer, rows []turn.DriftRow) {
 // 逐行那部分按「随便改，测试不许钉」处理，只有第一行冻结。
 // 超过 LostNoticeCap 条时其余折叠成一个计数，不让一次积压刷满一屏。
 func writeLostNotice(out io.Writer, lost []turn.LostTurn, marked int) {
+	writeLostNoticeLang(out, i18n.LangZh, lost, marked)
+}
+
+// writeLostNoticeLang 是带语言的那一半；中文值与原格式逐字节相同。
+func writeLostNoticeLang(out io.Writer, lang i18n.Lang, lost []turn.LostTurn, marked int) {
 	n := len(lost)
 	if n == 0 {
 		return
 	}
-	fmt.Fprintf(out, "注意: 有 %d 轮在上次退出时没记上账，其中 %d 轮已把相关成员的成本基线标为可疑\n", n, marked)
+	fmt.Fprint(out, i18n.TF(lang, "cli.notice.lostHead", "注意: 有 %d 轮在上次退出时没记上账，其中 %d 轮已把相关成员的成本基线标为可疑\n", n, marked))
 	limit := n
 	if limit > turn.LostNoticeCap {
 		limit = turn.LostNoticeCap
 	}
 	for _, row := range lost[:limit] {
 		started := row.Turn.StartedAt.UTC().Format(time.RFC3339Nano)
-		fmt.Fprintf(out, "  会话 %s / 成员 %s / turn %s / 起于 %s / phase %s: %s\n",
-			row.Turn.ConvID, row.Turn.AgentID, row.Turn.TurnID, started, row.Turn.Phase, row.Reason)
+		fmt.Fprint(out, i18n.TF(lang, "cli.notice.lostRow", "  会话 %s / 成员 %s / turn %s / 起于 %s / phase %s: %s\n",
+			row.Turn.ConvID, row.Turn.AgentID, row.Turn.TurnID, started, row.Turn.Phase, row.Reason))
 	}
 	if n > limit {
-		fmt.Fprintf(out, "  其余 %d 条已折叠\n", n-limit)
+		fmt.Fprint(out, i18n.TF(lang, "cli.notice.lostFolded", "  其余 %d 条已折叠\n", n-limit))
 	}
 	fmt.Fprintln(out)
 }
@@ -475,16 +519,16 @@ func onlyDefaultLayer(layers []config.Layer, defaultPath string) bool {
 // 还能走到这里的只有两种：竞态（首次运行建好或改用的文件，在 LoadAndValidate
 // 之前又没了），与默认路径不是绝对路径（USERPROFILE 被设成了相对路径，Run 不进
 // 首次运行，免得在启动目录下建文件）。两种都只打两行说明，不再打印模板。
-func reportConfigError(w io.Writer, path string, err error, explicit bool) {
+func reportConfigError(w io.Writer, lang i18n.Lang, path string, err error, explicit bool) {
 	if errors.Is(err, fs.ErrNotExist) {
-		fmt.Fprintf(w, "找不到配置文件: %s\n", path)
+		fmt.Fprint(w, i18n.TF(lang, "cli.startup.configMissing", "找不到配置文件: %s\n", path))
 		if explicit {
-			fmt.Fprintf(w, "这个路径是你用 --config 或环境变量 %s 指定的，请确认它没写错。\n", config.EnvConfigPath)
+			fmt.Fprint(w, i18n.TF(lang, "cli.startup.configMissingExplicit", "这个路径是你用 --config 或环境变量 %s 指定的，请确认它没写错。\n", config.EnvConfigPath))
 			return
 		}
-		fmt.Fprintf(w, "可以用 --config <path> 指定别处的配置文件，或设置环境变量 %s 指向它。\n", config.EnvConfigPath)
+		fmt.Fprint(w, i18n.TF(lang, "cli.startup.configMissingHint", "可以用 --config <path> 指定别处的配置文件，或设置环境变量 %s 指向它。\n", config.EnvConfigPath))
 		return
 	}
-	fmt.Fprintf(w, "配置文件有问题: %s\n", path)
+	fmt.Fprint(w, i18n.TF(lang, "cli.startup.configBroken", "配置文件有问题: %s\n", path))
 	fmt.Fprintln(w, strings.TrimRight(err.Error(), "\n"))
 }

@@ -14,6 +14,7 @@ import (
 
 	"council/internal/app"
 	"council/internal/headless"
+	"council/internal/i18n"
 	"council/internal/repl"
 	"council/internal/serve"
 )
@@ -61,15 +62,24 @@ func run(args []string) int {
 		return runCommands(args[1:])
 	}
 
+	// 语言要在建 FlagSet 之前定：-h 在 Parse 里就返回 ErrHelp，那时再按解析
+	// 结果选说明文字已经晚了。-lang 的值与 -config 的值先按字面预扫一遍，
+	// 剩下的优先级（环境变量、配置里的 language、系统区域）仍由 cliLanguage
+	// 一次排完；解析成功后 applyLanguageFlag 再把正式结果写进 COUNCIL_LANG。
+	prescanLang := cliLanguage(prescanFlag(args, "lang"), prescanFlag(args, "config"))
+	text := func(key, fallback string) string {
+		return i18n.TF(prescanLang, key, fallback)
+	}
+
 	fs := flag.NewFlagSet("council", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	configPath := fs.String("config", "", "配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml")
+	configPath := fs.String("config", "", text("cli.flag.config", "配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml"))
 	lang := fs.String("lang", "auto",
-		"界面语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）")
-	showVersion := fs.Bool("version", false, "打印版本号后退出，不加载配置")
-	verbose := fs.Bool("verbose", false, "详细输出：每轮的用量、金额、冷暖、provider 会话、预算表与结算全部显示（默认简洁；进去之后也可以用 /verbose 切换）")
-	noTUI := fs.Bool("no-tui", false, "不用 TUI，走行式 REPL（TUI 在你的终端上出问题时的退路）")
-	noAuto := fs.Bool("no-auto", false, "直接打字只记下、不让成员回复（默认会问当前会话的成员；进去之后也可以用 /auto 切换）")
+		text("cli.flag.lang", "界面语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）"))
+	showVersion := fs.Bool("version", false, text("cli.flag.version", "打印版本号后退出，不加载配置"))
+	verbose := fs.Bool("verbose", false, text("cli.flag.verbose", "详细输出：每轮的用量、金额、冷暖、provider 会话、预算表与结算全部显示（默认简洁；进去之后也可以用 /verbose 切换）"))
+	noTUI := fs.Bool("no-tui", false, text("cli.flag.noTUI", "不用 TUI，走行式 REPL（TUI 在你的终端上出问题时的退路）"))
+	noAuto := fs.Bool("no-auto", false, text("cli.flag.noAuto", "直接打字只记下、不让成员回复（默认会问当前会话的成员；进去之后也可以用 /auto 切换）"))
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
@@ -85,7 +95,7 @@ func run(args []string) int {
 	// 多余的位置参数不静默忽略：council foo 里的 foo 没有任何含义，
 	// 照常进 REPL 会让用户以为它生效了。按 Go 惯例报错退 2。
 	if fs.NArg() > 0 {
-		fmt.Fprintf(os.Stderr, "council 不接受位置参数，多出来的是: %v\n", fs.Args())
+		fmt.Fprint(os.Stderr, i18n.TF(prescanLang, "cli.error.positional", "council 不接受位置参数，多出来的是: %v\n", fs.Args()))
 		fs.Usage()
 		return exitUsage
 	}
@@ -93,10 +103,10 @@ func run(args []string) int {
 	// 两个句柄都要判。只判 stdin 的话，council > out.txt 会让 TUI 往文件里画。
 	useTUI := !*noTUI && repl.IsTerminal(os.Stdin) && repl.IsTerminal(os.Stdout)
 
-	// 交互模式本片不翻译任何文案（REPL / TUI 是后续片），但 -lang 的解析
-	// 必须先落地：把最终语言写回 COUNCIL_LANG，后续片与任何子进程读到的
-	// 都是同一个 Resolve 结果，不必再各自排一次优先级。
-	applyLanguageFlag(*lang, *configPath)
+	// -lang 的解析结果写回 COUNCIL_LANG：后续任何读这个变量的代码或子进程
+	// 拿到的是同一次 Resolve 的结果，不必再各自排一次优先级。返回值同时
+	// 注入 app.Options.Lang（横幅、REPL、TUI 都用它），避免两处各解析一次。
+	resolvedLang := applyLanguageFlag(*lang, *configPath)
 
 	// 硬退 goroutine 只在行式模式下注册。理由见 newRootContext 里的注释。
 	ctx, stop := newRootContext(!useTUI)
@@ -113,6 +123,7 @@ func run(args []string) int {
 		OutFile:    os.Stdout,
 		Verbose:    *verbose,
 		NoAuto:     *noAuto,
+		Lang:       resolvedLang,
 	}); err != nil {
 		// app.Run 已经把给人看的错误写进 stderr 了，这里只决定退出码，不再重复打印。
 		return exitConfigFailed
@@ -123,16 +134,20 @@ func run(args []string) int {
 // runAsk 是 `council ask` 的进程边界：解析私有 flag、建 root context、
 // 把装配交给 app.Run，最后只做退出码映射。真正的执行在 internal/headless。
 func runAsk(args []string) int {
+	// ask 不走全局 FlagSet，语言要在这里自己落地：预扫 -lang / -config，
+	// 求出的结果写进 COUNCIL_LANG，再交给 ParseLang / UsageLang。配置里
+	// 的 language 在这一步就能生效（cliLanguage 会只读地读一次）。
+	lang := applyLanguageFlag(prescanFlag(args, "lang"), prescanFlag(args, "config"))
 	// 配置还没加载，这一趟只能做与配置无关的校验；未知成员、round 缺汇总
 	// 这类要靠配置的用法错误，由 headless.Run 拿到 cfg 后补判，同样退 2。
-	opts, err := headless.Parse(args, nil)
+	opts, err := headless.ParseLang(args, nil, lang)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprint(os.Stderr, headless.Usage())
+			fmt.Fprint(os.Stderr, headless.UsageLang(lang))
 			return exitOK
 		}
 		fmt.Fprintf(os.Stderr, "council ask: %v\n", err)
-		fmt.Fprint(os.Stderr, headless.Usage())
+		fmt.Fprint(os.Stderr, headless.UsageLang(lang))
 		return exitUsage
 	}
 
@@ -157,14 +172,15 @@ func runAsk(args []string) int {
 // 把只读看板交给 internal/serve，最后做退出码映射。用法错误退 2；
 // 配置、库、监听这类启动/运行失败退 1。
 func runServe(args []string) int {
-	opts, err := serve.Parse(args)
+	lang := applyLanguageFlag(prescanFlag(args, "lang"), prescanFlag(args, "config"))
+	opts, err := serve.ParseLang(args, lang)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprint(os.Stderr, serve.Usage())
+			fmt.Fprint(os.Stderr, serve.UsageLang(lang))
 			return exitOK
 		}
 		fmt.Fprintf(os.Stderr, "council serve: %v\n", err)
-		fmt.Fprint(os.Stderr, serve.Usage())
+		fmt.Fprint(os.Stderr, serve.UsageLang(lang))
 		return exitUsage
 	}
 

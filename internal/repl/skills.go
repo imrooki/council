@@ -35,7 +35,7 @@ const msgNoSkills = "没有发现 skills（.claude/skills 下没有 SKILL.md）"
 func cmdSkills(_ context.Context, r *REPL, _ cmdArgs) error {
 	skills := config.ScanClaudeSkills(r.projectDir)
 	if len(skills) == 0 {
-		return r.printf("%s\n", msgNoSkills)
+		return r.printf("%s\n", r.t("tui.skills.none", msgNoSkills))
 	}
 	tw := r.newTabWriter()
 	for _, skill := range skills {

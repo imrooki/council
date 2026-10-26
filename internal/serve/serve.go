@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"council/internal/config"
+	"council/internal/i18n"
 	"council/internal/store"
 )
 
@@ -62,8 +63,14 @@ type Options struct {
 // 等监听失败再报就混进了运行时错误（同一个端口被占用也该退 1）。
 // 这样 `council serve -addr 0.0.0.0:8765` 在碰任何文件之前就被挡下。
 func Parse(args []string) (Options, error) {
+	return ParseLang(args, i18n.LangZh)
+}
+
+// ParseLang 是 Parse 带语言的那一半：lang 只影响错误信息与 -h 的说明，
+// 不影响任何行为。cmd/council 预扫 -lang 之后传进来。
+func ParseLang(args []string, lang i18n.Lang) (Options, error) {
 	var opts Options
-	fs := newFlagSet(&opts)
+	fs := newFlagSet(&opts, lang)
 	// flag 自己写的错误与用法由 cmd/council 负责打印，这里只把错误带回去。
 	fs.SetOutput(io.Discard)
 
@@ -71,9 +78,9 @@ func Parse(args []string) (Options, error) {
 		return Options{}, err
 	}
 	if fs.NArg() > 0 {
-		return Options{}, fmt.Errorf("不接受位置参数，多出来的是: %v", fs.Args())
+		return Options{}, fmt.Errorf("%s", i18n.TF(lang, "cli.serve.err.positional", "不接受位置参数，多出来的是: %v", fs.Args()))
 	}
-	if err := validateLoopbackAddr(opts.Addr); err != nil {
+	if err := validateLoopbackAddrLang(opts.Addr, lang); err != nil {
 		return Options{}, err
 	}
 	return opts, nil
@@ -81,43 +88,53 @@ func Parse(args []string) (Options, error) {
 
 // newFlagSet 同时给 Parse 与 Usage 用，保证两处登记的 flag 逐字一致。
 // 分开写两份的结果是用法里少了新 flag、或者默认值改了而说明没改。
-func newFlagSet(opts *Options) *flag.FlagSet {
+func newFlagSet(opts *Options, lang i18n.Lang) *flag.FlagSet {
+	text := func(key, fallback string) string {
+		return i18n.TF(lang, key, fallback)
+	}
 	fs := flag.NewFlagSet("council serve", flag.ContinueOnError)
 	fs.StringVar(&opts.Addr, "addr", defaultAddr,
-		"监听地址，必须是回环地址（127.0.0.0/8、::1 或 localhost）")
+		text("cli.serve.flag.addr", "监听地址，必须是回环地址（127.0.0.0/8、::1 或 localhost）"))
 	fs.BoolVar(&opts.Open, "open", false,
-		"启动后调用系统浏览器打开看板；打不开只提示，不影响服务")
+		text("cli.serve.flag.open", "启动后调用系统浏览器打开看板；打不开只提示，不影响服务"))
 	fs.BoolVar(&opts.App, "app", false,
-		"用 Edge/Chrome 的应用窗口打开看板，没有地址栏与标签页（仅 Windows；找不到浏览器或启动失败时退回 -open 的行为）")
+		text("cli.serve.flag.app", "用 Edge/Chrome 的应用窗口打开看板，没有地址栏与标签页（仅 Windows；找不到浏览器或启动失败时退回 -open 的行为）"))
 	fs.StringVar(&opts.ConfigPath, "config", "",
-		"配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml")
+		text("cli.serve.flag.config", "配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml"))
 	fs.StringVar(&opts.Lang, "lang", "auto",
-		"界面语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）")
+		text("cli.serve.flag.lang", "界面语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）"))
 	fs.BoolVar(&opts.Verbose, "verbose", false,
-		"每个请求打一行到 stderr")
+		text("cli.serve.flag.verbose", "每个请求打一行到 stderr"))
 	fs.BoolVar(&opts.RW, "rw", false,
-		"写模式：拿 council.lock，网页可以跑议会（会花你的额度；此时 TUI 不能再开）")
+		text("cli.serve.flag.rw", "写模式：拿 council.lock，网页可以跑议会（会花你的额度；此时 TUI 不能再开）"))
 	return fs
 }
 
-// Usage 返回 `council serve -h` 的完整用法。
+// Usage 返回 `council serve -h` 的完整用法（中文，与改造前逐字节相同）。
 func Usage() string {
+	return UsageLang(i18n.LangZh)
+}
+
+// UsageLang 返回某一语言的完整用法。散文部分整块翻译，Flags 段由
+// newFlagSet 的说明生成，flag 名与默认值两种语言完全一致。
+func UsageLang(lang i18n.Lang) string {
 	var b strings.Builder
-	fmt.Fprintln(&b, "用法: council serve [flags]")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "默认只读看板：在浏览器里看本机的会话、消息、每轮用量与费用。")
-	fmt.Fprintln(&b, "不写库、不跑迁移、不抢 council.lock，TUI 开着时也能读同一个库。")
-	fmt.Fprintln(&b, "-rw 写模式：拿 council.lock、可迁移，网页里可以跑一次议会并花你的额度。")
-	fmt.Fprintln(&b, "拿不到锁时直接退出；写模式开着时不要再开 TUI。")
-	fmt.Fprintln(&b, "只允许绑定回环地址；Ctrl-C 优雅关闭。")
-	fmt.Fprintln(&b, "-app（仅 Windows）：用 Edge 或 Chrome 的 --app 窗口打开看板，没有地址栏、没有标签页。")
-	fmt.Fprintln(&b, "  窗口默认 1440x900，profile 在 <data_dir>\\ui-profile，不碰你日常浏览器的会话与扩展。")
-	fmt.Fprintln(&b, "  找不到 Edge/Chrome 或启动失败时打印一行说明，退回 -open 的行为；与 -open 同给时以 -app 为准。")
-	fmt.Fprintln(&b, "  窗口是独立的浏览器进程：serve 退出之后它仍然开着，要关请自己关那个窗口。")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Flags:")
+	fmt.Fprint(&b, i18n.TF(lang, "cli.serve.usage", `用法: council serve [flags]
+
+默认只读看板：在浏览器里看本机的会话、消息、每轮用量与费用。
+不写库、不跑迁移、不抢 council.lock，TUI 开着时也能读同一个库。
+-rw 写模式：拿 council.lock、可迁移，网页里可以跑一次议会并花你的额度。
+拿不到锁时直接退出；写模式开着时不要再开 TUI。
+只允许绑定回环地址；Ctrl-C 优雅关闭。
+-app（仅 Windows）：用 Edge 或 Chrome 的 --app 窗口打开看板，没有地址栏、没有标签页。
+  窗口默认 1440x900，profile 在 <data_dir>\ui-profile，不碰你日常浏览器的会话与扩展。
+  找不到 Edge/Chrome 或启动失败时打印一行说明，退回 -open 的行为；与 -open 同给时以 -app 为准。
+  窗口是独立的浏览器进程：serve 退出之后它仍然开着，要关请自己关那个窗口。
+
+Flags:
+`))
 	var opts Options
-	fs := newFlagSet(&opts)
+	fs := newFlagSet(&opts, lang)
 	fs.SetOutput(&b)
 	fs.PrintDefaults()
 	return b.String()
@@ -128,22 +145,27 @@ func Usage() string {
 // 空 host（":8765"）也是拒绝的：那等于监听所有网卡，与 0.0.0.0 是同一件事，
 // 只是写起来更隐蔽。
 func validateLoopbackAddr(addr string) error {
+	return validateLoopbackAddrLang(addr, i18n.LangZh)
+}
+
+// validateLoopbackAddrLang 是带语言的地址校验；中文错误信息与改造前逐字节相同。
+func validateLoopbackAddrLang(addr string, lang i18n.Lang) error {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return fmt.Errorf("地址 %q 不合法，应写成 127.0.0.1:8765: %w", addr, err)
+		return fmt.Errorf("%s", i18n.TF(lang, "cli.serve.err.addrInvalid", "地址 %q 不合法，应写成 127.0.0.1:8765: %v", addr, err))
 	}
 	if host == "" {
-		return fmt.Errorf("地址 %q 没有指定主机；必须写回环地址（例如 127.0.0.1:8765）", addr)
+		return fmt.Errorf("%s", i18n.TF(lang, "cli.serve.err.addrNoHost", "地址 %q 没有指定主机；必须写回环地址（例如 127.0.0.1:8765）", addr))
 	}
 	if port == "" {
-		return fmt.Errorf("地址 %q 没有指定端口", addr)
+		return fmt.Errorf("%s", i18n.TF(lang, "cli.serve.err.addrNoPort", "地址 %q 没有指定端口", addr))
 	}
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 0 || n > 65535 {
-		return fmt.Errorf("地址 %q 的端口 %q 不合法，必须是 0 到 65535 的整数", addr, port)
+		return fmt.Errorf("%s", i18n.TF(lang, "cli.serve.err.addrBadPort", "地址 %q 的端口 %q 不合法，必须是 0 到 65535 的整数", addr, port))
 	}
 	if !isLoopbackHost(host) {
-		return fmt.Errorf("只允许绑定回环地址（127.0.0.0/8、::1、localhost），%q 不是回环地址", host)
+		return fmt.Errorf("%s", i18n.TF(lang, "cli.serve.err.addrNotLoopback", "只允许绑定回环地址（127.0.0.0/8、::1、localhost），%q 不是回环地址", host))
 	}
 	return nil
 }

@@ -1,13 +1,13 @@
 package i18n
 
-// messages.go 是 Web 界面的两张消息目录。key 一律以 "ui." 开头，/api/i18n
-// 只交出这一段（UIMessages）。服务端错误文案不在本片范围内：错误信息本身
-// 暂不翻译，属于后续片。
+// messages.go 是 Web 界面的两张消息目录（ui.*）。/api/i18n 只交出这一段
+// （UIMessages）；cli.* 与 tui.* 在 messages_cli.go / messages_tui.go，
+// 由 catalogs.go 合并进 zh / en。
 //
 // 文案里的 {name} / {n} / {path} 是前端 t() 的命名占位符；Go 侧 T() 的
 // 格式化仍用 fmt 动词，两者互不干扰。英文按人话写，不逐字直译。
 
-var zh = Catalog{
+var zhUI = Catalog{
 	// ---- 页面外壳 ----
 	"ui.app.readonlyDashboard":        "只读看板",
 	"ui.app.writeDashboard":           "写模式",
@@ -541,7 +541,7 @@ var zh = Catalog{
 	"ui.settings.providerNotListed":       "{id}（不在 providers 里）",
 }
 
-var en = Catalog{
+var enUI = Catalog{
 	// ---- Shell ----
 	"ui.app.readonlyDashboard":        "Read-only dashboard",
 	"ui.app.writeDashboard":           "Write mode",

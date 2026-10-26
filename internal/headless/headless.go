@@ -15,6 +15,7 @@ import (
 
 	"council/internal/config"
 	"council/internal/conversation"
+	"council/internal/i18n"
 	"council/internal/provider"
 	"council/internal/turn"
 )
@@ -109,7 +110,7 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 	}
 
 	if deps.Cfg == nil {
-		fmt.Fprintln(errOut, "council ask: 配置未加载，无法执行")
+		fmt.Fprintln(errOut, i18n.TF(opts.Lang, "cli.ask.err.configMissing", "council ask: 配置未加载，无法执行"))
 		return fmt.Errorf("headless: 配置未加载")
 	}
 	if err := Validate(opts, deps.Cfg); err != nil {
@@ -119,7 +120,7 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 	// app.Run 在 svc 为 nil 时不会构造 Runner。那一刻没有库也没有 provider
 	// 调用，只能把话说明白退 1；不能在下面对 rn 解引用。
 	if deps.Svc == nil || deps.Rn == nil {
-		fmt.Fprintln(errOut, "council ask: 持久化或 provider 调用未就绪，无法执行")
+		fmt.Fprintln(errOut, i18n.TF(opts.Lang, "cli.ask.err.notReady", "council ask: 持久化或 provider 调用未就绪，无法执行"))
 		return fmt.Errorf("headless: 持久化或 provider 调用未就绪")
 	}
 
@@ -218,7 +219,7 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 			return s.finish(statusError)
 		}
 		s.rn = fixedRn
-		fmt.Fprintf(errOut, "council: -workspace 为本次调用新建 worktree 副本：%s（跑完返回 diff，不自动应用）\n", copyDir)
+		fmt.Fprintf(errOut, "%s", i18n.TF(opts.Lang, "cli.ask.workspaceCreated", "council: -workspace 为本次调用新建 worktree 副本：%s（跑完返回 diff，不自动应用）\n", copyDir))
 		s.auditWorkspaceDrift(runCtx)
 	}
 
@@ -297,12 +298,12 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 			// 被 PlanRound 判走的人不会出现在 turns 里。headless 没有 /round
 			// 的屏幕，只剩这一行能解释「名单里有他、结果里没有」。
 			for _, skipped := range plan.Skipped {
-				fmt.Fprintf(errOut, "council: 跳过 %s：%s\n", skipped.AgentID, skipped.Reason)
+				fmt.Fprint(errOut, i18n.TF(opts.Lang, "cli.ask.skipped", "council: 跳过 %s：%s\n", skipped.AgentID, skipped.Reason))
 			}
 			// 裁判不在 Skipped 里，不补这行就会无声消失。council ask 没有
 			// --with-judge，这一轮不跑裁判轮，所以不照 /round 提那个 flag。
 			if len(plan.Judges) > 0 {
-				fmt.Fprintf(errOut, "裁判 %s 本命令不问：council ask 不跑裁判轮。\n", strings.Join(plan.Judges, "、"))
+				fmt.Fprint(errOut, i18n.TF(opts.Lang, "cli.ask.judgesIgnored", "裁判 %s 本命令不问：council ask 不跑裁判轮。\n", strings.Join(plan.Judges, "、")))
 			}
 		}
 		if len(plan.Speakers) == 0 {
@@ -310,7 +311,7 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 			break
 		}
 		if s.verbose {
-			fmt.Fprintf(errOut, "council: 第 %d/%d 轮，问 %d 个成员\n", k, opts.Rounds, len(plan.Speakers))
+			fmt.Fprint(errOut, i18n.TF(opts.Lang, "cli.ask.roundOf", "council: 第 %d/%d 轮，问 %d 个成员\n", k, opts.Rounds, len(plan.Speakers)))
 		}
 		recs := s.runPlan(runCtx, plan, snap, k)
 		for _, rec := range recs {
@@ -586,7 +587,7 @@ func (s *askState) runSummary(ctx context.Context) error {
 		}
 		if !p.Active {
 			if s.verbose {
-				fmt.Fprintf(s.errOut, "council: 汇总成员 %s 已退出当前会话，本次不汇总\n", s.summaryID)
+				fmt.Fprint(s.errOut, i18n.TF(s.opts.Lang, "cli.ask.summaryAgentLeft", "council: 汇总成员 %s 已退出当前会话，本次不汇总\n", s.summaryID))
 			}
 			return nil
 		}
@@ -627,7 +628,7 @@ func (s *askState) runSummary(ctx context.Context) error {
 		s.summary = rec.DroppedText
 	}
 	if rec.Outcome != turn.OutcomeSpoke {
-		fmt.Fprintf(s.errOut, "council: 汇总成员 %s 没有回复（%s）\n", s.summaryID, outcomeName(rec.Outcome))
+		fmt.Fprint(s.errOut, i18n.TF(s.opts.Lang, "cli.ask.summaryNoReply", "council: 汇总成员 %s 没有回复（%s）\n", s.summaryID, outcomeName(rec.Outcome)))
 	}
 	// ask 的汇总可有可无，失败只说明；round 的汇总是 D4 的显式要求，
 	// 真尝试过却一个字都没拿到，计入失败让 status 变 partial。被预算
@@ -685,20 +686,20 @@ func (s *askState) finish(status string) error {
 	if s.opts.JSON {
 		writeErr = json.NewEncoder(s.out).Encode(res)
 	} else {
-		writeErr = writeText(s.out, res, gap)
+		writeErr = writeText(s.out, res, gap, s.opts.Lang)
 	}
 	if writeErr != nil {
-		fmt.Fprintf(s.errOut, "council ask: 写结果失败: %v\n", writeErr)
+		fmt.Fprint(s.errOut, i18n.TF(s.opts.Lang, "cli.ask.writeFailed", "council ask: 写结果失败: %v\n", writeErr))
 		return writeErr
 	}
 
 	switch status {
 	case statusPartial:
 		// D6 的冻结格式：有结论就算成功，但失败信息不能吞。
-		fmt.Fprintf(s.errOut, "council: partial: %d/%d 成员失败\n", failedN, total)
+		fmt.Fprint(s.errOut, i18n.TF(s.opts.Lang, "cli.ask.partial", "council: partial: %d/%d 成员失败\n", failedN, total))
 		return nil
 	case statusBudgetExceeded:
-		fmt.Fprintf(s.errOut, "council: 预算触线：已花 %.4f USD，上限 %.2f USD\n", s.costUSD, s.opts.BudgetUSD)
+		fmt.Fprint(s.errOut, i18n.TF(s.opts.Lang, "cli.ask.budgetExceeded", "council: 预算触线：已花 %.4f USD，上限 %.2f USD\n", s.costUSD, s.opts.BudgetUSD))
 		return fmt.Errorf("预算触线：已花 %.4f USD，上限 %.2f USD", s.costUSD, s.opts.BudgetUSD)
 	case statusError:
 		if s.execErr == nil {
@@ -712,22 +713,22 @@ func (s *askState) finish(status string) error {
 
 // writeText 是 -json 为假时的输出。它只写结果，不写横幅、不写提示符；
 // 调用方（dsh、脚本、人）拿到的仍然是「一段可以整段读完的东西」。
-func writeText(out io.Writer, res Result, costGap int) error {
+func writeText(out io.Writer, res Result, costGap int, lang i18n.Lang) error {
 	amount := fmt.Sprintf("%.4f", res.CostUSD)
 	if costGap > 0 {
-		amount += fmt.Sprintf("（不完全：%d 位成员不报金额）", costGap)
+		amount += i18n.TF(lang, "cli.ask.text.incomplete", "（不完全：%d 位成员不报金额）", costGap)
 	}
-	if _, err := fmt.Fprintf(out, "状态: %s\n会话: %s\n成员: %s\n金额: %s USD\n",
-		res.Status, res.ConversationID, strings.Join(res.Members, ", "), amount); err != nil {
+	if _, err := fmt.Fprint(out, i18n.TF(lang, "cli.ask.text.statusLine", "状态: %s\n会话: %s\n成员: %s\n金额: %s USD\n",
+		res.Status, res.ConversationID, strings.Join(res.Members, ", "), amount)); err != nil {
 		return err
 	}
 	for _, t := range res.Turns {
-		if _, err := fmt.Fprintf(out, "\n%s 第 %d 轮 %s（%s/%s，%dms，%.4f USD）\n",
-			t.AgentID, t.Round, t.Outcome, t.Model, t.Effort, t.DurationMS, t.CostUSD); err != nil {
+		if _, err := fmt.Fprint(out, i18n.TF(lang, "cli.ask.text.turnHead", "\n%s 第 %d 轮 %s（%s/%s，%dms，%.4f USD）\n",
+			t.AgentID, t.Round, t.Outcome, t.Model, t.Effort, t.DurationMS, t.CostUSD)); err != nil {
 			return err
 		}
 		if t.Text == "" {
-			if _, err := fmt.Fprintln(out, "（无正文）"); err != nil {
+			if _, err := fmt.Fprintln(out, i18n.TF(lang, "cli.ask.text.noText", "（无正文）")); err != nil {
 				return err
 			}
 			continue
@@ -739,23 +740,23 @@ func writeText(out io.Writer, res Result, costGap int) error {
 	if res.Workspace != nil {
 		files := strings.Join(res.Workspace.Files, ", ")
 		if files == "" {
-			files = "（无）"
+			files = i18n.TF(lang, "cli.ask.text.noFiles", "（无）")
 		}
-		if _, err := fmt.Fprintf(out, "\n工作区副本: %s\n改动文件: %s\n", res.Workspace.Copy, files); err != nil {
+		if _, err := fmt.Fprint(out, i18n.TF(lang, "cli.ask.text.workspace", "\n工作区副本: %s\n改动文件: %s\n", res.Workspace.Copy, files)); err != nil {
 			return err
 		}
 		if res.Workspace.DiffTruncated {
-			if _, err := fmt.Fprintf(out, "diff 超过 1 MiB，全文: %s\n", res.Workspace.DiffPath); err != nil {
+			if _, err := fmt.Fprint(out, i18n.TF(lang, "cli.ask.text.diffTrunc", "diff 超过 1 MiB，全文: %s\n", res.Workspace.DiffPath)); err != nil {
 				return err
 			}
 		} else if res.Workspace.Diff != "" {
-			if _, err := fmt.Fprintf(out, "改动:\n%s\n", res.Workspace.Diff); err != nil {
+			if _, err := fmt.Fprint(out, i18n.TF(lang, "cli.ask.text.diff", "改动:\n%s\n", res.Workspace.Diff)); err != nil {
 				return err
 			}
 		}
 	}
 	if res.Summary != "" {
-		if _, err := fmt.Fprintf(out, "\n汇总:\n%s\n", res.Summary); err != nil {
+		if _, err := fmt.Fprint(out, i18n.TF(lang, "cli.ask.text.summary", "\n汇总:\n%s\n", res.Summary)); err != nil {
 			return err
 		}
 	}

@@ -12,6 +12,7 @@ import (
 
 	"council/internal/config"
 	"council/internal/conversation"
+	"council/internal/i18n"
 	"council/internal/turn"
 )
 
@@ -58,6 +59,11 @@ type Options struct {
 	// 拿到它再去调 app.Run；app.Options 里同名字段就是从这里填的。
 	// 空串的读法与全局 -config 相同：走环境变量与默认位置。
 	ConfigPath string
+
+	// Lang 是本次输出的语言：由 -lang 解析而来（flag > COUNCIL_LANG > 传入
+	// 的兜底语言）。零值空串按中文处理。用法块、参数错误与文本模式输出
+	// 都按它取，JSON 的键名与字段一个字不动。
+	Lang i18n.Lang
 }
 
 // Deps 是 Run 需要的装配结果。它由 internal/app 在 open store 之后填，
@@ -107,6 +113,12 @@ func usagef(format string, args ...any) error {
 	return &UsageError{msg: fmt.Sprintf(format, args...)}
 }
 
+// usagefLang 是带语言的 usagef：fallback 传中文原文，查不到翻译时打中文。
+// 终端入口（council ask）用它，错误信息才不会在中英之间半途换语言。
+func usagefLang(lang i18n.Lang, key, fallback string, args ...any) error {
+	return &UsageError{msg: i18n.TF(lang, key, fallback, args...)}
+}
+
 // ExitCode 把 Run / Parse 的返回值收敛成进程退出码。
 // nil 与 partial 都是 0；用法错误 2；其余（含 budget_exceeded）1。
 // main 不再自己判错误类型，映射只留这一处。
@@ -129,22 +141,34 @@ func ExitCode(err error) int {
 // team、汇总成员一并校验。Run 会在拿到 cfg 后再调一次 Validate，
 // 所以生产路径上的配置相关用法错误一个都不会漏。
 func Parse(args []string, cfg *config.Config) (Options, error) {
+	return ParseLang(args, cfg, i18n.LangZh)
+}
+
+// ParseLang 是 Parse 带语言的那一半。descLang 是「拿不到 -lang 时假定的语言」：
+// 它给 -h 的 flag 说明与用法块用（解析在 -h 处就停下了），cmd/council 会先
+// 预扫 -lang 再把结果传进来。真正的输出语言仍由 -lang > COUNCIL_LANG 决定，
+// 结果写进 Options.Lang，供错误信息与文本模式输出使用。
+func ParseLang(args []string, cfg *config.Config, descLang i18n.Lang) (Options, error) {
 	fs := flag.NewFlagSet("council ask", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
+	flagText := func(key, fallback string) string {
+		return i18n.TF(descLang, key, fallback)
+	}
 
-	prompt := fs.String("p", "", "问题正文；也可以写成 -- 之后的位置参数")
-	members := fs.String("members", "", "逗号分隔的 agent id，按给出顺序发言")
-	team := fs.String("team", "", "团队 id；与 -members 互斥")
-	mode := fs.String("mode", "ask", "ask＝各成员说一轮；round＝多轮，语义同 /round")
-	rounds := fs.Int("rounds", 1, "仅 round 生效；ask 下必须是 1")
-	summary := fs.String("summary", "", "汇总成员；none 显式关闭（round 下不允许关闭）")
-	budget := fs.Float64("budget-usd", 5, "本次调用的硬上限，单位 USD，不得小于 0.5")
-	timeout := fs.Duration("timeout", 10*time.Minute, "整体超时；到点取消全部在飞")
-	conversation := fs.String("conversation", "", "续接已有会话；未知 id 退 1")
-	workspace := fs.String("workspace", "", "在 git 仓库的隔离 worktree 副本里跑，跑完返回 diff")
-	jsonOut := fs.Bool("json", false, "stdout 只输出一个 JSON 对象")
-	verbose := fs.Bool("verbose", false, "逐成员进度写 stderr")
-	configPath := fs.String("config", "", "配置文件路径，与全局 -config 含义相同")
+	prompt := fs.String("p", "", flagText("cli.ask.flag.prompt", "问题正文；也可以写成 -- 之后的位置参数"))
+	members := fs.String("members", "", flagText("cli.ask.flag.members", "逗号分隔的 agent id，按给出顺序发言"))
+	team := fs.String("team", "", flagText("cli.ask.flag.team", "团队 id；与 -members 互斥"))
+	mode := fs.String("mode", "ask", flagText("cli.ask.flag.mode", "ask＝各成员说一轮；round＝多轮，语义同 /round"))
+	rounds := fs.Int("rounds", 1, flagText("cli.ask.flag.rounds", "仅 round 生效；ask 下必须是 1"))
+	summary := fs.String("summary", "", flagText("cli.ask.flag.summary", "汇总成员；none 显式关闭（round 下不允许关闭）"))
+	budget := fs.Float64("budget-usd", 5, flagText("cli.ask.flag.budget", "本次调用的硬上限，单位 USD，不得小于 0.5"))
+	timeout := fs.Duration("timeout", 10*time.Minute, flagText("cli.ask.flag.timeout", "整体超时；到点取消全部在飞"))
+	conversation := fs.String("conversation", "", flagText("cli.ask.flag.conversation", "续接已有会话；未知 id 退 1"))
+	workspace := fs.String("workspace", "", flagText("cli.ask.flag.workspace", "在 git 仓库的隔离 worktree 副本里跑，跑完返回 diff"))
+	jsonOut := fs.Bool("json", false, flagText("cli.ask.flag.json", "stdout 只输出一个 JSON 对象"))
+	verbose := fs.Bool("verbose", false, flagText("cli.ask.flag.verbose", "逐成员进度写 stderr"))
+	configPath := fs.String("config", "", flagText("cli.ask.flag.config", "配置文件路径，与全局 -config 含义相同"))
+	langFlag := fs.String("lang", "auto", flagText("cli.ask.flag.lang", "输出语言：zh / en / auto"))
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -152,6 +176,9 @@ func Parse(args []string, cfg *config.Config) (Options, error) {
 		}
 		return Options{}, usagef("%v", err)
 	}
+	// 语言在这里定：-lang > COUNCIL_LANG > 中文默认。配置里的 language 由
+	// app 装配时已经写进 COUNCIL_LANG（run() 的全局路径），ask 不再读盘。
+	lang := i18n.Resolve(*langFlag, "")
 	// 互斥按「flag 出现没出现」判，不按值判：-p "" 加位置参数、
 	// -members "" 加 -team 都是两次表达，不能因为其中一边是空串就放过去。
 	seen := make(map[string]bool)
@@ -161,7 +188,7 @@ func Parse(args []string, cfg *config.Config) (Options, error) {
 	var promptText string
 	switch {
 	case seen["p"] && len(positional) > 0:
-		return Options{}, usagef("-p 与 -- 后的位置参数只能给一个")
+		return Options{}, usagefLang(lang, "cli.ask.err.pAndPositional", "-p 与 -- 后的位置参数只能给一个")
 	case seen["p"]:
 		promptText = *prompt
 	case len(positional) > 0:
@@ -169,11 +196,11 @@ func Parse(args []string, cfg *config.Config) (Options, error) {
 		// 空白形状由 shell 的引号决定，本层不再加工。
 		promptText = strings.Join(positional, " ")
 	default:
-		return Options{}, usagef("必须用 -p <prompt> 或 -- <prompt> 给出问题")
+		return Options{}, usagefLang(lang, "cli.ask.err.promptRequired", "必须用 -p <prompt> 或 -- <prompt> 给出问题")
 	}
 
 	if seen["members"] && seen["team"] {
-		return Options{}, usagef("-members 与 -team 不能同时给")
+		return Options{}, usagefLang(lang, "cli.ask.err.membersAndTeam", "-members 与 -team 不能同时给")
 	}
 
 	var memberList []string
@@ -187,10 +214,10 @@ func Parse(args []string, cfg *config.Config) (Options, error) {
 		}
 	}
 	if seen["members"] && len(memberList) == 0 {
-		return Options{}, usagef("-members 给了但名单是空的")
+		return Options{}, usagefLang(lang, "cli.ask.err.membersEmpty", "-members 给了但名单是空的")
 	}
 	if seen["workspace"] && strings.TrimSpace(*workspace) == "" {
-		return Options{}, usagef("-workspace 给了但目录是空的")
+		return Options{}, usagefLang(lang, "cli.ask.err.workspaceEmpty", "-workspace 给了但目录是空的")
 	}
 
 	opts := Options{
@@ -207,6 +234,7 @@ func Parse(args []string, cfg *config.Config) (Options, error) {
 		JSON:         *jsonOut,
 		Verbose:      *verbose,
 		ConfigPath:   *configPath,
+		Lang:         lang,
 	}
 	if opts.Mode == "" {
 		opts.Mode = "ask"
@@ -221,11 +249,12 @@ func Parse(args []string, cfg *config.Config) (Options, error) {
 // 跨配置的校验；Run 拿到真实 cfg 后会再调一次，因此直接构造 Options 的
 // 调用方（例如测试）不会绕过任何一条。
 func Validate(opts Options, cfg *config.Config) error {
+	lang := opts.Lang
 	if strings.TrimSpace(opts.Prompt) == "" {
-		return usagef("问题正文不能为空")
+		return usagefLang(lang, "cli.ask.err.promptBlank", "问题正文不能为空")
 	}
 	if len(opts.Members) > 0 && strings.TrimSpace(opts.Team) != "" {
-		return usagef("-members 与 -team 不能同时给")
+		return usagefLang(lang, "cli.ask.err.membersAndTeam", "-members 与 -team 不能同时给")
 	}
 	mode := opts.Mode
 	if mode == "" {
@@ -234,22 +263,22 @@ func Validate(opts Options, cfg *config.Config) error {
 	switch mode {
 	case "ask":
 		if opts.Rounds != 1 {
-			return usagef("-mode ask 下 -rounds 必须是 1，实际 %d", opts.Rounds)
+			return usagefLang(lang, "cli.ask.err.askRounds", "-mode ask 下 -rounds 必须是 1，实际 %d", opts.Rounds)
 		}
 	case "round":
 		if opts.Rounds < 1 {
-			return usagef("-mode round 下 -rounds 至少是 1，实际 %d", opts.Rounds)
+			return usagefLang(lang, "cli.ask.err.roundRounds", "-mode round 下 -rounds 至少是 1，实际 %d", opts.Rounds)
 		}
 	default:
-		return usagef("-mode 只认 ask 或 round，实际 %q", opts.Mode)
+		return usagefLang(lang, "cli.ask.err.modeInvalid", "-mode 只认 ask 或 round，实际 %q", opts.Mode)
 	}
 	// NaN 与负数都过不了这一条；+Inf 能过 >=，但它等于没有上限，
 	// 与 D5「没有不限值」相反，单独拒掉。
 	if !(opts.BudgetUSD >= 0.5) || math.IsInf(opts.BudgetUSD, 0) {
-		return usagef("-budget-usd 不得小于 0.5，实际 %v", opts.BudgetUSD)
+		return usagefLang(lang, "cli.ask.err.budgetTooSmall", "-budget-usd 不得小于 0.5，实际 %v", opts.BudgetUSD)
 	}
 	if opts.Timeout <= 0 {
-		return usagef("-timeout 必须大于 0，实际 %v", opts.Timeout)
+		return usagefLang(lang, "cli.ask.err.timeout", "-timeout 必须大于 0，实际 %v", opts.Timeout)
 	}
 
 	if cfg == nil {
@@ -260,7 +289,7 @@ func Validate(opts Options, cfg *config.Config) error {
 		return err
 	}
 	if allJudges(resolved, cfg.Agents) {
-		return usagef("名单里的成员全是 judge 模式，没有可发言的人：%s", strings.Join(resolved, ", "))
+		return usagefLang(lang, "cli.ask.err.allJudges", "名单里的成员全是 judge 模式，没有可发言的人：%s", strings.Join(resolved, ", "))
 	}
 	if _, err := resolveSummary(opts, cfg); err != nil {
 		return err
@@ -287,19 +316,20 @@ func allJudges(members []string, agents map[string]config.AgentConfig) bool {
 // 最后是配置里全部 agent 的 id（字典序）。重复的 id 只留第一次出现的那个，
 // 顺序按给出顺序；每个 id 都必须在 cfg.Agents 里，否则是用法的错。
 func resolveMembers(opts Options, cfg *config.Config) ([]string, error) {
+	lang := opts.Lang
 	if cfg == nil {
 		return nil, fmt.Errorf("headless: 没有配置，无法解析成员")
 	}
 	var raw []string
 	if len(opts.Members) > 0 {
 		if strings.TrimSpace(opts.Team) != "" {
-			return nil, usagef("-members 与 -team 不能同时给")
+			return nil, usagefLang(lang, "cli.ask.err.membersAndTeam", "-members 与 -team 不能同时给")
 		}
 		raw = opts.Members
 	} else if teamID := strings.TrimSpace(opts.Team); teamID != "" {
 		team, ok := cfg.Teams[teamID]
 		if !ok {
-			return nil, usagef("未知团队 %q：配置里没有这个 team", teamID)
+			return nil, usagefLang(lang, "cli.ask.err.unknownTeam", "未知团队 %q：配置里没有这个 team", teamID)
 		}
 		raw = team.Members
 	} else {
@@ -318,7 +348,7 @@ func resolveMembers(opts Options, cfg *config.Config) ([]string, error) {
 			continue
 		}
 		if _, ok := cfg.Agents[id]; !ok {
-			return nil, usagef("未知成员 %q：配置里没有这个 agent", id)
+			return nil, usagefLang(lang, "cli.ask.err.unknownMember", "未知成员 %q：配置里没有这个 agent", id)
 		}
 		if _, dup := seen[id]; dup {
 			continue
@@ -327,7 +357,7 @@ func resolveMembers(opts Options, cfg *config.Config) ([]string, error) {
 		out = append(out, id)
 	}
 	if len(out) == 0 {
-		return nil, usagef("成员名单为空")
+		return nil, usagefLang(lang, "cli.ask.err.membersBlank", "成员名单为空")
 	}
 	return out, nil
 }
@@ -336,6 +366,7 @@ func resolveMembers(opts Options, cfg *config.Config) ([]string, error) {
 // 空串表示回到配置 [summary].agent。round 模式下关闭或没配都是用法错误
 // （D4：多轮必须有人收口），ask 模式允许没有汇总。
 func resolveSummary(opts Options, cfg *config.Config) (string, error) {
+	lang := opts.Lang
 	mode := opts.Mode
 	if mode == "" {
 		mode = "ask"
@@ -343,7 +374,7 @@ func resolveSummary(opts Options, cfg *config.Config) (string, error) {
 	raw := strings.TrimSpace(opts.Summary)
 	if raw == "none" {
 		if mode == "round" {
-			return "", usagef("-mode round 必须有汇总成员，不能用 -summary none 关掉")
+			return "", usagefLang(lang, "cli.ask.err.roundNoSummary", "-mode round 必须有汇总成员，不能用 -summary none 关掉")
 		}
 		return "", nil
 	}
@@ -352,19 +383,19 @@ func resolveSummary(opts Options, cfg *config.Config) (string, error) {
 	}
 	if raw == "" {
 		if mode == "round" {
-			return "", usagef("-mode round 没有汇总成员：在配置里写 [summary].agent，或用 -summary 指定")
+			return "", usagefLang(lang, "cli.ask.err.roundNoSummaryCfg", "-mode round 没有汇总成员：在配置里写 [summary].agent，或用 -summary 指定")
 		}
 		return "", nil
 	}
 	if cfg != nil {
 		ac, ok := cfg.Agents[raw]
 		if !ok {
-			return "", usagef("未知汇总成员 %q：配置里没有这个 agent", raw)
+			return "", usagefLang(lang, "cli.ask.err.unknownSummary", "未知汇总成员 %q：配置里没有这个 agent", raw)
 		}
 		// 与 config.Validate 对 [summary].agent 的规矩同一条：汇总进程
 		// 没有人当场点名，不给写盘能力。显式 -summary 也要守这条。
 		if ac.Permissions != config.PermissionRead {
-			return "", usagef("汇总成员 %q 必须是 read 权限，实际 %q", raw, ac.Permissions)
+			return "", usagefLang(lang, "cli.ask.err.summaryReadOnly", "汇总成员 %q 必须是 read 权限，实际 %q", raw, ac.Permissions)
 		}
 	}
 	return raw, nil
@@ -373,7 +404,13 @@ func resolveSummary(opts Options, cfg *config.Config) (string, error) {
 // Usage 是 -h 时打印的那段文字。flag 包自己的输出被 Parse 丢掉了，
 // 帮助与用法错误都由 runAsk 打这一份，保证两处不会漂成两套。
 func Usage() string {
-	return `用法:
+	return UsageLang(i18n.LangZh)
+}
+
+// UsageLang 返回某一语言的用法块。中文值与原 Usage() 逐字节相同。
+// flag 名、默认值与参数形状只有这一份，两种语言不会漂成两套接口。
+func UsageLang(lang i18n.Lang) string {
+	return i18n.TF(lang, "cli.ask.usage", `用法:
   council ask [flags] -- <prompt>
   council ask [flags] -p <prompt>
 
@@ -391,5 +428,6 @@ flags:
   -json                stdout 只输出一个 JSON 对象
   -verbose             逐成员进度写 stderr
   -config <path>       配置文件路径
-`
+  -lang zh|en|auto     输出语言，默认 auto
+`)
 }

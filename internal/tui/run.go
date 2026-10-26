@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"council/internal/i18n"
 	"council/internal/repl"
 )
 
@@ -27,11 +28,18 @@ type program interface {
 // 再交给 Model（Options.Ctx），在飞命令的 ctx 才能跟着取消，
 // 走到 spawn.go 的 killProcessTree。只交给前者，进程退了子进程还在烧 token。
 func Run(ctx context.Context, r *repl.REPL, out *LineWriter, version string, in, stdout *os.File) error {
+	return RunLang(ctx, r, out, version, in, stdout, i18n.LangZh)
+}
+
+// RunLang 是 Run 带语言的那一半。Run 保留中文固定值与旧签名，是因为
+// 既有测试直接调它；生产路径走 app → RunLang，把解析好的语言注入 Model。
+func RunLang(ctx context.Context, r *repl.REPL, out *LineWriter, version string, in, stdout *os.File, lang i18n.Lang) error {
 	m := New(Options{
 		Submit:  replAdapter{r: r},
 		Out:     out,
 		Version: version,
 		Ctx:     ctx,
+		Lang:    lang,
 	})
 	// 选项逐条冻结，不要再加：
 	// WithContext：根 ctx 取消（SIGTERM、关窗）时 Run 返回 ErrProgramKilled。

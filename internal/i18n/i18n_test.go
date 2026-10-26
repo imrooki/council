@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 // TestCatalogsHaveSameKeys 是本片唯一的防漂移闸：中英两份目录的 key 集合
@@ -51,21 +52,55 @@ func TestTMissingKeyReturnsKey(t *testing.T) {
 	}
 }
 
-// TestUIMessagesOnlyContainsUIKeys 把「服务端文案不进浏览器」这条契约
-// 落成可执行断言：目录里的每一条 key 目前都必须是 ui. 前缀，将来加服务端
-// 文案时这张表不能跟着变大。
+// TestUIMessagesOnlyContainsUIKeys 把「服务端与终端文案不进浏览器」这条契约
+// 落成可执行断言：/api/i18n 只交 ui. 前缀，cli.* 与 tui.* 一条都不能混进去。
+// 中文表的条数用 zhUI 比：zh 是合并后的完整目录，拿它比会随终端文案增长而误报。
 func TestUIMessagesOnlyContainsUIKeys(t *testing.T) {
 	for _, lang := range []Lang{LangZh, LangEn} {
 		messages := UIMessages(lang)
-		if len(messages) != len(zh) && lang == LangZh {
-			t.Errorf("UIMessages(zh) 返回 %d 条，期望全部 %d 条（本片目录全是界面文案）",
-				len(messages), len(zh))
+		if len(messages) != len(zhUI) && lang == LangZh {
+			t.Errorf("UIMessages(zh) 返回 %d 条，期望全部 %d 条界面文案",
+				len(messages), len(zhUI))
 		}
 		for key := range messages {
 			if len(key) < 3 || key[:3] != "ui." {
 				t.Errorf("UIMessages(%q) 里出现了非界面 key %q", lang, key)
 			}
 		}
+	}
+}
+
+// TestEnglishCatalogHasNoChinese 检查新增的终端文案：cli.* 与 tui.* 的英文值
+// 里不能出现汉字。缺一条翻译时 TF 会回落到中文原文，用户看到的是中文而
+// 不是 key——那是兜底，不是「已翻」。这条用例让漏翻在测试里显形。
+func TestEnglishCatalogHasNoChinese(t *testing.T) {
+	for key, text := range en {
+		if !strings.HasPrefix(key, "cli.") && !strings.HasPrefix(key, "tui.") {
+			continue
+		}
+		for _, r := range text {
+			if unicode.Is(unicode.Han, r) {
+				t.Errorf("英文目录 %q 里出现汉字: %q", key, text)
+				break
+			}
+		}
+	}
+}
+
+// TestTFMissingKeyFallsBack 钉住终端文案的兜底：缺 key 时给中文原文，
+// 绝不把内部 key 打给用户；有 key 时按 fmt 动词格式化。
+func TestTFMissingKeyFallsBack(t *testing.T) {
+	const missing = "tui.does.not.exist"
+	for _, lang := range []Lang{LangZh, LangEn, Lang("fr"), ""} {
+		if got := TF(lang, missing, "中文原文 %d", 3); got != "中文原文 3" {
+			t.Errorf("TF(%q, %q) = %q，期望中文原文", lang, missing, got)
+		}
+	}
+	if got := TF(LangEn, "tui.repl.farewell", "再见"); got != "Bye" {
+		t.Errorf("TF(en, tui.repl.farewell) = %q，期望 Bye", got)
+	}
+	if got := TF(LangZh, "tui.repl.farewell", "再见"); got != "再见" {
+		t.Errorf("TF(zh, tui.repl.farewell) = %q，期望中文原文", got)
 	}
 }
 

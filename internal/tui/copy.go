@@ -10,13 +10,13 @@ package tui
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
+	"council/internal/i18n"
 	"council/internal/repl"
 )
 
@@ -37,8 +37,8 @@ func copyStatusExpireCmd(gen uint64) tea.Cmd {
 
 // copyHint 是状态栏那句话。N 按 rune 数：一个汉字算 1，不按字节，
 // 否则「已复制 6 个字符」对两个汉字是句看不懂的话（utf8.RuneCountInString）。
-func copyHint(text string) string {
-	return fmt.Sprintf("已复制 %d 个字符", utf8.RuneCountInString(text))
+func copyHint(lang i18n.Lang, text string) string {
+	return i18n.TF(lang, "tui.copy.hint", "已复制 %d 个字符", utf8.RuneCountInString(text))
 }
 
 // copyStatusShow 把状态栏换成复制提示，并装一拍到期。
@@ -128,7 +128,7 @@ func (m Model) copyInput(text string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	var expire tea.Cmd
-	m, expire = m.copyStatusShow(copyHint(text))
+	m, expire = m.copyStatusShow(copyHint(m.lang, text))
 	return m, tea.Batch(tea.SetClipboard(text), expire)
 }
 
@@ -229,6 +229,6 @@ func (m Model) copyDone(msg copyDoneMsg) (tea.Model, tea.Cmd) {
 		return m, m.println(msg.err.Error())
 	}
 	var expire tea.Cmd
-	m, expire = m.copyStatusShow(copyHint(msg.text))
+	m, expire = m.copyStatusShow(copyHint(m.lang, msg.text))
 	return m, tea.Batch(tea.SetClipboard(msg.text), expire)
 }

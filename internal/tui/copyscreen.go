@@ -21,7 +21,6 @@ package tui
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"strings"
 	"unicode/utf8"
@@ -30,6 +29,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
+	"council/internal/i18n"
 	"council/internal/repl"
 )
 
@@ -132,12 +132,12 @@ func (m Model) startCopyScreen() (Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.busy || m.finalizing {
-		m.status = "一轮正在跑，等它回来再复制"
+		m.status = m.t("tui.status.copyBusy", "一轮正在跑，等它回来再复制")
 		return m, nil
 	}
 	src, ok := m.sub.(copyScreenSource)
 	if !ok {
-		m.status = "复制模式不可用"
+		m.status = m.t("tui.status.copyUnavailable", "复制模式不可用")
 		return m, nil
 	}
 	// 进屏是「别的事件」：两条临时状态都要收干净 —— Ctrl-C 的武装（否则退出
@@ -173,7 +173,7 @@ func (m Model) copyScreenLoaded(msg copyScreenLoadedMsg) (Model, tea.Cmd) {
 		// 读库失败按命令错误的既有体例打到回滚区，不退出、不改状态栏。
 		return m, m.println(msg.err.Error())
 	}
-	lines := copyScreenText(msg.lines)
+	lines := copyScreenText(m.lang, msg.lines)
 	if len(lines) == 0 {
 		m.status = repl.MsgCopyNoContent
 		return m, nil
@@ -210,7 +210,7 @@ func (m Model) copyScreenExit() (Model, tea.Cmd) {
 // 8 格制表位，列号没法拿它做选区映射，展开之后屏幕上的格数与选区的格数
 // 才是同一个坐标系。ANSI 序列一并剥掉：复制出来要是干净文字，屏幕也不该被
 // 消息里的转义序列搅乱。
-func copyScreenText(msgs []repl.CopyLine) []string {
+func copyScreenText(lang i18n.Lang, msgs []repl.CopyLine) []string {
 	var out []string
 	for i, c := range msgs {
 		if i > 0 {
@@ -218,7 +218,7 @@ func copyScreenText(msgs []repl.CopyLine) []string {
 		}
 		who := c.Who
 		if c.User {
-			who = "你"
+			who = i18n.TF(lang, "tui.copyscreen.you", "你")
 		}
 		out = append(out, "["+who+"]")
 		out = append(out, copyPlainLines(c.Text)...)
@@ -420,7 +420,7 @@ func (m Model) copyScreenRelease(mouse tea.Mouse) (Model, tea.Cmd) {
 	// 是一句已经作废的「再按一次 Ctrl-C …」（copyDone 同一条纪律）。
 	m = m.ctrlCDisarm()
 	var expire tea.Cmd
-	m, expire = m.copyStatusShow(copyHint(text))
+	m, expire = m.copyStatusShow(copyHint(m.lang, text))
 	return m, tea.Batch(tea.SetClipboard(text), expire)
 }
 
@@ -593,7 +593,7 @@ func (m Model) copyScreenContent() string {
 	if total > 0 {
 		a, b = first+1, last
 	}
-	parts = append(parts, fmt.Sprintf("第 %d–%d 行 / 共 %d 行", a, b, total))
+	parts = append(parts, m.t("tui.copyscreen.range", "第 %d–%d 行 / 共 %d 行", a, b, total))
 	return strings.Join(parts, "\n")
 }
 
@@ -604,9 +604,9 @@ func (m Model) copyScreenContent() string {
 // 中间这一档是必要的：复制模式里没有普通状态栏，第一次 Ctrl-C 的
 // 「再按一次 Ctrl-C 退出」不显示出来，用户就完全看不到反馈。
 func (m Model) copyScreenTop() string {
-	sel := "拖动选择"
+	sel := m.t("tui.copyscreen.drag", "拖动选择")
 	if n := m.copySelectionRunes(); n > 0 {
-		sel = fmt.Sprintf("已选中 %d 个字符", n)
+		sel = m.t("tui.copyscreen.selected", "已选中 %d 个字符", n)
 	}
 	switch {
 	case m.copyStatusOn:
@@ -616,9 +616,9 @@ func (m Model) copyScreenTop() string {
 		// 复制模式期间发生的事（Ctrl-C 武装、正在退出）。
 		sel = m.status
 	}
-	top := "复制模式  ↑↓/PgUp/PgDn 滚动  Esc 退出  " + sel
+	top := m.t("tui.copyscreen.top", "复制模式  ↑↓/PgUp/PgDn 滚动  Esc 退出  %s", sel)
 	if m.copyScr.truncated {
-		top += fmt.Sprintf("  只加载了最近 %d 条", repl.CopyScreenMax)
+		top += m.t("tui.copyscreen.truncated", "  只加载了最近 %d 条", repl.CopyScreenMax)
 	}
 	return top
 }

@@ -58,7 +58,7 @@ func (r *REPL) Submit(ctx context.Context, text string) error {
 	// 而 json.Marshal 会把坏字节换成 U+FFFD 且不报错，于是库里存的、屏幕上显示的、
 	// agent 实际看到的三者永久不一致。闸放在最前面，坏字节不进任何后续分支。
 	if !utf8.ValidString(text) {
-		return r.printf("%s\n", msgNotUTF8)
+		return r.printf("%s\n", r.t("tui.repl.notUTF8", msgNotUTF8))
 	}
 
 	text = strings.TrimFunc(text, isTrimmable)
@@ -80,12 +80,12 @@ func (r *REPL) Submit(ctx context.Context, text string) error {
 	// 放在前面能保证这条路根本不碰 runCommand，inDraft 不可能被 cmdSay 置上。
 	// 仅含空白的参数由 restOf 里的 TrimSpace 收成空串，同样算空参。
 	if name == "say" && restOf(text) == "" {
-		return r.printf("%s\n", msgDraftNotInTUI)
+		return r.printf("%s\n", r.t("tui.say.notInTUI", msgDraftNotInTUI))
 	}
 	// 查表包含别名（与 dispatch 同一条路）：/exit 与 /quit 解析到同一条命令。
 	_, cmd, ok := r.cmds.Lookup(name)
 	if !ok {
-		return r.printf("%s\n", msgUnknownCommand)
+		return r.printf("%s\n", r.t("tui.repl.unknownCommand", msgUnknownCommand))
 	}
 	return r.runCommand(ctx, cmd, cmdArgs{fields: fields[1:], rest: restOf(text)})
 }

@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"council/internal/i18n"
 	"council/internal/repl"
 )
 
@@ -71,6 +72,11 @@ type Options struct {
 
 	// Now 是表头计时用的时钟。nil 时用 time.Now；测试注入假钟用。
 	Now func() time.Time
+
+	// Lang 是界面语言，由 app 经 RunLang 注入；零值按中文处理。
+	// 状态栏、复制提示、空态这些短句都经 Model.t 取，缺翻译时回落到
+	// 中文原文，不会把 tui.* 的内部 key 打给用户。
+	Lang i18n.Lang
 }
 
 // Model 是 Council 的内联终端界面状态。
@@ -168,6 +174,9 @@ type Model struct {
 	members []repl.MentionCandidate
 	// at 是 @ 补全的状态。
 	at atState
+
+	// lang 是界面语言，来自 Options.Lang。零值空串按中文处理。
+	lang i18n.Lang
 }
 
 // boardRow 是看板上的一名成员。done 为假时还在跑，事件留在零值。
@@ -222,9 +231,16 @@ func New(opts Options) Model {
 		println:  println,
 		ta:       ta,
 		focusCmd: focusCmd,
-		status:   "空闲",
+		status:   i18n.TF(opts.Lang, "tui.status.idle", "空闲"),
 		now:      now,
+		lang:     opts.Lang,
 	}
+}
+
+// t 取一条状态栏或提示文案。fallback 传中文原文：语言为中文或目录缺条时
+// 输出与改造前逐字节相同。
+func (m Model) t(key, fallback string, args ...any) string {
+	return i18n.TF(m.lang, key, fallback, args...)
 }
 
 // printLine 把一行已经切好的输出变成 bubbletea 内部的打印消息。
@@ -401,20 +417,20 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancel = nil
 		m.run = roundRun{}
 		if m.sub.IsQuit(msg.err) {
-			m.status = "正在退出"
+			m.status = m.t("tui.status.exiting", "正在退出")
 			return m, m.quitCmd()
 		}
 		if msg.err != nil {
-			m.status = "发生错误，正在退出"
+			m.status = m.t("tui.status.errorExiting", "发生错误，正在退出")
 			errorCmd := m.println(msg.err.Error())
 			return m, tea.Sequence(errorCmd, m.quitCmd())
 		}
 		if !m.runSeen {
-			m.status = "空闲"
+			m.status = m.t("tui.status.idle", "空闲")
 			return m, nil
 		}
 		line := m.closingLine()
-		m.status = "空闲"
+		m.status = m.t("tui.status.idle", "空闲")
 		m.finalizing = true
 		m.pinCursor = m.floor > 0
 		return m, tea.Sequence(m.println(line), func() tea.Msg { return boardFinalizeMsg{} })
@@ -492,7 +508,7 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Code == tea.KeyEnter:
 			m = m.ctrlCDisarm()
 			if m.busy {
-				m.status = "一轮正在跑，先等它回来或连按两次 Ctrl-C 取消"
+				m.status = m.t("tui.status.busyEnter", "一轮正在跑，先等它回来或连按两次 Ctrl-C 取消")
 				return m, nil
 			}
 			if m.finalizing {
@@ -527,7 +543,7 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cancel != nil {
 					m.cancel()
 				}
-				m.status = "正在取消"
+				m.status = m.t("tui.status.canceling", "正在取消")
 				m.canceling = true
 				return m, nil
 			}
@@ -536,7 +552,7 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			//    清掉之后用户没有任何办法找回这段文字（输入框没有撤销）。
 			//    整段只有空白时也算「有字」，用户敲了换行同样希望一次收干净。
 			if m.ta.Value() != "" {
-				if m.status == oneCommandHint {
+				if m.status == m.t("tui.hint.oneCommand", oneCommandHint) {
 					return m, nil
 				}
 				m.ta.Reset()
@@ -564,7 +580,7 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.ctrlCDisarm()
 		var cmd tea.Cmd
 		m.ta, cmd = m.ta.Update(msg)
-		m.status = fmt.Sprintf("粘贴了 %d 个字符", utf8.RuneCountInString(msg.Content))
+		m.status = m.t("tui.status.pasted", "粘贴了 %d 个字符", utf8.RuneCountInString(msg.Content))
 		m.at = atState{}
 		return m, cmd
 
@@ -675,15 +691,15 @@ func (m Model) boardLimit() int {
 
 // closingLine 是无错收尾那一行。时间取此刻的时钟减去本次提交起点，计数跨本提交的全部分段。
 func (m Model) closingLine() string {
-	verb := "结束"
+	verb := m.t("tui.round.verbDone", "结束")
 	if m.canceling {
-		verb = "已取消"
+		verb = m.t("tui.round.verbCancelled", "已取消")
 	}
 	clock := m.now
 	if clock == nil {
 		clock = time.Now
 	}
-	return fmt.Sprintf("/round %s  %s  回来 %d/%d", verb, formatElapsed(clock().Sub(m.runStart)), m.backN, m.rosterN)
+	return m.t("tui.round.closing", "/round %s  %s  回来 %d/%d", verb, formatElapsed(clock().Sub(m.runStart)), m.backN, m.rosterN)
 }
 
 // frameHeight 是 View 的行数：chrome 的行数、textarea 的高度，再加 @ 补全列表的行数（列表不在屏幕上时为 0）。
@@ -801,7 +817,7 @@ func (m Model) atLines() []string {
 		lines = append(lines, ansi.Truncate(line, width, ""))
 	}
 	if len(list) > show && avail > show {
-		lines = append(lines, ansi.Truncate(fmt.Sprintf("  共 %d 个，上下键翻看", len(list)), width, ""))
+		lines = append(lines, ansi.Truncate(m.t("tui.at.count", "  共 %d 个，上下键翻看", len(list)), width, ""))
 	}
 	return lines
 }
@@ -838,7 +854,7 @@ func (m Model) beginSubmit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if repl.HasLaterCommandLine(text) {
-		m.status = oneCommandHint
+		m.status = m.t("tui.hint.oneCommand", oneCommandHint)
 		return m, nil
 	}
 
@@ -859,7 +875,7 @@ func (m Model) beginSubmit() (tea.Model, tea.Cmd) {
 	m.ta.Reset()
 	m.at = atState{}
 	m.busy = true
-	m.status = "正在运行"
+	m.status = m.t("tui.status.running", "正在运行")
 	m.run = roundRun{}
 	m.rows = nil
 	m.floor = 0

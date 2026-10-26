@@ -1,9 +1,13 @@
 // Package i18n 是中英文支持的机制层：语言解析、消息目录与查表。
 //
-// 本片只落地机制与 Web 界面文案；REPL / TUI / CLI 的文案是后续片。
-// 目录里的 key 目前全部以 "ui." 开头，/api/i18n 只交出这一段：服务端
-// 错误信息之类不属于界面文案的 key 将来会放在别的前缀下，不会跟着
-// 一起进浏览器。
+// 目录按入口分成三段前缀，各自一份中英表，最后合并成 zh / en 两张完整目录：
+//
+//	ui.*   Web 界面文案，/api/i18n 只交出这一段（UIMessages）；
+//	cli.*  命令行入口的文案（flag 说明、用法块、启动/退出错误）；
+//	tui.*  REPL 与 TUI 的文案（横幅、/help、状态栏、命令输出）。
+//
+// 前缀分开是为了让「哪些文案会进浏览器」仍然只看 key 就能判断：
+// 服务端与终端文案不会跟着 /api/i18n 一起进浏览器。
 package i18n
 
 import (
@@ -126,6 +130,25 @@ func T(lang Lang, key string, args ...any) string {
 	text, ok := catalogFor(lang)[key]
 	if !ok {
 		return key
+	}
+	if len(args) == 0 {
+		return text
+	}
+	return fmt.Sprintf(text, args...)
+}
+
+// TF 是带兜底的 T：查不到 key 时返回 fallback，而不是把 key 打给用户。
+//
+// 终端与 REPL 的文案用它，不用 T。原因是那里的输出是用户直接读的一行字：
+// T 在缺翻译时回落到 key，浏览器上顶多显示一个 ui.xxx 的占位，REPL 里
+// 却等于把内部标识当成一句话打给用户。fallback 一律传「这条文案的中文
+// 原文」——中文目录里漏了一条时输出仍是那句话，不会退化成 key。
+//
+// 缺 key 时的格式化仍然对 fallback 生效：调用处按 fmt 动词写 args 即可。
+func TF(lang Lang, key, fallback string, args ...any) string {
+	text, ok := catalogFor(lang)[key]
+	if !ok {
+		text = fallback
 	}
 	if len(args) == 0 {
 		return text

@@ -20,6 +20,7 @@ import (
 
 	"council/internal/config"
 	"council/internal/conversation"
+	"council/internal/i18n"
 	"council/internal/provider"
 	"council/internal/turn"
 )
@@ -146,6 +147,14 @@ type REPL struct {
 	// 此时 /new 不盖章、/resume 列出全部，行为与没有这个功能时一致，
 	// 所以所有既有测试不受影响。只经 SetProjectDir 设，只许在 Run 或第一次 Submit 之前调。
 	projectDir string
+
+	// lang 是界面语言，由 app 装配时经 SetLang 注入。零值空串按中文处理
+	// （i18n.catalogFor 对空串走中文目录），所以直接 New 出来的 REPL 与
+	// 既有测试看到的仍是中文。
+	//
+	// 所有面向用户的文案都经 r.t(key, 中文原文, args...) 取：中文原文是
+	// 兜底值，缺翻译时不会把 tui.xxx 这样的内部 key 打给用户。
+	lang i18n.Lang
 }
 
 // RulesContext 是 REPL 显示与重载规则文件所需的上下文，由 app 在启动时
@@ -192,6 +201,22 @@ func New(cfg *config.Config, svc *conversation.Service, rn *turn.Runner, in io.R
 		discover:        turn.RunDiscovery,
 		discoverTimeout: discoveryTimeout,
 	}
+}
+
+// SetLang 注入界面语言。零值空串按中文处理；只许在 Run 或第一次 Submit
+// 之前调用（与 SetConcise 等装配期开关同一条纪律）。
+//
+// 为什么要注入而不是在这里读 COUNCIL_LANG：语言只该解析一次，main 的
+// -lang 已经把最终结果写进环境；REPL 再排一遍优先级会出现「横幅是英文、
+// /help 是中文」这种半截状态。
+func (r *REPL) SetLang(lang i18n.Lang) {
+	r.lang = lang
+}
+
+// t 取一条文案。fallback 必须传中文原文：中文目录里漏了一条时输出仍是
+// 那句话（与改造前逐字节相同），英文目录里漏了也不会把 key 打给用户。
+func (r *REPL) t(key, fallback string, args ...any) string {
+	return i18n.TF(r.lang, key, fallback, args...)
 }
 
 // Run 阻塞直到 /quit、输入流结束（EOF 等同 /quit）、或 ctx 被取消。
@@ -290,16 +315,16 @@ func (r *REPL) currentPrompt() string {
 // 用户从没确认过的草稿写成永久记录，比丢掉它糟得多。
 func (r *REPL) farewell() error {
 	if r.inPaste {
-		if err := r.printf("%s\n", msgPasteDiscarded); err != nil {
+		if err := r.printf("%s\n", r.t("tui.repl.pasteDiscarded", msgPasteDiscarded)); err != nil {
 			return err
 		}
 	}
 	if r.inDraft {
-		if err := r.printf("%s\n", msgDraftDiscarded); err != nil {
+		if err := r.printf("%s\n", r.t("tui.repl.draftDiscarded", msgDraftDiscarded)); err != nil {
 			return err
 		}
 	}
-	return r.write(msgFarewell + "\n")
+	return r.write(r.t("tui.repl.farewell", msgFarewell) + "\n")
 }
 
 // write 把一段文本写到注入的 out，写失败时带上下文包装返回。

@@ -20,6 +20,38 @@ import (
 	"council/internal/i18n"
 )
 
+// prescanFlag 在 flag.Parse 之前取一个 flag 的值。
+//
+// 存在的理由：-lang 决定的是「flag 说明本身用哪种语言写」，而 -h 在
+// fs.Parse 里就返回 ErrHelp，那时已经来不及按解析结果重建 FlagSet。
+// 所以先按命令行上写的值求一次语言，用来构造 FlagSet；解析完成后
+// applyLanguageFlag 会按正式结果再写一次 COUNCIL_LANG，两者通常相同。
+//
+// 只认 -name value 与 -name=value 两种写法（单个或两个连字符），遇到
+// "--" 或第一个非 flag 参数就停：那之后是位置参数，不是 flag。
+func prescanFlag(args []string, name string) string {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return ""
+		}
+		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			return ""
+		}
+		trimmed := strings.TrimLeft(arg, "-")
+		if trimmed == name {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		}
+		if value, ok := strings.CutPrefix(trimmed, name+"="); ok {
+			return value
+		}
+	}
+	return ""
+}
+
 // explicitLang 判断一个值是不是明确的 zh / en。auto、空串与乱写都不算。
 func explicitLang(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {

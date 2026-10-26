@@ -150,11 +150,11 @@ func (r *REPL) dispatch(ctx context.Context, line string) error {
 			// 所以把草稿标成作废，留在模式里继续吃后续行，等用户显式退出。
 			if !r.draftPoisoned {
 				r.draftPoisoned = true
-				return r.printf("%s\n", msgDraftBadEncoding)
+				return r.printf("%s\n", r.t("tui.repl.draftBadEncoding", msgDraftBadEncoding))
 			}
 			return nil
 		}
-		return r.printf("%s\n", msgNotUTF8)
+		return r.printf("%s\n", r.t("tui.repl.notUTF8", msgNotUTF8))
 	}
 
 	if r.inPaste || sawStart {
@@ -178,7 +178,7 @@ func (r *REPL) dispatch(ctx context.Context, line string) error {
 		return nil
 	}
 	if hasControlRune(text) {
-		return r.printf("%s\n", msgHasControl)
+		return r.printf("%s\n", r.t("tui.repl.hasControl", msgHasControl))
 	}
 	if !strings.HasPrefix(text, "/") {
 		// 交给 sayCmd 这个表项，而不是直接调 cmdSay：这样连前置条件一起复用，
@@ -195,7 +195,7 @@ func (r *REPL) dispatch(ctx context.Context, line string) error {
 	// 注册表里维护一份，dispatch 不知道、也不需要知道哪些名字是别名。
 	_, cmd, ok := r.cmds.Lookup(name)
 	if !ok {
-		return r.printf("%s\n", msgUnknownCommand)
+		return r.printf("%s\n", r.t("tui.repl.unknownCommand", msgUnknownCommand))
 	}
 	return r.runCommand(ctx, cmd, cmdArgs{fields: fields[1:], rest: restOf(text)})
 }
@@ -251,19 +251,19 @@ func (r *REPL) collectDraft(ctx context.Context, line string) error {
 		lines := r.draft
 		r.discardDraft()
 		if poisoned {
-			return r.printf("%s\n", msgDraftPoisoned)
+			return r.printf("%s\n", r.t("tui.repl.draftPoisoned", msgDraftPoisoned))
 		}
 		text := strings.Join(lines, "\n")
 		// 只有空白的草稿不发：那多半是误入模式又直接敲了 /end。
 		if strings.TrimSpace(text) == "" {
-			return r.printf("%s\n", msgDraftEmpty)
+			return r.printf("%s\n", r.t("tui.repl.draftEmpty", msgDraftEmpty))
 		}
 		// 草稿发送算裸文本（#47）：自动回复打开时落库之后问一轮。
 		return sayText(ctx, r, text, true)
 
 	case draftCancelToken:
 		r.discardDraft()
-		return r.printf("%s\n", msgDraftCancelled)
+		return r.printf("%s\n", r.t("tui.repl.draftCancelled", msgDraftCancelled))
 
 	default:
 		r.draft = append(r.draft, line)
@@ -330,7 +330,7 @@ func postUser(ctx context.Context, r *REPL, text string, auto bool, recipients [
 		return false, r.reportErr("发言失败", err)
 	}
 	if !r.concise {
-		if err := r.printf("已记下 seq %d\n", posted.Seq); err != nil {
+		if err := r.printf("%s\n", r.t("tui.repl.recorded", "已记下 seq %d", posted.Seq)); err != nil {
 			return true, err
 		}
 	}
@@ -468,13 +468,13 @@ func (r *REPL) runCommand(ctx context.Context, cmd cmdEntry, args cmdArgs) error
 	// 所以 needsSvc -> needsConv -> needsRunner，先答 msgNoStore，再答 msgNoConv，
 	// 最后才答 msgNoRunner。
 	if (cmd.needsSvc || cmd.needsConv || cmd.needsRunner) && r.svc == nil {
-		return r.printf("%s\n", msgNoStore)
+		return r.printf("%s\n", r.t("tui.repl.noStore", msgNoStore))
 	}
 	if cmd.needsConv && r.cur == nil {
-		return r.printf("%s\n", msgNoConv)
+		return r.printf("%s\n", r.t("tui.repl.noConv", msgNoConv))
 	}
 	if cmd.needsRunner && r.rn == nil {
-		return r.printf("%s\n", msgNoRunner)
+		return r.printf("%s\n", r.t("tui.repl.noRunner", msgNoRunner))
 	}
 	return cmd.run(ctx, r, args)
 }
@@ -494,7 +494,14 @@ func restOf(text string) string {
 // 格式在 WriteCommandTable 里，与 council commands（不带 -json）共用同一份定义：
 // 帮助不再是一份手写的命令清单，加命令时不可能漏改。
 func cmdHelp(_ context.Context, r *REPL, _ cmdArgs) error {
-	return WriteCommandTable(r.out, r.cmds.List(command.ScopeTUI))
+	specs := r.cmds.List(command.ScopeTUI)
+	// 摘要按当前语言替换；fallback 是注册表里那份中文原文，所以语言为中文
+	// （或目录缺条）时输出与改造前逐字节相同。命令名、参数形状一个字不动：
+	// 帮助里的每一行都得能照抄着敲。
+	for i := range specs {
+		specs[i].Summary = r.t("tui.cmd."+specs[i].Name+".summary", specs[i].Summary)
+	}
+	return WriteCommandTable(r.out, specs)
 }
 
 // cmdQuit 返回哨兵错误 errQuit，由 Run 翻译成正常退出。
@@ -505,7 +512,7 @@ func cmdQuit(_ context.Context, _ *REPL, _ cmdArgs) error {
 // cmdProviders 列出 provider 的 id 与 command。
 func cmdProviders(_ context.Context, r *REPL, _ cmdArgs) error {
 	if len(r.cfg.Providers) == 0 {
-		return r.printf("没有配置任何 provider\n")
+		return r.printf("%s\n", r.t("tui.providers.none", "没有配置任何 provider"))
 	}
 
 	tw := r.newTabWriter()
@@ -523,7 +530,7 @@ func cmdProviders(_ context.Context, r *REPL, _ cmdArgs) error {
 // /agents 是给人核对配置用的，id 已经足够定位，所以取对齐、舍 display_name。
 func cmdAgents(_ context.Context, r *REPL, _ cmdArgs) error {
 	if len(r.cfg.Agents) == 0 {
-		return r.printf("没有配置任何 agent\n")
+		return r.printf("%s\n", r.t("tui.agents.none", "没有配置任何 agent"))
 	}
 
 	tw := r.newTabWriter()
@@ -563,7 +570,7 @@ func cmdAgents(_ context.Context, r *REPL, _ cmdArgs) error {
 // （ASCII 星号），未绑或没选会话都是 emptyCell；id 已经在 ID 列，不抄第二遍。
 func cmdTeams(ctx context.Context, r *REPL, _ cmdArgs) error {
 	if len(r.cfg.Teams) == 0 {
-		return r.printf("没有配置任何 team\n")
+		return r.printf("%s\n", r.t("tui.teams.none", "没有配置任何 team"))
 	}
 
 	boundID := ""
@@ -597,7 +604,7 @@ func cmdTeams(ctx context.Context, r *REPL, _ cmdArgs) error {
 // 参数不对就印一行用法，不报错、不退出（体例同 /session rebuild）。
 func cmdTeam(ctx context.Context, r *REPL, args cmdArgs) error {
 	if len(args.fields) != 2 || args.fields[0] != "use" {
-		return r.printf("用法: /team use <team-id>\n")
+		return r.printf("%s\n", r.t("tui.team.usage", "用法: /team use <team-id>"))
 	}
 	return cmdTeamUse(ctx, r, args.fields[1])
 }
@@ -648,7 +655,7 @@ func cmdTeam(ctx context.Context, r *REPL, args cmdArgs) error {
 func cmdTeamUse(ctx context.Context, r *REPL, teamID string) error {
 	t, ok := r.cfg.Teams[teamID]
 	if !ok {
-		return r.printf("配置里没有 team %s，用 /teams 看看有哪些\n", teamID)
+		return r.printf("%s\n", r.t("tui.team.unknown", "配置里没有 team %s，用 /teams 看看有哪些", teamID))
 	}
 
 	if err := r.svc.BindTeam(ctx, r.cur.ID, teamID); err != nil {
@@ -661,7 +668,7 @@ func cmdTeamUse(ctx context.Context, r *REPL, teamID string) error {
 	}
 	r.cur = &fresh
 
-	if err := r.printf("已绑定 team %s\n", teamID); err != nil {
+	if err := r.printf("%s\n", r.t("tui.team.bound", "已绑定 team %s", teamID)); err != nil {
 		return err
 	}
 
@@ -727,7 +734,7 @@ func cmdTeamUse(ctx context.Context, r *REPL, teamID string) error {
 func cmdNew(ctx context.Context, r *REPL, args cmdArgs) error {
 	title := args.rest
 	if title == "" {
-		return r.printf("用法: /new <标题>\n")
+		return r.printf("%s\n", r.t("tui.new.usage", "用法: /new <标题>"))
 	}
 
 	conv, err := r.svc.CreateIn(ctx, title, r.projectDir)
@@ -735,7 +742,7 @@ func cmdNew(ctx context.Context, r *REPL, args cmdArgs) error {
 		return r.reportErr("建会话失败", err)
 	}
 	r.cur = &conv
-	return r.printf("已建会话 %s，标题: %s\n", conv.ID, oneLine(conv.Title))
+	return r.printf("%s\n", r.t("tui.new.created", "已建会话 %s，标题: %s", conv.ID, oneLine(conv.Title)))
 }
 
 // cmdConv 列出全部会话，首列标出当前那个。
@@ -747,7 +754,7 @@ func cmdConv(ctx context.Context, r *REPL, _ cmdArgs) error {
 		return r.reportErr("列出会话失败", err)
 	}
 	if len(convs) == 0 {
-		return r.printf("还没有任何会话，用 /new <标题> 建一个\n")
+		return r.printf("%s\n", r.t("tui.conv.none", "还没有任何会话，用 /new <标题> 建一个"))
 	}
 
 	tw := r.newTabWriter()
@@ -771,7 +778,7 @@ func cmdConv(ctx context.Context, r *REPL, _ cmdArgs) error {
 // 短 id 之间完全可能出现「一个是另一个的前缀」，那时精确匹配必须赢。
 func cmdUse(ctx context.Context, r *REPL, args cmdArgs) error {
 	if len(args.fields) != 1 {
-		return r.printf("用法: /use <id 或 id 前缀>\n")
+		return r.printf("%s\n", r.t("tui.use.usage", "用法: /use <id 或 id 前缀>"))
 	}
 	prefix := args.fields[0]
 
@@ -793,13 +800,13 @@ func cmdUse(ctx context.Context, r *REPL, args cmdArgs) error {
 
 	switch len(matched) {
 	case 0:
-		return r.printf("没有 id 以 %s 开头的会话，用 /conv 看看有哪些\n", prefix)
+		return r.printf("%s\n", r.t("tui.use.noPrefix", "没有 id 以 %s 开头的会话，用 /conv 看看有哪些", prefix))
 	case 1:
 		c := matched[0]
 		r.cur = &c
-		return r.printf("当前会话: %s，标题: %s\n", c.ID, oneLine(c.Title))
+		return r.printf("%s\n", r.t("tui.use.current", "当前会话: %s，标题: %s", c.ID, oneLine(c.Title)))
 	default:
-		if err := r.printf("id 前缀 %s 匹配到 %d 个会话，请给出更长的前缀:\n", prefix, len(matched)); err != nil {
+		if err := r.printf("%s\n", r.t("tui.use.ambiguous", "id 前缀 %s 匹配到 %d 个会话，请给出更长的前缀:", prefix, len(matched))); err != nil {
 			return err
 		}
 		// 候选按 id 排序，输出与 store 的返回顺序无关，测试才稳定。
@@ -1149,14 +1156,14 @@ func isASCIIDigits(s string) bool {
 // 那时更需要能把它退掉。id 在不在这个会话里，由 Service 去判断并回 ErrParticipantNotFound。
 func cmdLeave(ctx context.Context, r *REPL, args cmdArgs) error {
 	if len(args.fields) != 1 {
-		return r.printf("用法: /leave <agent-id>\n")
+		return r.printf("%s\n", r.t("tui.leave.usage", "用法: /leave <agent-id>"))
 	}
 	agentID := args.fields[0]
 
 	if err := r.svc.Leave(ctx, r.cur.ID, agentID, time.Now().UTC()); err != nil {
 		return r.reportErr("退出失败", err)
 	}
-	return r.printf("%s 已退出会话 %s\n", agentID, r.cur.ID)
+	return r.printf("%s\n", r.t("tui.leave.left", "%s 已退出会话 %s", agentID, r.cur.ID))
 }
 
 // cmdWho 列出当前会话的成员，含已退出的：退出是软删除，看不到它们就看不出「谁曾经在」。
@@ -1228,7 +1235,7 @@ func cmdSay(ctx context.Context, r *REPL, args cmdArgs) error {
 		// 而 draft 收集期间没有任何命令能改动它们，所以发送时不必重查。
 		r.inDraft = true
 		r.draft = nil
-		return r.printf("%s\n", msgDraftEnter)
+		return r.printf("%s\n", r.t("tui.repl.draftEnter", msgDraftEnter))
 	}
 	// args.bare 分开两条路：裸文本在自动回复打开时落库之后问一轮，/say <文本> 永远只记下（#47）。
 	return sayText(ctx, r, text, args.bare)
