@@ -931,6 +931,15 @@ type job struct {
 	// permission 是这一轮的整轮权限覆盖（read / workspace / full）。
 	// 空串表示按成员自己的配置跑；非空时由 roundCfg 克隆一份配置再执行。
 	permission string
+
+	// startedAt / opts 是这一次请求的静态事实：两者都在 job 进表之前写好，
+	// 之后不再改。GET /api/jobs/current 用它们把 202 的同一份形状再交一次，
+	// 浏览器刷新之后才能按原来的参数把进度面板接回来（预算、轮数、汇总）。
+	startedAt time.Time
+	opts      headless.Options
+	// convID 是这次任务落在哪个会话。续接时 202 那一刻就知道；新建会话要
+	// 等 headless 的 OnStart 回调，所以读写都走 j.mu。
+	convID string
 }
 
 func newJob(id string) *job {
@@ -991,6 +1000,43 @@ func (j *job) outcome() (headless.Result, error) {
 	return j.result, j.err
 }
 
+// setConversationID 由 headless 的 OnStart 回调写入（新建会话的 id 只在
+// 那一刻才存在）。与 snapshot 读同一把锁：SSE handler 与 /api/jobs/current
+// 可能在任意时刻并发读。
+func (j *job) setConversationID(id string) {
+	if id == "" {
+		return
+	}
+	j.mu.Lock()
+	j.convID = id
+	j.mu.Unlock()
+}
+
+// snapshot 把这一次任务的可恢复信息按 POST /api/ask 的 202 响应形状交出。
+//
+// 只描述「在跑的一轮」：status 恒为 running，finished 的 job 不会经
+// /api/jobs/current 露出来（它们在没被 TTL 清掉之前仍然留在表里，但轮次
+// 已经结束，前端不该再挂 SSE）。
+func (j *job) snapshot() askResponse {
+	j.mu.Lock()
+	convID := j.convID
+	j.mu.Unlock()
+	members := make([]string, len(j.opts.Members))
+	copy(members, j.opts.Members)
+	return askResponse{
+		JobID:          j.id,
+		ConversationID: convID,
+		StartedAt:      j.startedAt.UTC().Format(time.RFC3339),
+		Status:         "running",
+		Mode:           j.opts.Mode,
+		Rounds:         j.opts.Rounds,
+		Members:        members,
+		Summary:        j.opts.Summary,
+		BudgetUSD:      j.opts.BudgetUSD,
+		Permission:     j.permission,
+	}
+}
+
 // jobTable 是进程内的任务表。job id 只活在这一个进程里，没有持久化：
 // 服务重启后旧 id 一律 404，这是正确的——那些议会进程也已经不在了。
 type jobTable struct {
@@ -1019,6 +1065,33 @@ func (t *jobTable) remove(id string) {
 	t.mu.Lock()
 	delete(t.jobs, id)
 	t.mu.Unlock()
+}
+
+// current 返回最近开始、且尚未结束的那个 job；没有则返回 nil。
+//
+// 为什么是「最近开始」而不是随便一个：端口对本机任何进程开放，同一时间
+// 可能有多个浏览器/脚本各跑各的轮次。前端重挂时要接的是「我刚才那一轮」，
+// 最新开始的那一个是最合理的猜测；它拿到的仍是完整的事件重放，接错时
+// 用户也能从会话 id 与成员名看出来。返回指针之后调用方只用不可变字段与
+// 锁保护字段，不存在持有表锁再去拿 job 锁的路径。
+func (t *jobTable) current() *job {
+	t.mu.Lock()
+	jobs := make([]*job, 0, len(t.jobs))
+	for _, j := range t.jobs {
+		jobs = append(jobs, j)
+	}
+	t.mu.Unlock()
+
+	var newest *job
+	for _, j := range jobs {
+		if j.isFinished() {
+			continue
+		}
+		if newest == nil || j.startedAt.After(newest.startedAt) {
+			newest = j
+		}
+	}
+	return newest
 }
 
 // runningCount 数出任务表里尚未结束的 job。结束后 job 还会按 jobTTL
@@ -1089,8 +1162,30 @@ type askRequest struct {
 	Conversation string `json:"conversation"`
 }
 
+// askResponse 既是 POST /api/ask 的 202 响应，也是 GET /api/jobs/current
+// 里 job 字段的形状：前端只写一套「把进度面板接回来」的代码，两处字段
+// 必须逐字一致。job_id 是唯一必填字段，其余是 10-26 这一轮为「页面重开
+// 之后自动重挂 SSE」补的可恢复信息。
+//
+// conversation_id 在两种情况下为空：新建会话且 headless 还没走到 OnStart，
+// 或者 202 那一刻还在建；此时前端靠 SSE 重放里的 started 事件补上。
 type askResponse struct {
-	JobID string `json:"job_id"`
+	JobID          string   `json:"job_id"`
+	ConversationID string   `json:"conversation_id"`
+	StartedAt      string   `json:"started_at"`
+	Status         string   `json:"status"`
+	Mode           string   `json:"mode"`
+	Rounds         int      `json:"rounds"`
+	Members        []string `json:"members"`
+	Summary        string   `json:"summary"`
+	BudgetUSD      float64  `json:"budget_usd"`
+	Permission     string   `json:"permission"`
+}
+
+// jobsCurrentResponse 是 GET /api/jobs/current 的响应。没有在跑的轮次时
+// job 是显式的 null（不是空对象、也不是省略字段）：前端只判 reply.job。
+type jobsCurrentResponse struct {
+	Job *askResponse `json:"job"`
 }
 
 type startedEvent struct {
@@ -1274,6 +1369,12 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	j := newJob(id)
 	j.permission = strings.TrimSpace(req.Permission)
+	// startedAt / opts / 续接目标的会话 id 都必须在 job 进表之前写好：
+	// /api/jobs/current 可能在 202 返回的同一毫秒到达，它读到的必须是
+	// 一份完整的事实，而不是「表里有、字段还没有」的半成品。
+	j.startedAt = time.Now()
+	j.opts = opts
+	j.setConversationID(strings.TrimSpace(opts.Conversation))
 	// 每个 job 一颗自己的取消按钮，父 ctx 是进程级的 jobCtx。
 	// 先建好再进 goroutine：POST /api/jobs/{id}/cancel 可能在 202 返回的
 	// 同一毫秒到达，此刻 j.cancel 必须已经非 nil。
@@ -1298,7 +1399,9 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	// 那一瞬间才 Add 的任务会立刻撞上已经关掉的 Service/Runner。
 	s.jobsWG.Add(1)
 	go s.runAskJob(j, opts)
-	writeJSON(w, http.StatusAccepted, askResponse{JobID: id})
+	// 用 job 自己那份快照，而不是在这里再拼一次：202 与 /api/jobs/current
+	// 由此共用同一个字段来源，补字段时不会漏掉一边。
+	writeJSON(w, http.StatusAccepted, j.snapshot())
 }
 
 // optionsFromAsk 把 HTTP 请求体翻译成 headless.Options。默认值与
@@ -1640,6 +1743,10 @@ func (s *Server) runAskJob(j *job, opts headless.Options) {
 		// 交给浏览器，不再往服务进程的终端重复一份。
 		Err: io.Discard,
 		OnStart: func(convID string) {
+			// 先记会话 id 再发事件：/api/jobs/current 与 SSE 是两条独立
+			// 的读路径，前端重挂时可能先看到其中任意一条。两者都能拿到
+			// 同一个 id 才算「接得上」。
+			j.setConversationID(convID)
 			j.emit("started", startedEvent{ConversationID: convID})
 		},
 		// 成员进程真正启动之前推一帧。它只往内存事件表追加，不碰网络；
@@ -1789,6 +1896,13 @@ func (s *Server) handleJobPath(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rest := strings.TrimPrefix(r.URL.Path, "/api/jobs/")
+	// /api/jobs/current 是一个集合级资源，不是 /api/jobs/{id}/{sub} 那种
+	// 两段式路径。job id 都是 64 位十六进制（newJobID），永远不会与
+	// 字面量 "current" 撞车。
+	if rest == "current" {
+		s.handleJobsCurrent(w, r)
+		return
+	}
 	segments := strings.Split(rest, "/")
 	if len(segments) != 2 || segments[0] == "" {
 		writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
@@ -1802,6 +1916,30 @@ func (s *Server) handleJobPath(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 	}
+}
+
+// handleJobsCurrent 是 GET /api/jobs/current：回答「现在有没有一轮在跑」，
+// 有就把 202 的同一份形状再交一次。
+//
+// 它存在的理由是浏览器刷新：进度面板是内存里的 DOM，页面一重开就没了，
+// 而议会还在后台继续跑（job 挂在进程级 jobCtx 上，不随连接取消）。前端
+// 拿 job_id 重挂 SSE 之后，服务端从第 1 帧重放历史，面板就按原顺序重建；
+// 没有这个接口的话，用户只能看到一个空面板，还以为轮次丢了。
+//
+// 只读模式在 handleJobPath 的入口就回 405 了，与 /events、/cancel 同一个门。
+func (s *Server) handleJobsCurrent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeError(w, http.StatusMethodNotAllowed, "只支持 GET")
+		return
+	}
+	j := s.jobs.current()
+	if j == nil {
+		writeJSON(w, http.StatusOK, jobsCurrentResponse{Job: nil})
+		return
+	}
+	snap := j.snapshot()
+	writeJSON(w, http.StatusOK, jobsCurrentResponse{Job: &snap})
 }
 
 // handleJobEvents 是 SSE 订阅口。方法不符时按既有口径回 405 + Allow。

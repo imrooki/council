@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -754,19 +754,32 @@
     color: var(--ink-2);
     white-space: nowrap;
   }
-  .member-name { font-size: 13px; font-weight: 600; color: var(--ink); }
+  .member-name { font-size: 13px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+  /* 副行是「agent id · provider · model · 缓存说明」这一条混合文本。
+     它必须单行省略：长模型名（claude-sonnet-4-5-20250929 这类）以前会
+     折成 6–8 行，把整张成员表撑高。实现上把文本层绝对定位在副行里，
+     不直接给 .member-sub 加 ellipsis——绝对定位的文本不参与表格列宽的
+     最小内容计算，模型名再长也不会把表格撑出横向滚动。完整内容进 title。 */
   .member-sub {
+    position: relative;
     margin-top: 2px;
-    /* 副行是「agent id · provider · model · 缓存说明」这一条混合文本，
-       整行等宽会把右栏 384px 里的中文说明挤成 4–5 行（实测），因此这里
-       保留正文字体、只用 tabular-nums 对齐数字；纯 id/模型名的等宽见
-       设置页 agent 表与路径字段。 */
+    height: 1.5em;
+    /* 正文字体 + tabular-nums：整行等宽会把中文「缓存 建 10 / 读 0」挤得
+       很难读；纯 id/模型名的等宽见设置页 agent 表与路径字段。 */
     font-family: var(--font);
     font-size: 11px;
     line-height: 1.5;
     font-variant-numeric: tabular-nums;
     color: var(--muted-2);
-    overflow-wrap: break-word;
+  }
+  .member-sub-text {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   tr.inactive .member-name { color: var(--muted); }
 
@@ -822,6 +835,61 @@
   .member-remove:hover { color: var(--danger); background: var(--surface-2); }
   .member-rejoin { color: var(--accent); }
   .member-rejoin:hover { background: var(--surface-2); }
+  /* 操作列在宽栏是文字（移除 / 重新加入），窄栏换成图标（× / ↺）。
+     图标默认不参与布局，is-narrow 下再显形。 */
+  .member-action-icon { display: none; font-size: 13px; line-height: 1.3; }
+  /* 成员列在宽栏拿 42%：副行改成单行省略之后，表格不再需要为了它把这一
+     列撑到能放下整串 id · provider · model · 缓存说明。42% 与改造前的
+     视觉宽度接近（384px 右栏下约 155px）。 */
+  #members-table thead th.col-member,
+  #members-table tbody td.member-cell { width: 42%; }
+
+  /* 窄栏退化（右栏实际宽度 < 384px）。六列（成员/轮/IN/OUT/金额/操作）
+     在 384px 刚够用，再窄就会横向滚动；这里不是让用户滚，而是换成四列：
+       - 隐藏「轮」；
+       - 把 IN / OUT 合并成一列「令牌」，显示 "IN / OUT"；
+       - 操作列只留图标（× / ↺），完整文案在 aria-label 与 title 里。
+     两种布局的每个格子都带 title，窄栏里省略掉的信息都能悬停读到。
+     is-narrow 由 JS 的 ResizeObserver 按 .inspector 的实际宽度切换
+     （见「拖动分栏」后面那段），CSS 只负责两个布局的显隐。 */
+  #members-table thead th.col-tokens,
+  #members-table tbody td.col-tokens { display: none; }
+  .inspector.is-narrow #members-table { table-layout: fixed; }
+  .inspector.is-narrow #members-table thead th.col-round,
+  .inspector.is-narrow #members-table tbody td.col-round,
+  .inspector.is-narrow #members-table thead th.col-in,
+  .inspector.is-narrow #members-table tbody td.col-in,
+  .inspector.is-narrow #members-table thead th.col-out,
+  .inspector.is-narrow #members-table tbody td.col-out { display: none; }
+  .inspector.is-narrow #members-table thead th.col-tokens,
+  .inspector.is-narrow #members-table tbody td.col-tokens { display: table-cell; }
+  /* 固定表宽下的列宽：成员列吃掉剩下的，令牌 / 金额按比例，操作列只占
+     一个图标的位置。数字仍然 nowrap + ellipsis，完整值在 title 里。
+     成员列的 42% 是宽栏规则，窄栏必须显式改回 auto，否则四个百分比 /
+     像素宽度会加过 100%，固定布局会把列挤成另一套比例。 */
+  .inspector.is-narrow #members-table thead th.col-member { width: auto; }
+  .inspector.is-narrow #members-table thead th.col-tokens { width: 36%; }
+  .inspector.is-narrow #members-table thead th.col-cost { width: 26%; }
+  .inspector.is-narrow #members-table thead th.member-actions { width: 30px; }
+  .inspector.is-narrow #members-table thead th,
+  .inspector.is-narrow #members-table tbody td { padding-left: 4px; padding-right: 4px; }
+  .inspector.is-narrow #members-table thead th { font-size: 10px; }
+  .inspector.is-narrow #members-table td.num {
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .inspector.is-narrow #members-table .member-action-label { display: none; }
+  .inspector.is-narrow #members-table .member-action-icon { display: inline; }
+  .inspector.is-narrow #members-table .member-remove,
+  .inspector.is-narrow #members-table .member-rejoin { padding: 2px 4px; }
+  /* 图标按钮仍然保留「悬停才完全亮起」的习惯，但窄栏里常驻半透明：
+     一块完全空白的操作列会让人以为这一列不能点。 */
+  .inspector.is-narrow #members-table .member-remove { opacity: .55; }
+  /* 缓存说明在窄栏隐藏（保留 id / provider / model）；它和它前面那个
+     分隔点一起藏，不会留下一个孤零零的「·」。 */
+  .inspector.is-narrow .member-sub-text .member-cache,
+  .inspector.is-narrow .member-sub-text .member-cache-sep { display: none; }
 
   .empty {
     margin: 34px 12px;
@@ -2107,11 +2175,13 @@
         <table id="members-table">
           <thead>
             <tr>
-              <th data-i18n="ui.members.colMember">成员</th>
-              <th data-i18n="ui.members.colTurns">轮</th>
-              <th>IN</th>
-              <th>OUT</th>
-              <th data-i18n="ui.members.colCost">金额</th>
+              <th class="col-member" data-i18n="ui.members.colMember">成员</th>
+              <th class="col-round" data-i18n="ui.members.colTurns">轮</th>
+              <th class="col-in">IN</th>
+              <th class="col-out">OUT</th>
+              <th class="col-tokens" title="输入 / 输出令牌（窄栏合并显示）"
+                  data-i18n="ui.members.colTokens" data-i18n-title="ui.members.colTokensTitle">令牌</th>
+              <th class="col-cost" data-i18n="ui.members.colCost">金额</th>
               <th id="members-actions-head" class="member-actions" aria-label="操作" data-i18n-aria-label="ui.members.actionsAria" hidden></th>
             </tr>
           </thead>
@@ -2754,6 +2824,14 @@
     document.documentElement.lang = LANG;
   }
 
+  // refreshDocumentTitle 认当前模式：只读看板与写模式的标题不同，换语言时
+  // 也不能一律写成只读那一条（loadHealth 之后 state.writable 才可信）。
+  function refreshDocumentTitle() {
+    document.title = state.writable
+      ? t('ui.app.titleWrite', 'Council 写模式')
+      : t('ui.app.titleReadonly', 'Council 只读看板');
+  }
+
   async function loadI18n() {
     try {
       const res = await fetch('/api/i18n', { headers: { Accept: 'application/json' } });
@@ -2768,8 +2846,55 @@
       MESSAGES = Object.create(null);
       LANG = 'zh';
     }
+    // 换语言时也走这一条：loadI18n 只负责「静态节点的文案 + <html lang>」，
+    // JS 拼出来的动态文案由 applyLanguageToPage 重画。
     applyStaticI18n();
-    document.title = t('ui.app.titleReadonly', 'Council 只读看板');
+    refreshDocumentTitle();
+  }
+
+  // applyLanguageToPage 是「不整页 reload 的换语言」：把已经画在页面上的
+  // 动态文案按新语言重画一遍。必须放在 loadI18n 之后调用（MESSAGES / LANG
+  // 先换成新表）。
+  //
+  // 刻意不动两样东西：
+  //   - 消息正文与轮询状态：那是数据，不是文案；重画会丢掉滚动位置；
+  //   - 进度面板（ask-progress）：正在跑的一轮还在后台继续，切换语言不该
+  //     把它的进度清掉。面板里已经画出的旧语言行保持原样，只有之后到达的
+  //     事件按新语言追加。
+  function applyLanguageToPage() {
+    applyStaticI18n();
+    refreshDocumentTitle();
+    if (state.writable) brandNote.textContent = t('ui.app.writeDashboard', '写模式');
+    // messages-title 平时装的是会话标题（用户数据），applyStaticI18n 会把它
+    // 写成「消息」；这里按当前会话恢复。
+    messagesTitle.textContent = (state.detail && state.detail.id === state.currentId && state.detail.title)
+      ? state.detail.title
+      : t('ui.messages.title', '消息');
+    renderSchemaLag(state.settingsHealth);
+    renderConversationList();
+    renderCost(state.usage);
+    if (state.detail) renderMembers(state.detail, state.usage);
+    renderMessagesMeta();
+    if (!messagesEmpty.hidden) {
+      messagesEmpty.textContent = state.currentId
+        ? t('ui.messages.emptySession', '这个会话还没有消息')
+        : t('ui.messages.emptyNew', '下一轮会在新会话里开始');
+    }
+    if (state.writable) {
+      renderComposer();
+      // 只重画开着的浮层：关着的菜单下次打开时会自己按新语言重建，现在
+      // 重画只会多一次无意义的 DOM 抖动。
+      if (!membersPopover.hidden) renderMemberPicker();
+      if (!memberAddMenu.hidden) renderMemberAddMenu();
+      if (!presetPopover.hidden) renderPresetList();
+      if (!paramPopover.hidden) {
+        renderParamSummaryOptions();
+        refreshParamHint();
+      }
+      if (!settingsOverlay.hidden) renderSettings();
+    }
+    updateMemberAddButton();
+    updateExportButton();
   }
 
   // 工作区折叠状态按视图分开存：未归档与已归档各一个键，切视图不会把
@@ -3197,6 +3322,36 @@
 
   bindResizer(document.getElementById('sidebar-resizer'), 'sidebar', 'right');
   bindResizer(document.getElementById('inspector-resizer'), 'inspector', 'left');
+
+  // ---- 右栏窄宽度退化 ----
+  // 阈值取 384（默认宽度，也是 RESIZE_LIMITS.inspector.fallback）：默认
+  // 宽度下六列表刚好放得下，用户再往左拖就换成四列布局（隐藏「轮」、
+  // IN/OUT 合并为「令牌」、操作列只留图标），全程不出现横向滚动条。
+  //
+  // 为什么用 ResizeObserver 而不是纯 CSS 容器查询：.inspector 的宽度既能
+  // 被拖动改、也会被窗口宽度规则改成 display:none；一处 JS 观察比同时
+  // 依赖 @container 的浏览器版本、再在 CSS 里重复一遍阈值更好维护。
+  // 观察不到时（很老的浏览器）维持宽栏布局，只是回到改造前的行为。
+  const INSPECTOR_NARROW_WIDTH = 384;
+  const inspectorPanel = document.querySelector('.inspector');
+  function inspectorNarrow() {
+    if (inspectorPanel === null) return false;
+    const width = inspectorPanel.getBoundingClientRect().width;
+    // display:none（窗口窄于 1180px 时右栏整块收起）读出来是 0：那不算
+    // 「窄栏」，窗口变宽之后右栏按自己的宽度重新判一次。
+    return width > 0 && width < INSPECTOR_NARROW_WIDTH;
+  }
+  function syncInspectorNarrow() {
+    if (inspectorPanel === null) return;
+    inspectorPanel.classList.toggle('is-narrow', inspectorNarrow());
+  }
+  if (inspectorPanel !== null) {
+    if (typeof window.ResizeObserver === 'function') {
+      new window.ResizeObserver(syncInspectorNarrow).observe(inspectorPanel);
+    }
+    window.addEventListener('resize', syncInspectorNarrow);
+    syncInspectorNarrow();
+  }
 
   // 花额是敏感信息：有些人不想让旁边的人一眼看到，给一个记住的开关。
   const costBox = document.querySelector('.cost');
@@ -4345,6 +4500,61 @@
     }
   }
 
+  // reattachRunningJob 在页面启动时（以及换语言之后）问一次
+  // GET /api/jobs/current：有在跑的轮次就把进度面板接回来。
+  //
+  // 为什么这样就够：服务端为每个 job 保留了完整的事件历史，SSE 在没有
+  // Last-Event-ID 时从第 1 帧开始重放（write.handleJobEvents 的 start=0）。
+  // 重挂之后 started / turn_started / turn / done 按原顺序再走一遍，
+  // 预算仪表、每个成员的「正在思考」、已完成的结果行与最终 done 都由
+  // 同一批 handler 重建——前端不需要自己持久化任何进度，也不需要先拉
+  // 一次 job 状态做基线。
+  //
+  // 断线行为：同一次页面里 EventSource 自己断线时带 Last-Event-ID 续传，
+  // 不走这里；这里只在「本地没有连接」时接一次（reload 之后、或换语言
+  // 前连接已经丢了）。已经挂着流时不重复订阅，否则历史会被放两遍。
+  async function reattachRunningJob() {
+    if (!state.writable) return false;
+    let reply = null;
+    try {
+      reply = await api('/api/jobs/current');
+    } catch (err) {
+      // 恢复是可选能力：接口挂了就按「没有在跑的轮次」处理，不把整页变红。
+      return false;
+    }
+    const job = reply && reply.job;
+    if (!job || !job.job_id) return false;
+    if (state.askSource || state.askRunning) return false;
+
+    state.jobID = job.job_id;
+    state.stopping = false;
+    // done 收「正在思考」时要用汇总成员 id；它只在提交那一刻存在于内存里，
+    // 刷新之后从 /api/jobs/current 的形状里取回来。
+    state.runSummaryID = job.summary === 'none' ? '' : (job.summary || state.summaryAgent);
+    // 先把自己标成运行中：按钮变「停止」、目标切换被锁住，与提交那一刻
+    // 的界面一致；订阅之后重放的事件继续往同一个进度面板里画。
+    setAskRunning(true);
+    startRunMeter();
+    if (typeof job.budget_usd === 'number' && isFinite(job.budget_usd) && job.budget_usd > 0) {
+      // 重放会用 turn 事件把已花累加回来；预算得先用提交时的值，否则仪表
+      // 会拿刷新后默认的 $5 去比。
+      state.runBudget = job.budget_usd;
+      updateRunMeter(0);
+    }
+    const startedAt = job.started_at ? formatTime(job.started_at) : '';
+    appendAskProgress(startedAt
+      ? t('ui.composer.resumedAt', '已恢复正在跑的一轮（开始于 {time}），进度将从头重放', { time: startedAt })
+      : t('ui.composer.resumed', '已恢复正在跑的一轮，进度将从头重放'));
+    // conversation_id 已经有时先把这个会话选上：SSE 重放里的 started 也会
+    // 切一次，但那条要等连接建立；先切过来，消息区不会在进度面板回来之后
+    // 还停在别的会话上。started 到达时 alreadyShowing 为真，不会重拉整页。
+    if (job.conversation_id && job.conversation_id !== state.currentId) {
+      await selectConversation(job.conversation_id);
+    }
+    subscribeJob(job.job_id);
+    return true;
+  }
+
   // ---- 事件绑定 ----
   // 工作目录选择器开成一个遮罩弹窗，而不是贴着 chip 的浮层：浮层长在
   // 编辑器底下，目录一多就被窗口下沿切掉，「选择此文件夹」根本露不出来。
@@ -4711,7 +4921,7 @@
       // 只读模式的标题与空库文案一个字都不动；写模式把「只读」改成
       // 事实，免得用户看着「只读看板」不敢在下面输入。
       brandNote.textContent = t('ui.app.writeDashboard', '写模式');
-      document.title = t('ui.app.titleWrite', 'Council 写模式');
+      refreshDocumentTitle();
       conversationsEmpty.textContent = t('ui.sidebar.emptyWritable', '还没有会话，问一句就会新建');
       // 选项回来之前先按「不可提交」画一次：工具条已经露出，按钮不能有一
       // 瞬间是可按的（那一下用户点了也只会得到一句「还没读到选项」）。
@@ -5139,6 +5349,22 @@
     if (initial || wasAtBottom) {
       messageList.scrollTop = messageList.scrollHeight;
     }
+  }
+
+  // renderMessagesMeta 画「N 条 · M 人」。数字从 DOM 与 state.detail 现算：
+  // 换语言重画时不必为了两个计数再拉一次接口，也不会与消息列表脱节。
+  function renderMessagesMeta() {
+    const detail = state.detail;
+    if (!detail || !state.currentId || detail.id !== state.currentId) {
+      messagesMeta.textContent = '';
+      return;
+    }
+    const messages = messageList.children.length;
+    const members = (detail.members || []).filter((member) => member.active).length;
+    messagesMeta.textContent = t('ui.messages.meta', '{messages} · {members}', {
+      messages: tn('ui.conversation.messages', messages, '{n} 条', { n: messages }),
+      members: tn('ui.conversation.members', members, '{n} 人', { n: members }),
+    });
   }
 
   // 这一轮会落在哪个会话：选中了就是续接它，没选中就是新建。
@@ -6462,11 +6688,15 @@
     }
   }
 
-  function addCell(row, text, className) {
+  // addCell 给成员表补一格。title 是窄栏布局下唯一的完整信息来源：数字
+  // 列在窄栏会省略，悬停提示必须与宽栏看到的内容逐字一致。
+  function addCell(row, text, className, title) {
     const cell = document.createElement('td');
     if (className) cell.className = className;
     cell.textContent = text;
+    if (title) cell.title = title;
     row.appendChild(cell);
+    return cell;
   }
 
   // ---- 导出会话：Markdown / JSON ----
@@ -7182,10 +7412,13 @@
       if (member && !member.active) row.className = 'inactive';
 
       const memberCell = document.createElement('td');
+      memberCell.className = 'member-cell';
       const name = document.createElement('div');
       name.className = 'member-name';
       const memberName = (member && member.display_name) || id;
       name.textContent = memberName;
+      // 窄栏里成员列只有几十像素，长显示名会折行；title 给出完整名字。
+      name.title = memberName;
       memberCell.appendChild(name);
       const sub = document.createElement('div');
       sub.className = 'member-sub';
@@ -7194,9 +7427,6 @@
       // 会话详情按配置补上的 member.model，行里不会只剩 id 与 provider。
       const model = (member && member.model) || (usageById.get(id) || {}).model || '';
       const stat = usageById.get(id) || {};
-      const suffix = member && !member.active
-        ? ' · ' + t('ui.members.exited', '已退出')
-        : '';
       const cacheBits = [];
       if (stat.cache_create) {
         cacheBits.push(t('ui.members.cacheCreate', '建 {n}', { n: formatNumber(stat.cache_create) }));
@@ -7209,19 +7439,68 @@
           parts: cacheBits.join(' / '),
         })
         : '';
-      sub.textContent = [id, provider, model, cacheNote].filter(Boolean).join(' · ') + suffix;
+      // 副行拆成有类的片段：窄栏 CSS 只藏缓存说明那一段（连同它前面的
+      // 分隔点），id / provider / model 留在单行里省略。title 永远是全文，
+      // 窄栏里被藏掉、被省略掉的内容都还能悬停读到。
+      const subBits = [];
+      if (id) subBits.push({ text: id });
+      if (provider) subBits.push({ text: provider });
+      if (model) subBits.push({ text: model });
+      if (cacheNote) subBits.push({ text: cacheNote, className: 'member-cache' });
+      if (member && !member.active) {
+        subBits.push({
+          text: t('ui.members.exited', '已退出'),
+          className: 'member-exited',
+        });
+      }
+      const subText = document.createElement('span');
+      subText.className = 'member-sub-text';
+      subBits.forEach((bit, index) => {
+        if (index > 0) {
+          const sep = document.createElement('span');
+          // 缓存说明的分隔点跟着缓存一起藏，窄栏里不会留下一个孤立的「·」。
+          sep.className = 'member-sub-sep' +
+            (bit.className === 'member-cache' ? ' member-cache-sep' : '');
+          sep.textContent = ' · ';
+          subText.appendChild(sep);
+        }
+        const span = document.createElement('span');
+        if (bit.className) span.className = bit.className;
+        span.textContent = bit.text;
+        subText.appendChild(span);
+      });
+      sub.appendChild(subText);
+      sub.title = subBits.map((bit) => bit.text).join(' · ');
       memberCell.appendChild(sub);
       row.appendChild(memberCell);
 
-      addCell(row, String(stat.turns || 0), 'num');
-      addCell(row, formatNumber(stat.in), 'num');
-      addCell(row, formatNumber(stat.out), 'num');
-      addCell(row, stat.cost_reported === false
-        ? t('ui.common.notReported', '不报')
-        : formatUSD(stat.cost_usd || 0), 'num');
+      // 轮 / IN / OUT 在三列里各出现一次，窄栏再把 IN/OUT 合成「令牌」一列。
+      // 两种布局的四个数字格子都带 title：窄栏省略成 "184,224 / 23,808"
+      // 之后，完整含义仍在悬浮提示里。
+      const turns = Number(stat.turns) || 0;
+      const inText = formatNumber(stat.in);
+      const outText = formatNumber(stat.out);
+      const costReported = stat.cost_reported !== false;
+      const costText = costReported
+        ? formatUSD(stat.cost_usd || 0)
+        : t('ui.common.notReported', '不报');
+      addCell(row, String(turns), 'num col-round',
+        t('ui.members.turnsTitle', '轮数 {n}', { n: formatNumber(turns) }));
+      addCell(row, inText, 'num col-in',
+        t('ui.members.inTitle', '输入令牌 {n}', { n: inText }));
+      addCell(row, outText, 'num col-out',
+        t('ui.members.outTitle', '输出令牌 {n}', { n: outText }));
+      addCell(row, inText + ' / ' + outText, 'num col-tokens',
+        t('ui.members.tokensTitle', '输入 {in} / 输出 {out}', { in: inText, out: outText }));
+      addCell(row, costText, 'num col-cost',
+        t('ui.members.costTitle', '费用 {cost}', {
+          cost: costReported
+            ? formatUSDFull(stat.cost_usd || 0)
+            : t('ui.members.costNotReported', '这个成员不报金额'),
+        }));
 
       // 只读模式不画操作列；写模式里每行都补一格，空成员（只在用量
-      // 表里出现的旧 id）给空格子，保证六列对齐。
+      // 表里出现的旧 id）给空格子，保证列对齐。
       if (state.writable) {
         const actionCell = document.createElement('td');
         actionCell.className = 'member-actions';
@@ -7229,15 +7508,24 @@
           const action = document.createElement('button');
           action.type = 'button';
           action.className = member.active ? 'member-remove' : 'member-rejoin';
-          action.textContent = member.active
+          const labelText = member.active
             ? t('ui.members.remove', '移除')
             : t('ui.members.rejoin', '重新加入');
-          action.title = member.active
-            ? t('ui.members.removeTitle', '把这个成员移出会话')
-            : t('ui.members.rejoinTitle', '让这个已退出的成员重新加入');
-          action.setAttribute('aria-label', member.active
+          const icon = document.createElement('span');
+          icon.className = 'member-action-icon';
+          icon.setAttribute('aria-hidden', 'true');
+          icon.textContent = member.active ? '×' : '↺';
+          const label = document.createElement('span');
+          label.className = 'member-action-label';
+          label.textContent = labelText;
+          action.append(icon, label);
+          // title 与 aria-label 用同一句带名字的话：窄栏只剩图标时，
+          // 悬停与读屏都还能知道这是对谁的操作。
+          const actionLabel = member.active
             ? t('ui.members.removeAria', '移除成员 {name}', { name: memberName })
-            : t('ui.members.rejoinAria', '重新加入成员 {name}', { name: memberName }));
+            : t('ui.members.rejoinAria', '重新加入成员 {name}', { name: memberName });
+          action.title = actionLabel;
+          action.setAttribute('aria-label', actionLabel);
           action.addEventListener('click', () => {
             if (member.active) openMemberRemoveConfirm(member, action);
             else addMember(member.agent_id);
@@ -7592,23 +7880,57 @@
   }
 
   // saveSettingsLanguage 走与 agent 保存同一套写盘路径（备份、合并校验、
-  // 只写 layers[0]）。成功且文件真的变了就重载页面：界面文案、<html lang>
-  // 与 document.title 一起换掉，比在页内逐块重画更不容易漏。
+  // 只写 layers[0]）。成功后**不整页 reload**：界面文案全部走 t() /
+  // data-i18n，重新拉一次 /api/i18n 再把动态部分重画一遍即可（见
+  // applyLanguageToPage）。
+  //
+  // 之前这里在保存成功后整页刷新，代价是正在跑的轮次进度面板整块
+  // 消失——轮次其实还在后台跑。现在换语言只换文案，进度面板原样留着；
+  // 用户真的按 F5 时由 reattachRunningJob 把面板接回来。
   async function saveSettingsLanguage(value) {
     if (!state.writable) return;
+    const before = LANG;
     settingsLanguage.disabled = true;
     setSettingsError('');
     try {
       const result = await postJSON('/api/settings/language', { language: value });
-      if (result && result.backup_path) {
-        window.location.reload();
-        return;
-      }
-      // 内容没变：把下拉恢复到当前配置值，不需要刷新。
+      // 写盘成功时服务端已经调用 SetLanguage，/api/i18n 读到的就是新语言。
+      // -lang / COUNCIL_LANG 压过配置时读到的仍是旧表：那属于「写进去了
+      // 但没生效」，下面单独说明，不能假称已切换。
+      await loadI18n();
+      applyLanguageToPage();
+      const switched = LANG !== before;
       if (state.settings) {
         state.settings.language = value;
-        renderSettingsLanguage(state.settings);
+        state.settings.language_effective = LANG;
       }
+      if (result && result.backup_path) {
+        state.settingsResult = t('ui.settings.languageSaved', '语言已保存：{path}',
+          { path: result.write_target || '' });
+        if (!switched) {
+          state.settingsResult += '\n' + t('ui.settings.languageNotSwitched',
+            '界面文案没有切换：启动参数 -lang 或环境变量 COUNCIL_LANG 仍优先于配置。');
+        }
+      } else {
+        // 内容没变：文件未改动，结果区也不留上一次的旧提示。
+        state.settingsResult = '';
+      }
+      if (state.settings) {
+        // 刷新设置页只是为了让语言下拉与「实际生效」读到新值；它失败不能
+        // 把一次已经成功的写盘说成「保存语言失败」。
+        try {
+          await loadSettings();
+        } catch (err) {
+          /* 结果区里的成功提示已经在了，保持不动。 */
+        }
+      }
+      if (switched) {
+        showToast(t('ui.settings.languageSwitched', '界面语言已切换：{name}',
+          { name: languageDisplayName(LANG) }));
+      }
+      // 换语言之后顺手确认一次有没有在跑的轮次：正常路径上 askSource 还在，
+      // 函数会在读接口之后直接返回；连接恰好丢了的那一次会在这里重挂上。
+      await reattachRunningJob();
     } catch (err) {
       setSettingsError(t('ui.settings.languageSaveFailed', '保存语言失败：{err}',
         { err: err.message }));
@@ -8248,14 +8570,6 @@
     if (detailRes.status === 'fulfilled') {
       state.detail = detailRes.value;
       messagesTitle.textContent = detailRes.value.title || t('ui.conversation.untitled', '(无标题)');
-      if (pageRes.status === 'fulfilled') {
-        const members = (detailRes.value.members || []).filter((m) => m.active).length;
-        const messages = (pageRes.value.messages || []).length;
-        messagesMeta.textContent = t('ui.messages.meta', '{messages} · {members}', {
-          messages: tn('ui.conversation.messages', messages, '{n} 条', { n: messages }),
-          members: tn('ui.conversation.members', members, '{n} 人', { n: members }),
-        });
-      }
       // 工作台的成员来自 /api/options，不跟会话走：这里不重画工具条，
       // 否则切换会话会把用户为下一轮挑好的成员恢复成默认。
     } else {
@@ -8287,6 +8601,9 @@
       showError(pageRes.reason);
     }
     if (!failed) clearError();
+    // 消息条数与成员数在 appendMessages 之后算：两个计数都从已经画出来的
+    // 列表与 detail 现取，换语言时同一份 helper 也能直接复用。
+    renderMessagesMeta();
     // detail 里可能才有标题（列表标题为空时），到这里再画一次目标行。
     renderAskTarget();
     updateMemberAddButton();
@@ -8463,9 +8780,18 @@
   //
   // health 先问一次：只有写模式才把底栏放出来。health 失败按只读处理，
   // 看板本来的四个端点照常工作，不必因为一个可选能力把整页变红。
-  loadI18n().then(() => loadHealth()).then(() => refreshConversations()).then(() => {
-    if (state.currentId) schedulePoll();
-  });
+  // health 之后先问一次「有没有在跑的轮次」：页面重开时进度面板是空的，
+  // 但议会进程还在后台跑。reattachRunningJob 会把会话切过去并重挂 SSE，
+  // 服务端从头重放，面板按原顺序重建；没有在跑的轮次时它什么都不做。
+  // 放在 refreshConversations 之前：否则列表刷新会先把第一条会话选上，
+  // 正在跑的那一场反而要等 started 事件到了才切过去。
+  loadI18n()
+    .then(() => loadHealth())
+    .then(() => reattachRunningJob())
+    .then(() => refreshConversations())
+    .then(() => {
+      if (state.currentId) schedulePoll();
+    });
 })();
 </script>
 </body>

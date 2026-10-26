@@ -167,6 +167,17 @@ var zh = Catalog{
 	"ui.members.noMore":             "没有更多成员",
 	"ui.members.pickerTitle":        "成员",
 
+	// 窄栏（< 384px）新增的合并列与每个数字格子的 title：隐藏「轮」并把
+	// IN/OUT 合并成「令牌」之后，完整信息只能靠悬停提示补回来。
+	"ui.members.colTokens":       "令牌",
+	"ui.members.colTokensTitle":  "输入 / 输出令牌（窄栏合并显示）",
+	"ui.members.turnsTitle":      "轮数 {n}",
+	"ui.members.inTitle":         "输入令牌 {n}",
+	"ui.members.outTitle":        "输出令牌 {n}",
+	"ui.members.tokensTitle":     "输入 {in} / 输出 {out}",
+	"ui.members.costTitle":       "费用 {cost}",
+	"ui.members.costNotReported": "这个成员不报金额",
+
 	// ---- 底栏 / 本轮参数 ----
 	"ui.composer.workspaceToolbar":            "工作台工具",
 	"ui.composer.paramChipPlaceholder":        "1 轮 · 默认汇总 · $5",
@@ -283,6 +294,11 @@ var zh = Catalog{
 	"ui.composer.budgetReached":               " · 已达上限",
 	"ui.composer.budgetNear":                  " · 接近上限",
 
+	// 页面重开之后 /api/jobs/current 找到在跑的轮次，重挂 SSE 时写在进度区
+	// 第一行（在服务端重放的历史之前），说明面板为什么不是空的。
+	"ui.composer.resumed":   "已恢复正在跑的一轮，进度将从头重放",
+	"ui.composer.resumedAt": "已恢复正在跑的一轮（开始于 {time}），进度将从头重放",
+
 	// ---- 状态 / 结果枚举 ----
 	"ui.status.ok":           "成功",
 	"ui.status.partial":      "部分成功",
@@ -393,6 +409,11 @@ var zh = Catalog{
 	"ui.settings.languageFlagOverride": "启动参数 -lang {value} 优先于配置；去掉它才会跟随这里的选择。",
 	"ui.settings.languageEnvOverride":  "环境变量 COUNCIL_LANG={value} 优先于配置；清掉它才会跟随这里的选择。",
 	"ui.settings.languageSaveFailed":   "保存语言失败：{err}",
+	// 语言保存成功后不再 reload 页面：界面文案原地重画，正在跑的轮次进度
+	// 面板留着。下面三条是这条新路径的结果提示。
+	"ui.settings.languageSaved":       "语言已保存：{path}",
+	"ui.settings.languageSwitched":    "界面语言已切换：{name}",
+	"ui.settings.languageNotSwitched": "界面文案没有切换：启动参数 -lang 或环境变量 COUNCIL_LANG 仍优先于配置。",
 
 	// ---- 设置页：成员 ----
 	"ui.settings.membersIntro":      "agents 来自配置合并结果；新增、编辑、删除都会写回目标文件，并在写盘前自动备份。",
@@ -680,6 +701,18 @@ var en = Catalog{
 	"ui.members.noMore":             "No more members",
 	"ui.members.pickerTitle":        "Members",
 
+	// Narrow-panel column and per-cell titles: the narrow layout hides Turns
+	// and merges IN/OUT into Tokens, so the full meaning has to survive in
+	// the hover tooltip.
+	"ui.members.colTokens":       "Tokens",
+	"ui.members.colTokensTitle":  "Input / output tokens (merged in the narrow panel)",
+	"ui.members.turnsTitle":      "Turns: {n}",
+	"ui.members.inTitle":         "Input tokens: {n}",
+	"ui.members.outTitle":        "Output tokens: {n}",
+	"ui.members.tokensTitle":     "Input {in} / output {out}",
+	"ui.members.costTitle":       "Cost: {cost}",
+	"ui.members.costNotReported": "This member does not report a cost",
+
 	// ---- Composer ----
 	"ui.composer.workspaceToolbar":            "Workbench tools",
 	"ui.composer.paramChipPlaceholder":        "1 round · default summarizer · $5",
@@ -796,6 +829,11 @@ var en = Catalog{
 	"ui.composer.budgetReached":               " · limit reached",
 	"ui.composer.budgetNear":                  " · near limit",
 
+	// Written at the top of the progress area after a page reload finds a
+	// running job through /api/jobs/current and reattaches the SSE stream.
+	"ui.composer.resumed":   "Reattached to the running round; replaying its progress from the start",
+	"ui.composer.resumedAt": "Reattached to the running round (started {time}); replaying its progress from the start",
+
 	// ---- Status / outcomes ----
 	"ui.status.ok":           "ok",
 	"ui.status.partial":      "partial",
@@ -906,6 +944,11 @@ var en = Catalog{
 	"ui.settings.languageFlagOverride": "The -lang {value} startup flag overrides the config; remove it to use this setting.",
 	"ui.settings.languageEnvOverride":  "The COUNCIL_LANG={value} environment variable overrides the config; unset it to use this setting.",
 	"ui.settings.languageSaveFailed":   "Failed to save language: {err}",
+	// Saving a language no longer reloads the page: the UI text is repainted
+	// in place and the progress panel of a running round stays put.
+	"ui.settings.languageSaved":       "Language saved: {path}",
+	"ui.settings.languageSwitched":    "Interface language switched: {name}",
+	"ui.settings.languageNotSwitched": "The interface text did not change: the -lang flag or COUNCIL_LANG still overrides the config.",
 
 	// ---- Settings: members ----
 	"ui.settings.membersIntro":      "Agents come from the merged config; adding, editing and deleting all write back to the target file, with an automatic backup first.",
