@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Council 只读看板</title>
+<!-- 没有 favicon 时 Chromium 会给窗口和任务栏一个默认的地球图标，-app 窗口下尤其显眼。
+     这里用内联 SVG：黑底圆角方块 + 白色圆点，与顶栏品牌标记同一套形；
+     用 data URI 而不是加一个路由，少一个端点、也少一次请求。 -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23101215'/%3E%3Ccircle cx='32' cy='32' r='13' fill='%23ffffff'/%3E%3C/svg%3E">
 <style>
   /* 设计令牌照 deepseek-harness 的那一套：中性偏冷的灰阶（neutral-bluish）、
      几乎不可见的描边（黑/白 6%–12% 的透明度，而不是实心灰线）、近黑作为
