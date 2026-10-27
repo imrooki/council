@@ -144,10 +144,12 @@ func Parse(args []string, cfg *config.Config) (Options, error) {
 	return ParseLang(args, cfg, i18n.LangZh)
 }
 
-// ParseLang 是 Parse 带语言的那一半。descLang 是「拿不到 -lang 时假定的语言」：
-// 它给 -h 的 flag 说明与用法块用（解析在 -h 处就停下了），cmd/council 会先
-// 预扫 -lang 再把结果传进来。真正的输出语言仍由 -lang > COUNCIL_LANG 决定，
-// 结果写进 Options.Lang，供错误信息与文本模式输出使用。
+// ParseLang 是 Parse 带语言的那一半。descLang 是调用方预先求好的语言：
+// 它给 -h 的 flag 说明与用法块用（解析在 -h 处就停下了），也作为
+// 「-lang 与 COUNCIL_LANG 都没给出具体语言」时的兜底。cmd/council 会先
+// 预扫 -lang / -config、连同配置里的 language 一起求成 descLang 再传进来。
+// 输出语言仍是 -lang > COUNCIL_LANG > descLang，结果写进 Options.Lang，
+// 供错误信息与文本模式输出使用。
 func ParseLang(args []string, cfg *config.Config, descLang i18n.Lang) (Options, error) {
 	fs := flag.NewFlagSet("council ask", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -176,9 +178,11 @@ func ParseLang(args []string, cfg *config.Config, descLang i18n.Lang) (Options, 
 		}
 		return Options{}, usagef("%v", err)
 	}
-	// 语言在这里定：-lang > COUNCIL_LANG > 中文默认。配置里的 language 由
-	// app 装配时已经写进 COUNCIL_LANG（run() 的全局路径），ask 不再读盘。
-	lang := i18n.Resolve(*langFlag, "")
+	// 语言在这里定：-lang > COUNCIL_LANG > descLang。descLang 已经是调用方
+	// 按同一优先级（含配置里的 language）求好的结果，当作兜底而不是再读
+	// 一次盘：cmd/council 只在显式 -lang 时才写 COUNCIL_LANG，auto 下环境
+	// 变量可能为空，直接 Resolve(*langFlag, "") 会丢掉配置里的选择。
+	lang := i18n.Resolve(*langFlag, string(descLang))
 	// 互斥按「flag 出现没出现」判，不按值判：-p "" 加位置参数、
 	// -members "" 加 -team 都是两次表达，不能因为其中一边是空串就放过去。
 	seen := make(map[string]bool)

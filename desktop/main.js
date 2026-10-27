@@ -24,6 +24,12 @@ const READY_TIMEOUT_MS = 20000;
 const POLL_INTERVAL_MS = 400;
 const OUTPUT_TAIL_CHARS = 64 * 1024;
 const DIALOG_TAIL_CHARS = 6000;
+// portable 的自解压目录可能正被上一个实例清理：找不到 exe 时按短间隔重试。
+const EXE_RESOLVE_TIMEOUT_MS = 2000;
+const EXE_RESOLVE_INTERVAL_MS = 150;
+// 关掉立刻再开时，上一个进程可能还没完全退出、单实例锁还没释放。
+const SINGLE_INSTANCE_WAIT_MS = 2000;
+const SINGLE_INSTANCE_POLL_MS = 150;
 
 const repoRoot = path.resolve(__dirname, '..');
 
@@ -220,20 +226,23 @@ function isPortOpen(port, timeoutMs = 400) {
   });
 }
 
-function resolveCouncilExe() {
+// councilExeCandidates 收集本次启动要尝试的所有路径。显式指定（--council-exe /
+// COUNCIL_EXE）时只有一个候选：用户点名的路径不对，重试别的布局没有意义。
+//
+// 打包后 council.exe 的位置取决于 extraResources 的映射方式与 portable 的
+// 自解压布局。与其猜一种，不如把已知的几种都试一遍——找不到时报错会把候选
+// 全列出来，一眼就能看出是「没打进去」还是「打进去了但路径不同」。
+function councilExeCandidates() {
   const equalsArg = process.argv.find((arg) => arg.startsWith('--council-exe='));
-  if (equalsArg) return path.resolve(equalsArg.slice('--council-exe='.length));
+  if (equalsArg) return [path.resolve(equalsArg.slice('--council-exe='.length))];
 
   const flagIndex = process.argv.indexOf('--council-exe');
   if (flagIndex !== -1 && process.argv[flagIndex + 1]) {
-    return path.resolve(process.argv[flagIndex + 1]);
+    return [path.resolve(process.argv[flagIndex + 1])];
   }
 
-  if (process.env.COUNCIL_EXE) return path.resolve(process.env.COUNCIL_EXE);
+  if (process.env.COUNCIL_EXE) return [path.resolve(process.env.COUNCIL_EXE)];
 
-  // 打包后 council.exe 的位置取决于 extraResources 的映射方式与 portable 的自解压布局。
-  // 与其猜一种，不如把已知的几种都试一遍——找不到时报错会把候选全列出来，
-  // 下次一眼就能看出是「没打进去」还是「打进去了但路径不同」。
   const candidates = [];
   if (app.isPackaged) {
     candidates.push(path.join(process.resourcesPath, 'council.exe'));
@@ -248,10 +257,43 @@ function resolveCouncilExe() {
     candidates.push(DEFAULT_COUNCIL_EXE);
     candidates.push(path.join(repoRoot, 'council.exe'));
   }
+  return candidates;
+}
+
+function firstExistingCouncilExe(candidates) {
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+    try {
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+    } catch {
+      // 目录可能正被上一个实例删除；当作这一次不存在，留给重试。
+    }
   }
+  return null;
+}
+
+// resolveCouncilExe 解析 council.exe。portable 关掉立刻再开时，候选路径可能
+// 落在上一个实例正在清理的自解压目录里，第一次 existsSync 全部落空——
+// 这并不等于「没打进去」。先按 150ms 重试最多 2 秒，仍找不到才把第一个候选
+// 交给 startCouncil 报错（错误框里保留完整候选列表）。
+async function resolveCouncilExe() {
+  const candidates = councilExeCandidates();
   lastExeCandidates = candidates;
+
+  const deadline = Date.now() + EXE_RESOLVE_TIMEOUT_MS;
+  let announced = false;
+  for (;;) {
+    const found = firstExistingCouncilExe(candidates);
+    if (found) {
+      if (announced) logEvent(`council.exe appeared after retry: ${found}`);
+      return found;
+    }
+    if (Date.now() >= deadline) break;
+    if (!announced) {
+      announced = true;
+      logEvent(`council.exe not found yet, retrying ${EXE_RESOLVE_TIMEOUT_MS}ms: ${candidates.join(' | ')}`);
+    }
+    await sleep(EXE_RESOLVE_INTERVAL_MS);
+  }
   return candidates[0];
 }
 
@@ -275,8 +317,8 @@ function councilArgs(port) {
   return args;
 }
 
-function startCouncil(port) {
-  const exe = resolveCouncilExe();
+async function startCouncil(port) {
+  const exe = await resolveCouncilExe();
   const cwd = resolveCouncilCwd();
   const args = councilArgs(port);
 
@@ -886,7 +928,7 @@ async function start() {
 
   let spawned;
   try {
-    spawned = startCouncil(port);
+    spawned = await startCouncil(port);
   } catch (error) {
     await failStartup(error);
     return;
@@ -921,11 +963,35 @@ async function start() {
 
 app.setName(APP_TITLE);
 
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
+// acquireSingleInstanceLock 在另一个实例正在退出时不要立刻放弃：portable
+// 「关掉立刻再开」会赶在上一个进程释放单实例锁之前走到这里，直接 quit
+// 等于双击没反应。最多等 2 秒，每 150ms 重试一次；等不到才认定确实已有
+// 实例在跑（此时让出启动，由它的 second-instance 把窗口拉到前面）。
+//
+// 重复调用 requestSingleInstanceLock 是 Electron 的既有语义：拿不到锁时
+// 每次调用都会重新尝试获取，第一个实例还活着就继续返回 false。
+async function acquireSingleInstanceLock(timeoutMs = SINGLE_INSTANCE_WAIT_MS) {
+  if (app.requestSingleInstanceLock()) return true;
 
-if (!gotSingleInstanceLock) {
-  app.quit();
-} else {
+  logEvent(`single instance lock busy, waiting up to ${timeoutMs}ms for the previous instance`);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(SINGLE_INSTANCE_POLL_MS);
+    if (app.requestSingleInstanceLock()) {
+      logEvent('single instance lock acquired after wait');
+      return true;
+    }
+  }
+  return false;
+}
+
+async function boot() {
+  if (!(await acquireSingleInstanceLock())) {
+    logEvent('another instance is still running; quitting');
+    app.quit();
+    return;
+  }
+
   app.on('second-instance', () => {
     focusWindow();
   });
@@ -979,3 +1045,12 @@ if (!gotSingleInstanceLock) {
     }
   });
 }
+
+boot().catch((error) => {
+  try {
+    logEvent(`boot failed: ${error && error.message ? error.message : String(error)}`);
+  } catch {
+    /* 日志失败不能影响退出。 */
+  }
+  app.exit(1);
+});

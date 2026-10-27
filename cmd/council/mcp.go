@@ -50,8 +50,8 @@ func runMCP(args []string) int {
 		return exitUsage
 	}
 
-	// -lang 的结果要在建 ctx 之前落地：applyLanguageFlag 同时把值写进
-	// COUNCIL_LANG，后续任何读环境的代码拿到的是同一次解析。
+	// -lang 的结果要在建 ctx 之前落地：显式 -lang zh/en 会写进 COUNCIL_LANG，
+	// 后续读环境的子进程拿到同一次解析；auto 保留环境变量原样。
 	resolved := applyLanguageFlag(*langFlag, *configPath)
 
 	// MCP 是被宿主拉起来的长驻进程：第二次 Ctrl-C 直接 130，与 ask / serve

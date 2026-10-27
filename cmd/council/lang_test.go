@@ -82,18 +82,65 @@ func TestReadConfigLanguageIgnoresBrokenConfig(t *testing.T) {
 	}
 }
 
-// TestApplyLanguageFlagWritesEnvironment 钉住交互入口的落点：最终语言写回
-// COUNCIL_LANG，后续片读到的是同一次 Resolve 结果。
-func TestApplyLanguageFlagWritesEnvironment(t *testing.T) {
+// unsetLangEnv 清掉 COUNCIL_LANG 并让它真的「不存在」，而不是空串。
+// os.Getenv 分不清这两者，设置页的 LanguageEnv 用 Getenv 也分不清；
+// 但「进程里没有这个变量」是本次修复要钉住的事实，所以用 LookupEnv 断言。
+func unsetLangEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv(i18n.EnvLang, "")
+	if err := os.Unsetenv(i18n.EnvLang); err != nil {
+		t.Fatalf("清空 %s 失败: %v", i18n.EnvLang, err)
+	}
+}
+
+// TestApplyLanguageFlagLeavesEnvAloneWhenNotExplicit 覆盖 a / b：未传 -lang
+// 与 -lang auto 都不写 COUNCIL_LANG，但返回值仍按配置解析（消息文案用）。
+// 这是「设置页改语言必须重启」的根因：自己写进去的环境变量压住了配置。
+func TestApplyLanguageFlagLeavesEnvAloneWhenNotExplicit(t *testing.T) {
 	t.Setenv("LC_ALL", "")
 	t.Setenv("LC_MESSAGES", "")
 	t.Setenv("LANG", "")
-	t.Setenv(i18n.EnvLang, "")
+	unsetLangEnv(t)
+
+	// 配置说 en：没有显式 -lang 时，返回值应当跟随配置。
 	path := langConfigFile(t, "en")
-	if got := applyLanguageFlag("auto", path); got != i18n.LangEn {
-		t.Fatalf("applyLanguageFlag = %q，期望 en", got)
+	tests := []struct {
+		name string
+		flag string
+	}{
+		{name: "未传 -lang", flag: ""},
+		{name: "-lang auto", flag: "auto"},
 	}
-	if got := os.Getenv(i18n.EnvLang); got != "en" {
-		t.Errorf("COUNCIL_LANG = %q，期望 en", got)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := applyLanguageFlag(tc.flag, path); got != i18n.LangEn {
+				t.Errorf("applyLanguageFlag(%q) = %q，期望 en（跟随配置）", tc.flag, got)
+			}
+			if value, ok := os.LookupEnv(i18n.EnvLang); ok {
+				t.Errorf("%s 被写成了 %q，期望不设置", i18n.EnvLang, value)
+			}
+		})
+	}
+}
+
+// TestApplyLanguageFlagExplicitWritesEnvironment 覆盖 c：显式 -lang en 写进
+// COUNCIL_LANG（子进程继承），且这个值压过配置里的 zh，真的生效。
+func TestApplyLanguageFlagExplicitWritesEnvironment(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANG", "")
+	unsetLangEnv(t)
+
+	// 配置说 zh，显式 -lang en 必须赢。
+	path := langConfigFile(t, "zh")
+	if got := applyLanguageFlag("en", path); got != i18n.LangEn {
+		t.Fatalf("applyLanguageFlag(\"en\") = %q，期望 en", got)
+	}
+	if value, ok := os.LookupEnv(i18n.EnvLang); !ok || value != "en" {
+		t.Errorf("%s = %q（存在=%v），期望 en", i18n.EnvLang, value, ok)
+	}
+	// 模拟子进程 / 后续解析：没有 flag 时，环境变量让 en 继续生效。
+	if got := i18n.Resolve("", ""); got != i18n.LangEn {
+		t.Errorf("写回后 i18n.Resolve(\"\", \"\") = %q，期望 en", got)
 	}
 }

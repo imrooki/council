@@ -70,7 +70,8 @@ func run(args []string) int {
 	// 语言要在建 FlagSet 之前定：-h 在 Parse 里就返回 ErrHelp，那时再按解析
 	// 结果选说明文字已经晚了。-lang 的值与 -config 的值先按字面预扫一遍，
 	// 剩下的优先级（环境变量、配置里的 language、系统区域）仍由 cliLanguage
-	// 一次排完；解析成功后 applyLanguageFlag 再把正式结果写进 COUNCIL_LANG。
+	// 一次排完；解析成功后 applyLanguageFlag 只在显式 -lang 时把值写进
+	// COUNCIL_LANG（auto 不写，避免压住配置）。
 	prescanLang := cliLanguage(prescanFlag(args, "lang"), prescanFlag(args, "config"))
 	text := func(key, fallback string) string {
 		return i18n.TF(prescanLang, key, fallback)
@@ -108,9 +109,11 @@ func run(args []string) int {
 	// 两个句柄都要判。只判 stdin 的话，council > out.txt 会让 TUI 往文件里画。
 	useTUI := !*noTUI && repl.IsTerminal(os.Stdin) && repl.IsTerminal(os.Stdout)
 
-	// -lang 的解析结果写回 COUNCIL_LANG：后续任何读这个变量的代码或子进程
-	// 拿到的是同一次 Resolve 的结果，不必再各自排一次优先级。返回值同时
-	// 注入 app.Options.Lang（横幅、REPL、TUI 都用它），避免两处各解析一次。
+	// 显式 -lang 的解析结果写回 COUNCIL_LANG：子进程拿到的是同一次 Resolve
+	// 的结果，不必再各自排一次优先级。auto / 未传不写环境变量：那会让配置
+	// 永远被一个自己造出来的 COUNCIL_LANG 压住，改配置只能靠重启。
+	// 返回值同时注入 app.Options.Lang（横幅、REPL、TUI 都用它），避免两处
+	// 各解析一次。
 	resolvedLang := applyLanguageFlag(*lang, *configPath)
 
 	// 硬退 goroutine 只在行式模式下注册。理由见 newRootContext 里的注释。
@@ -140,8 +143,9 @@ func run(args []string) int {
 // 把装配交给 app.Run，最后只做退出码映射。真正的执行在 internal/headless。
 func runAsk(args []string) int {
 	// ask 不走全局 FlagSet，语言要在这里自己落地：预扫 -lang / -config，
-	// 求出的结果写进 COUNCIL_LANG，再交给 ParseLang / UsageLang。配置里
-	// 的 language 在这一步就能生效（cliLanguage 会只读地读一次）。
+	// 求出的结果只在显式 -lang 时写进 COUNCIL_LANG；配置里的 language
+	// 在这一步就能生效（cliLanguage 会只读地读一次），再作为 descLang
+	// 交给 ParseLang / UsageLang。
 	lang := applyLanguageFlag(prescanFlag(args, "lang"), prescanFlag(args, "config"))
 	// 配置还没加载，这一趟只能做与配置无关的校验；未知成员、round 缺汇总
 	// 这类要靠配置的用法错误，由 headless.Run 拿到 cfg 后补判，同样退 2。

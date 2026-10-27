@@ -1,12 +1,16 @@
 package main
 
-// lang.go 是交互入口的 -lang 落点。本片 REPL / TUI 的文案不翻译，但
+// lang.go 是各入口的 -lang 落点。本片 REPL / TUI 的文案不翻译，但
 // 命令行的解析机制要先就位：
 //
 //   - flag 与环境变量在 i18n.Resolve 里已经能决定，只有 flag / 环境变量
 //     都没给出具体语言时才需要读配置里的 language；
-//   - 求出的最终语言写回 COUNCIL_LANG，后续片（以及任何读取这个变量的
-//     子进程）拿到的是同一次解析结果，而不是各自再排一遍优先级。
+//   - **只有用户显式给了 -lang zh / en** 才把求出的值写回 COUNCIL_LANG，
+//     供后续片与子进程继承同一次解析结果；
+//   - auto 与未传一律不写环境变量。COUNCIL_LANG 在解析优先级里高于配置，
+//     若把 auto 的解析结果也写回去，进程里就永远有一个自己造出来的
+//     环境变量压着配置文件——serve 设置页保存 language 之后必须重启才
+//     生效，正是这么来的。
 //
 // 读配置是只读、失败即忽略的：配置缺失（首次运行）或写坏由 app.Run
 // 照常报错；语言的解析不该抢先失败，否则一个拼错的配置会变成一句
@@ -25,7 +29,8 @@ import (
 // 存在的理由：-lang 决定的是「flag 说明本身用哪种语言写」，而 -h 在
 // fs.Parse 里就返回 ErrHelp，那时已经来不及按解析结果重建 FlagSet。
 // 所以先按命令行上写的值求一次语言，用来构造 FlagSet；解析完成后
-// applyLanguageFlag 会按正式结果再写一次 COUNCIL_LANG，两者通常相同。
+// applyLanguageFlag 会按正式结果再求一次，显式 -lang 时按同一个值写
+// COUNCIL_LANG，两者通常相同。
 //
 // 只认 -name value 与 -name=value 两种写法（单个或两个连字符），遇到
 // "--" 或第一个非 flag 参数就停：那之后是位置参数，不是 flag。
@@ -89,12 +94,20 @@ func readConfigLanguage(configPath string) string {
 	return merged.Config.Language
 }
 
-// applyLanguageFlag 把解析结果固定进进程环境。返回最终语言是给测试用的；
-// 生产调用方不需要它。
+// applyLanguageFlag 求本次进程的界面语言，并在用户显式给了 -lang zh/en
+// 时把它固定进进程环境。返回最终语言是给测试与调用方用的。
+//
+// 只有显式值才写 COUNCIL_LANG：环境变量的优先级高于配置，把 auto / 未传
+// 时解析出的结果写回去，等于让进程里永远存在一个压过配置文件的环境变量。
+// serve 的设置页保存 language 之后要立即换文案，靠的就是重新解析时能读到
+// 新配置；那个「自己写进去的」环境变量会把它压住，只剩重启才换。
+// 外部真正设置的 COUNCIL_LANG 在 auto 下保持原样，它本来就该继续优先。
 func applyLanguageFlag(flagValue, configPath string) i18n.Lang {
 	lang := cliLanguage(flagValue, configPath)
-	// 设置失败只可能发生在变量名非法，而 EnvLang 是常量。忽略返回值，
-	// 不让一个纯粹的环境变量写入失败挡住启动。
-	_ = os.Setenv(i18n.EnvLang, string(lang))
+	if explicitLang(flagValue) {
+		// 设置失败只可能发生在变量名非法，而 EnvLang 是常量。忽略返回值，
+		// 不让一个纯粹的环境变量写入失败挡住启动。
+		_ = os.Setenv(i18n.EnvLang, string(lang))
+	}
 	return lang
 }

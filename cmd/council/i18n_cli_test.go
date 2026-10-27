@@ -53,7 +53,8 @@ func cliHasHan(s string) bool {
 }
 
 // cleanLangEnv 清掉三个区域变量与 COUNCIL_LANG，避免开发机的 LANG 影响
-// 「默认中文」这一条。run 内部会 os.Setenv(COUNCIL_LANG)，t.Setenv 负责还原。
+// 「默认中文」这一条。run 在显式 -lang zh/en 时会 os.Setenv(COUNCIL_LANG)，
+// t.Setenv 负责还原。
 func cleanLangEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("LC_ALL", "")
