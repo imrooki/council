@@ -80,7 +80,7 @@ npm run dist        # 产出 dist/Council-0.1.0-portable.exe
 
 - 只在 Windows 上实测过；Linux/macOS 有代码分支但没人跑过。
 - 自动测试全绿（13 个 Go 包 + Node 侧测试），关键约束都有回归用例：数据库迁移、身份指纹、并发换配置、写配置只动一段。
-- **没有指定许可证**。
+- 许可证：MIT。
 - 未做代码签名，Windows SmartScreen 会拦一下。
 
 ## 文档
