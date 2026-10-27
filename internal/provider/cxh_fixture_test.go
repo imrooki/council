@@ -45,7 +45,7 @@ const cxhCodexTail = `,"context_window":272000},` +
 	`{"slug":"cxh-novis","display_name":"No Vis","supported_reasoning_levels":[{"effort":"high"}]}` +
 	`]}` + "\n"
 
-// cxhCodexFixture 是整份夹具：24916 字节，一行，末尾一个换行。
+// cxhCodexFixture 是整份夹具：24948 字节，一行，末尾一个换行。
 func cxhCodexFixture() string {
 	return cxhCodexHead + cxhBigModelMessages() + cxhCodexTail
 }

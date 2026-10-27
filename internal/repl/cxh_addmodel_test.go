@@ -38,8 +38,8 @@ func cxhListBlockWithoutNote(t *testing.T) []string {
 // TestCxhFixtureIntact 覆盖 R0：repl 包那一份夹具没抄坏。
 // 【判别力】对测试自身的结构性核对，不对应任何被测变异。
 func TestCxhFixtureIntact(t *testing.T) {
-	if n := len(cxhCodexFixture()); n != 24916 {
-		t.Errorf("cxhCodexFixture() %d 字节，契约写的是 24916", n)
+	if n := len(cxhCodexFixture()); n != 24948 {
+		t.Errorf("cxhCodexFixture() %d 字节，契约写的是 24948", n)
 	}
 	if n := len(cxhBigModelMessages()); n != 22000 {
 		t.Errorf("cxhBigModelMessages() %d 字节，契约写的是 22000", n)

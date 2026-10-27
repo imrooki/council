@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
 const net = require('node:net');
+const os = require('node:os');
 const path = require('node:path');
 const { URL } = require('node:url');
 
@@ -18,7 +19,7 @@ const DEFAULT_PRIMARY_PORT = 8765;
 const PRIMARY_PORT = resolvePrimaryPort();
 const PRIMARY_BASE_URL = `http://127.0.0.1:${PRIMARY_PORT}`;
 const CONFIGURED_BASE_URL = normalizeBaseUrl(process.env.COUNCIL_URL || '');
-const DEFAULT_COUNCIL_EXE = '%USERPROFILE%\\bin\\council.exe';
+const DEFAULT_COUNCIL_EXE = path.join(os.homedir(), 'bin', 'council.exe');
 const HEALTH_TIMEOUT_MS = 1500;
 const READY_TIMEOUT_MS = 20000;
 const POLL_INTERVAL_MS = 400;

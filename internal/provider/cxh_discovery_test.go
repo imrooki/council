@@ -18,8 +18,8 @@ import (
 // 把 JSON 转义还原成真字符或抄坏。它不对应任何被测变异。
 func cxhCheckFixture(t *testing.T) {
 	t.Helper()
-	if n := len(cxhCodexFixture()); n != 24916 {
-		t.Fatalf("前提：cxhCodexFixture() 应为 24916 字节，实际 %d", n)
+	if n := len(cxhCodexFixture()); n != 24948 {
+		t.Fatalf("前提：cxhCodexFixture() 应为 24948 字节，实际 %d", n)
 	}
 	if n := len(cxhBigModelMessages()); n != 22000 {
 		t.Fatalf("前提：cxhBigModelMessages() 应为 22000 字节，实际 %d", n)

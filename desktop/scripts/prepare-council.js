@@ -8,9 +8,10 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
-const DEFAULT_COUNCIL_EXE = '%USERPROFILE%\\bin\\council.exe';
+const DEFAULT_COUNCIL_EXE = path.join(os.homedir(), 'bin', 'council.exe');
 const root = path.resolve(__dirname, '..');
 const vendorDir = path.join(root, 'vendor');
 const target = path.join(vendorDir, 'council.exe');
