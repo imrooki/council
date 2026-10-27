@@ -88,7 +88,7 @@ go build -ldflags "-X main.version=0.2.0-local" -o council.exe ./cmd/council
 5. 下次再进来：`/resume` 列出以前的会话，`/resume 1` 按编号接上。默认只列你启动 council 时所在项目目录的会话（就是启动时所在的那个目录，不向上找仓库根，从子目录启动算另一个项目），`/resume --all` 看全部。
 6. `/help` 看全部命令，`/quit` 退出。
 
-更完整的用法（加成员、对话模式、`@` 点名）见 [docs/README.md](docs/README.md)。
+项目结构、构建与测试见 [docs/README.md](docs/README.md)。
 
 ## 看板（本地网页）
 
@@ -228,7 +228,5 @@ npm run dist
 
 ## 文档
 
-- [docs/README.md](docs/README.md)：设计文档索引、路线图、用法。
-- [docs/00_DECISIONS.md](docs/00_DECISIONS.md)：所有决策和它们的理由。
-- [docs/14_MVP_CHECKLIST.md](docs/14_MVP_CHECKLIST.md)：真机验收清单。
-- `.handoff/HANDOFF.md`：当前状态的交接说明，整份就是最新的，接手先读它（每次交接整份重写；2026-10-07 之前的逐条记录在提交 `74d933d` 里）。
+- [docs/README.md](docs/README.md)：代码结构、构建、测试与文档边界。
+- 决策记录、实施契约、验收记录与交接笔记在私有仓库 [council-notes](https://github.com/imrooki/council-notes) 维护，不随代码公开。

@@ -21,6 +21,6 @@ Thumbs.db
 /desktop/vendor/
 /desktop/artifacts/
 
-# Council runtime data lives outside the repo (see docs/00_DECISIONS.md D-9),
+# Council runtime data lives outside the repo (see the private notes repository),
 # so there is nothing to ignore for it here.
 desktop/*.log
