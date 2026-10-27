@@ -29,6 +29,7 @@ const repoRoot = path.resolve(__dirname, '..');
 
 let mainWindow = null;
 let baseUrl = null;
+let lastExeCandidates = [];
 let connectionMode = null;
 let pageTitle = APP_TITLE;
 let councilProcess = null;
@@ -229,8 +230,29 @@ function resolveCouncilExe() {
   }
 
   if (process.env.COUNCIL_EXE) return path.resolve(process.env.COUNCIL_EXE);
-  if (app.isPackaged) return path.join(process.resourcesPath, 'council.exe');
-  return DEFAULT_COUNCIL_EXE;
+
+  // 打包后 council.exe 的位置取决于 extraResources 的映射方式与 portable 的自解压布局。
+  // 与其猜一种，不如把已知的几种都试一遍——找不到时报错会把候选全列出来，
+  // 下次一眼就能看出是「没打进去」还是「打进去了但路径不同」。
+  const candidates = [];
+  if (app.isPackaged) {
+    candidates.push(path.join(process.resourcesPath, 'council.exe'));
+    candidates.push(path.join(path.dirname(process.execPath), 'council.exe'));
+    candidates.push(path.join(path.dirname(process.execPath), 'resources', 'council.exe'));
+    const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
+    if (portableDir) {
+      candidates.push(path.join(portableDir, 'council.exe'));
+      candidates.push(path.join(portableDir, 'resources', 'council.exe'));
+    }
+  } else {
+    candidates.push(DEFAULT_COUNCIL_EXE);
+    candidates.push(path.join(repoRoot, 'council.exe'));
+  }
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+  }
+  lastExeCandidates = candidates;
+  return candidates[0];
 }
 
 function resolveCouncilCwd() {
@@ -259,9 +281,11 @@ function startCouncil(port) {
   const args = councilArgs(port);
 
   if (!fs.existsSync(exe) || !fs.statSync(exe).isFile()) {
+    const tried = lastExeCandidates.length ? lastExeCandidates : [exe];
     throw new StartupFailure(
       '找不到 council.exe',
       `期望路径：${exe}\n\n`
+      + `已尝试：\n${tried.map((item) => `- ${item}`).join('\n')}\n\n`
       + '开发时可以用 --council-exe <路径> 指定，或设置环境变量 COUNCIL_EXE。\n'
       + '打包时会从 desktop/vendor/council.exe 复制到 resources/council.exe。',
     );
@@ -338,7 +362,10 @@ function startCouncil(port) {
 }
 
 function targetLabel(url) {
-  if (!url) return `127.0.0.1:${PRIMARY_PORT}`;
+  if (!url) {
+    if (spawnedInfo && spawnedInfo.port === 0) return '系统分配的空闲端口';
+    return `127.0.0.1:${PRIMARY_PORT}`;
+  }
   try {
     return new URL(url).host;
   } catch {
@@ -349,7 +376,7 @@ function targetLabel(url) {
 function startupErrorFromExit(exitInfo, lastReason, url) {
   const code = exitInfo.code === null ? `信号 ${exitInfo.signal}` : `退出码 ${exitInfo.code}`;
   const stderr = councilStderrTail;
-  const portInUse = /address already in use|Only one usage of each socket address|bind|监听 .* 失败|listen tcp/i.test(stderr);
+  const portInUse = /address already in use|Only one usage of each socket address|bind:\s|监听 .* 失败|listen tcp/i.test(stderr);
   const lockBusy = /council\.lock|另一个 council|已经在运行|无法获取.*锁|database is locked/i.test(stderr);
   const command = spawnedInfo
     ? `\n\n命令：${spawnedInfo.exe} ${spawnedInfo.args.join(' ')}`
@@ -878,7 +905,9 @@ async function start() {
     const ready = await waitForReady(url, readyDeadline);
     await loadWorkbench(url, {
       kind: 'spawn',
-      source: port === 0 ? 'fallback-ephemeral' : 'primary',
+      source: port === 0
+        ? 'fallback-ephemeral'
+        : (PRIMARY_PORT === DEFAULT_PRIMARY_PORT ? 'primary' : 'COUNCIL_DESKTOP_PORT'),
       url,
     }, ready.health);
   } catch (error) {
