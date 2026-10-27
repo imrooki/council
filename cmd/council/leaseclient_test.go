@@ -8,6 +8,7 @@ package main
 // 用例负责。两个契约点（路径、JSON 字段）在两边各自钉一次 —— 漂了会同时红。
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,6 +16,14 @@ import (
 	"strings"
 	"testing"
 )
+
+// whoRun 跑一次 council who 并把两路输出收成字符串。
+func whoRun(t *testing.T, deps whoDeps, args ...string) (string, string, int) {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	code := runWhoWith(args, deps, &out, &errOut)
+	return out.String(), errOut.String(), code
+}
 
 // leaseFakeDashboard 是一个最小的看板替身：把收到的请求记下来，返回给定的
 // 状态码与响应体。
@@ -249,6 +258,111 @@ func TestReleaseOverServer(t *testing.T) {
 			t.Errorf("stderr 没有转述那句话:\n%s", errOut)
 		}
 	})
+}
+
+// TestWhoOverServer 覆盖 `council who -server`：快照里的 PID / 合并结果要显示
+// 出来，并且与直读本机时用同一套三段格式。
+func TestWhoOverServer(t *testing.T) {
+	whoTestEnv(t)
+	snapshot := `{
+		"local_agent":"coordinate",
+		"managed":[{"kind":"codex","source":"managed","pid":0,"exe_name":"",
+			"started_at":"2026-10-27T10:00:00Z","work_dir":"D:\\work",
+			"evidence":["source=inflight_turns"],"conversation_id":"conv-1","agent_id":"a1",
+			"turn_id":"turn-1","phase":"begun"}],
+		"observed":[{"kind":"claude","source":"managed","certainty":"exact","pid":501,"ppid":500,
+			"exe_name":"claude.exe","started_at":"2026-10-27T10:00:01Z",
+			"evidence":["exe=claude.exe","merged=shim=cmd.exe"],
+			"conversation_id":"conv-2","agent_id":"c1","turn_id":"turn-2",
+			"merge_evidence":"shim=cmd.exe"}],
+		"leases":[{"lease_id":"lease-1","resource_key":"c:\\work","owner_kind":"dashboard",
+			"owner_id":"dashboard","mode":"write","generation":1,
+			"granted_at":"2026-10-27T10:00:00Z","expires_at":"2026-10-27T10:02:00Z",
+			"overlaps_cwd":true}],
+		"leases_supported":true,
+		"scanned_at":"2026-10-27T10:00:02Z"}`
+	_, url := newLeaseFakeDashboard(t, http.StatusOK, snapshot)
+
+	out, errOut, code := whoRun(t, whoPanicDeps(t), "-server", url)
+	if code != exitOK {
+		t.Fatalf("退出码 = %d，期望 0；stderr=%s", code, errOut)
+	}
+	for _, want := range []string{
+		"来自看板",                // 数据源标记：两份事实来源不同，必须写出来
+		"turn-1",              // managed 段照常
+		"pid=501",             // 只有快照才有的 PID
+		"merged=shim=cmd.exe", // 合并依据
+		"turn-2",              // 被认回来的那一轮
+		"lease-1",             // 租约段
+		"资源 c:\\work",         // 与直读本机同一套租约行
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("输出里没有 %q:\n%s", want, out)
+		}
+	}
+	// 快照来源下不许再说「三段不做 PID 合并」——那句在这是假的。
+	if strings.Contains(out, "三段不做 PID 合并") {
+		t.Errorf("用了快照却还在说没做合并:\n%s", out)
+	}
+	// 占位符数量对不上时 fmt 会打印 %!EXTRA / %!v（真机上撞过一次）。
+	if strings.Contains(out, "%!") {
+		t.Errorf("输出里有 fmt 的错误标记:\n%s", out)
+	}
+}
+
+// TestWhoOverServerJSON 钉住 -json：via=server，observed 行带 pid 与
+// merge_evidence，缺失的错误键不出现。
+func TestWhoOverServerJSON(t *testing.T) {
+	whoTestEnv(t)
+	snapshot := `{"local_agent":"observe","managed":[],"observed":[{"kind":"claude",
+		"source":"observed","certainty":"exact","pid":42,"ppid":1,"exe_name":"claude.exe",
+		"started_at":"2026-10-27T10:00:00Z","evidence":["exe=claude.exe"]}],
+		"leases":[],"leases_supported":false,"scanned_at":"2026-10-27T10:00:02Z"}`
+	_, url := newLeaseFakeDashboard(t, http.StatusOK, snapshot)
+
+	out, errOut, code := whoRun(t, whoPanicDeps(t), "-server", url, "-json")
+	if code != exitOK {
+		t.Fatalf("退出码 = %d，期望 0；stderr=%s", code, errOut)
+	}
+	var report whoReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("stdout 不是 JSON: %v；%s", err, out)
+	}
+	if report.Via != "server" || report.LocalAgent != "observe" {
+		t.Errorf("via/local_agent = %q/%q", report.Via, report.LocalAgent)
+	}
+	if len(report.Observed) != 1 || report.Observed[0].PID != 42 {
+		t.Fatalf("observed = %+v", report.Observed)
+	}
+	if report.ManagedError != "" || report.LeasesError != "" {
+		t.Errorf("不该凭空出现错误: %+v", report)
+	}
+}
+
+// TestWhoOverServerFailure 钉住失败形态：问不到就退 1 并说清地址从哪来，
+// 不是静默回落到「自己扫本机」（两份事实的来源不能悄悄换）。
+func TestWhoOverServerFailure(t *testing.T) {
+	whoTestEnv(t)
+	ts := httptest.NewServer(http.NotFoundHandler())
+	url := ts.URL
+	ts.Close()
+
+	_, errOut, code := whoRun(t, whoPanicDeps(t), "-server", url)
+	if code != exitConfigFailed {
+		t.Fatalf("退出码 = %d，期望 1；stderr=%s", code, errOut)
+	}
+	if !strings.Contains(errOut, "问不到") {
+		t.Errorf("stderr 没有说清问不到:\n%s", errOut)
+	}
+
+	// 非回环地址是用法错误，与 claim/release 同一条边界。
+	_, errOut, code = whoRun(t, whoPanicDeps(t), "-server", "http://10.0.0.5:8765")
+	if code != exitUsage {
+		t.Fatalf("非回环退出码 = %d，期望 2；stderr=%s", code, errOut)
+	}
+	if !strings.Contains(errOut, "回环") {
+		t.Errorf("stderr 没有提到回环:\n%s", errOut)
+	}
 }
 
 // TestLeaseServerRejectsRemoteHost 钉住「只连回环」这条安全边界（纯函数）。

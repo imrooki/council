@@ -79,6 +79,7 @@ local_agent = "off"          # 默认值：一次进程都不枚举、不起后�
 | 命令 | 作用 |
 |---|---|
 | `council who` | 只读列出三件事：在飞的成员、本机 claude/codex/grok/agy 进程、仍然有效的租约。不拿锁，TUI 或看板开着时也能跑 |
+| `council who -server <url>` | 同一份视图，但事实来自**正在跑**的看板快照：多出子进程 PID 与「这一轮对应哪个进程」的合并结果（只有它拿得到），例如 `http://127.0.0.1:8765` |
 | `council claim <目录\|tcp:端口>` | 申请一条租约（`-mode read\|write`、`-ttl 5m`）。要 `coordinate` |
 | `council claim -server <url> …` | 同上，但走**已经开着**的看板（它握着 `council.lock`）；地址就是 `serve` 启动时打印的那一行，例如 `http://127.0.0.1:8765` |
 | `council release -lease <id>` | 交还租约（也可 `-server`）。不需要 `coordinate`：关小开关不该把授权锁死 |

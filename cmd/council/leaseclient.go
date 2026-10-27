@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -171,6 +172,167 @@ func decodeLeaseError(raw []byte) string {
 		return "（看板没有返回内容）"
 	}
 	return text
+}
+
+// whoSnapshot 是 GET /api/local-agents 的响应，字段与 internal/serve 的
+// localAgentsResponse 一一对应（同样刻意不 import serve：命令行不该因为
+// 「读一份快照」而依赖整个 Web 层）。
+//
+// 为什么 `council who` 需要它：PID 合并只发生在持锁的那个进程里（⑨ 的
+// 钩子表在内存里），跨进程读库无论如何都拿不到。要看合并结果，就得问它。
+type whoSnapshot struct {
+	LocalAgent    string               `json:"local_agent"`
+	Managed       []whoSnapshotProcess `json:"managed"`
+	Observed      []whoSnapshotProcess `json:"observed"`
+	Leases        []leaseWireRow       `json:"leases"`
+	LeasesSupport bool                 `json:"leases_supported"`
+	ManagedError  string               `json:"managed_error"`
+	ObservedError string               `json:"observed_error"`
+	LeasesError   string               `json:"leases_error"`
+	ScannedAt     string               `json:"scanned_at"`
+	Cwd           string               `json:"cwd"`
+}
+
+// whoSnapshotProcess 是快照里的一行进程。
+type whoSnapshotProcess struct {
+	Kind           string   `json:"kind"`
+	Source         string   `json:"source"`
+	Certainty      string   `json:"certainty"`
+	PID            int      `json:"pid"`
+	PPID           int      `json:"ppid"`
+	ExeName        string   `json:"exe_name"`
+	StartedAt      string   `json:"started_at"`
+	WorkDir        string   `json:"work_dir"`
+	Evidence       []string `json:"evidence"`
+	ConversationID string   `json:"conversation_id"`
+	AgentID        string   `json:"agent_id"`
+	TurnID         string   `json:"turn_id"`
+	Phase          string   `json:"phase"`
+	MergeEvidence  string   `json:"merge_evidence"`
+}
+
+// getWhoSnapshot 向看板要一份本机 agent 快照（只读 GET，不过写闸）。
+func getWhoSnapshot(ctx context.Context, server string) (whoSnapshot, error) {
+	var snapshot whoSnapshot
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server+"/api/local-agents", nil)
+	if err != nil {
+		return snapshot, err
+	}
+	client := &http.Client{Timeout: leaseTimeout}
+	res, err := client.Do(req)
+	if err != nil {
+		return snapshot, err
+	}
+	defer func() {
+		_ = res.Body.Close()
+	}()
+	raw, err := io.ReadAll(io.LimitReader(res.Body, 4<<20))
+	if err != nil {
+		return snapshot, fmt.Errorf("读响应失败: %w", err)
+	}
+	if res.StatusCode != http.StatusOK {
+		return snapshot, fmt.Errorf("看板返回 %d：%s", res.StatusCode, decodeLeaseError(raw))
+	}
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		return snapshot, fmt.Errorf("看板返回的 JSON 看不懂: %w", err)
+	}
+	return snapshot, nil
+}
+
+// runWhoOverServer 是 `council who -server` 的实现：拿一份快照，按与直读本机
+// 完全相同的三段格式打印。
+//
+// 为什么值得多这一条路：PID 合并只发生在持锁的那个进程里（⑨ 的钩子表在
+// 内存），跨进程读库永远看不到「这一轮对应哪个进程」。快照里有。
+func runWhoOverServer(out, errOut io.Writer, text func(key, fallback string, args ...any) string,
+	server string, asJSON bool) int {
+	ctx, cancel := context.WithTimeout(context.Background(), whoScanTimeout)
+	defer cancel()
+
+	snapshot, err := getWhoSnapshot(ctx, server)
+	if err != nil {
+		fmt.Fprint(errOut, text("cli.who.serverFailed",
+			"council who: 问不到 %s 的快照：%v（地址就是看板启动时打印的那一行）\n", server, err))
+		return exitConfigFailed
+	}
+
+	managed := make([]whoManagedRow, 0, len(snapshot.Managed))
+	for _, row := range snapshot.Managed {
+		managed = append(managed, whoManagedRow{
+			ConversationID: row.ConversationID,
+			AgentID:        row.AgentID,
+			TurnID:         row.TurnID,
+			Provider:       row.Kind,
+			Phase:          row.Phase,
+			StartedAt:      row.StartedAt,
+			WorkDir:        row.WorkDir,
+			Source:         row.Source,
+		})
+	}
+	observed := make([]whoObservedRow, 0, len(snapshot.Observed))
+	for _, row := range snapshot.Observed {
+		observed = append(observed, whoObservedRow{
+			Kind:           row.Kind,
+			PID:            row.PID,
+			PPID:           row.PPID,
+			ExeName:        row.ExeName,
+			StartedAt:      row.StartedAt,
+			Source:         row.Source,
+			Certainty:      row.Certainty,
+			MergeEvidence:  row.MergeEvidence,
+			ConversationID: row.ConversationID,
+			AgentID:        row.AgentID,
+			TurnID:         row.TurnID,
+		})
+	}
+	leases := make([]whoLeaseRow, 0, len(snapshot.Leases))
+	for _, row := range snapshot.Leases {
+		leases = append(leases, whoLeaseRow{
+			LeaseID:     row.LeaseID,
+			ResourceKey: row.ResourceKey,
+			OwnerKind:   row.OwnerKind,
+			OwnerID:     row.OwnerID,
+			Mode:        row.Mode,
+			Generation:  row.Generation,
+			ExpiresAt:   row.ExpiresAt,
+		})
+	}
+
+	report := whoReport{
+		LocalAgent: snapshot.LocalAgent,
+		Managed:    managed,
+		Observed:   observed,
+		Leases:     leases,
+		Via:        "server",
+	}
+	// 快照自己带的三段错误照搬：看板那边读库失败时，这里也不该显示成「没有」。
+	report.ManagedError = snapshot.ManagedError
+	report.ObservedError = snapshot.ObservedError
+	report.LeasesError = snapshot.LeasesError
+
+	if asJSON {
+		return writeWhoJSON(out, errOut, report)
+	}
+	// 文本路径沿用同一个 writeWhoText：三段格式、空段提示、错误提示都只有
+	// 一份实现。错误在这里被折成 error，文本段按原样打印那些句子。
+	view := whoView{
+		text:       text,
+		managed:    report.Managed,
+		agents:     report.Observed,
+		leases:     report.Leases,
+		servedFrom: server,
+	}
+	if report.ManagedError != "" {
+		view.managedErr = errors.New(report.ManagedError)
+	}
+	if report.ObservedError != "" {
+		view.observedErr = errors.New(report.ObservedError)
+	}
+	if report.LeasesError != "" {
+		view.leasesErr = errors.New(report.LeasesError)
+	}
+	writeWhoText(out, view)
+	return exitOK
 }
 
 // runClaimOverServer 是 `council claim -server` 的实现。

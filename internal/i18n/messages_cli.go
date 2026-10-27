@@ -207,7 +207,7 @@ Flags:
 	"cli.who.managedEmpty":        "  （没有在飞的成员）",
 	"cli.who.managedUnavailable":  "  （库不可用：%v；只显示本机进程部分）",
 	"cli.who.headObserved":        "本机其他 agent 进程（%d）",
-	"cli.who.observedRow":         "  %s  pid=%d ppid=%d exe=%s source=%s certainty=%s 起于 %s",
+	"cli.who.observedRow":         "  %s  pid=%d ppid=%d exe=%s source=%s certainty=%s 起于 %s%s",
 	"cli.who.observedEmpty":       "  （没有发现本机 agent 进程）",
 	"cli.who.observedUnavailable": "  （进程枚举不可用：%v）",
 	"cli.who.unknown":             "未知",
@@ -216,6 +216,11 @@ Flags:
 	"cli.who.leasesEmpty":         "  （没有有效租约）",
 	"cli.who.leasesUnavailable":   "  （租约读不出来：%v）",
 	"cli.who.note":                "本命令看的是本机进程，不是会话成员；不读取命令行、环境变量或其它 CLI 的配置；三段不做 PID 合并（.cmd 垫片拿到的是 cmd.exe 的 PID）；租约是提醒，不是文件锁。",
+	"cli.who.noteServer":          "这份快照由看板进程给出：它把「这一轮起的子进程」与进程表里的那一行按 PID（含 .cmd 垫片）对过；不读取命令行、环境变量或其它 CLI 的配置；租约是提醒，不是文件锁。",
+	"cli.who.servedFrom":          "（以下事实来自看板 %s 的快照：PID 与合并结果只有它拿得到）",
+	"cli.who.observedMerged":      " merged=%s（turn %s）",
+	"cli.who.flag.server":         "改问正在跑的看板要一份快照（例如 http://127.0.0.1:8765）：只有它拿得到 PID 与合并结果",
+	"cli.who.serverFailed":        "council who: 问不到 %s 的快照：%v（地址就是看板启动时打印的那一行）\n",
 	"cli.who.usage": `用法: council who [flags]
 
 只读列出三段本机事实，不拿 council.lock，可以在 TUI 或 serve -rw 开着的时候跑：
@@ -226,8 +231,11 @@ Flags:
 certainty=exact 只给落在已知 CLI 安装目录里的进程；路径拿不到或不在安装目录里的标 probable，
 桌面客户端（Claude Desktop 等）的同名 claude.exe 不报。
 不读取命令行、环境变量或其它 CLI 的配置；local_agent = "off"（默认）时一次进程都不枚举。
+看板（serve -rw）正握着 council.lock 时，它的快照比跨进程读库多两样东西：子进程 PID 与
+「这一轮对应哪个进程」的合并结果 —— 加 -server 就向它要那一份（只读 GET）。
 
 flags:
+  -server <url>        问正在跑的看板要快照，例如 http://127.0.0.1:8765（多出 PID 与合并结果）
   -json                按 JSON 输出（local_agent / managed / observed / leases / notice）
   -config <path>       配置文件路径，与全局 -config 含义相同
   -lang zh|en|auto     输出语言，默认 auto
@@ -532,7 +540,7 @@ Flags:
 	"cli.who.managedEmpty":        "  (no in-flight turns)",
 	"cli.who.managedUnavailable":  "  (database unavailable: %v; showing only the local-process section)",
 	"cli.who.headObserved":        "Other local agent processes (%d)",
-	"cli.who.observedRow":         "  %s  pid=%d ppid=%d exe=%s source=%s certainty=%s started %s",
+	"cli.who.observedRow":         "  %s  pid=%d ppid=%d exe=%s source=%s certainty=%s started %s%s",
 	"cli.who.observedEmpty":       "  (no local agent processes found)",
 	"cli.who.observedUnavailable": "  (process enumeration unavailable: %v)",
 	"cli.who.unknown":             "unknown",
@@ -541,6 +549,11 @@ Flags:
 	"cli.who.leasesEmpty":         "  (no valid leases)",
 	"cli.who.leasesUnavailable":   "  (leases could not be read: %v)",
 	"cli.who.note":                "This command looks at local processes, not conversation members; it reads no command lines, environment variables or other CLIs' config files; the three sections are not joined by PID (.cmd shims report cmd.exe's PID); a lease is a reminder, not a file lock.",
+	"cli.who.noteServer":          "This snapshot comes from the dashboard process: it matched the child process each turn started against the process table by PID (including .cmd shims); it reads no command lines, environment variables or other CLIs' config files; a lease is a reminder, not a file lock.",
+	"cli.who.servedFrom":          "(the facts below come from the dashboard at %s: it is the only one that has the PIDs and the merge result)",
+	"cli.who.observedMerged":      " merged=%s (turn %s)",
+	"cli.who.flag.server":         "Ask the running dashboard for a snapshot (e.g. http://127.0.0.1:8765); only it has the PIDs and the merge result",
+	"cli.who.serverFailed":        "council who: cannot get a snapshot from %s: %v (the address is the line the dashboard prints at startup)\n",
 	"cli.who.usage": `Usage: council who [flags]
 
 Print three read-only local sections without taking council.lock, so it works while the TUI or serve -rw is running:
@@ -551,8 +564,11 @@ This command looks at local processes, not conversation members (that is /who in
 certainty=exact is only for processes under a known CLI install directory; missing or unknown paths are probable,
 and same-named claude.exe of desktop clients (Claude Desktop etc.) is not reported.
 It reads no command lines, environment variables or other CLIs' config files; with local_agent = "off" (the default) it enumerates nothing.
+While the dashboard (serve -rw) holds council.lock, its snapshot knows two things reading the database from
+outside cannot: child PIDs, and which process belongs to which turn. Add -server to ask it (read-only GET).
 
 flags:
+  -server <url>        ask the running dashboard for a snapshot, e.g. http://127.0.0.1:8765 (adds PIDs and the merge result)
   -json                print JSON (local_agent / managed / observed / leases / notice)
   -config <path>       config file path, same meaning as the global -config
   -lang zh|en|auto     output language, default auto

@@ -234,6 +234,11 @@ func TestWhoObservePrintsBothSections(t *testing.T) {
 			t.Errorf("通用宿主 %s 不该出现在输出里:\n%s", unwanted, text)
 		}
 	}
+	// 占位符数量对不上时 fmt 会打印 %!EXTRA / %!v；真机上就是靠这条发现的
+	// （cli.who.observedRow 加了第 8 个 %s，目录里的文案还是 7 个）。
+	if strings.Contains(text, "%!") {
+		t.Errorf("输出里有 fmt 的错误标记（占位符与参数数量不匹配）:\n%s", text)
+	}
 }
 
 // TestWhoObserveJSON 钉住 observe 的 JSON 字段名与内容。

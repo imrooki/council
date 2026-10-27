@@ -28,6 +28,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"strings"
 	"time"
 
 	"council/internal/config"
@@ -74,18 +75,23 @@ type whoManagedRow struct {
 // StartedAt 拿不到时是空串：JSON 里不编一个 1601 年或 1970 年的时间。
 // ExePath 是 exact/probable 判定的依据；拿不到时为空串。
 // Certainty 只描述「这个进程有多确定是那家 CLI」，不表示它归 Council 管。
-// L1 不做 managed ↔ observed 的合并：cmd.Start() 起 .cmd 垫片时拿到的是
-// cmd.exe 的 PID，靠 PID 对不上真正干活的进程；把观察到的进程标成 managed
-// 是误报（见 localagent.SourceManaged 的注释）。
+//
+// MergeEvidence / ConversationID / AgentID / TurnID 只在 `-server` 时出现：
+// PID 合并发生在持锁那个进程里（⑨ 的钩子表在内存），跨进程读库拿不到。
+// 直接扫描本机的那条路不写这四个键 —— 它不知道谁是谁。
 type whoObservedRow struct {
-	Kind      string `json:"kind"`
-	PID       int    `json:"pid"`
-	PPID      int    `json:"ppid"`
-	ExeName   string `json:"exe_name"`
-	ExePath   string `json:"exe_path"`
-	StartedAt string `json:"started_at"`
-	Source    string `json:"source"`
-	Certainty string `json:"certainty"`
+	Kind           string `json:"kind"`
+	PID            int    `json:"pid"`
+	PPID           int    `json:"ppid"`
+	ExeName        string `json:"exe_name"`
+	ExePath        string `json:"exe_path"`
+	StartedAt      string `json:"started_at"`
+	Source         string `json:"source"`
+	Certainty      string `json:"certainty"`
+	MergeEvidence  string `json:"merge_evidence,omitempty"`
+	ConversationID string `json:"conversation_id,omitempty"`
+	AgentID        string `json:"agent_id,omitempty"`
+	TurnID         string `json:"turn_id,omitempty"`
 }
 
 // whoLeaseRow 是 JSON 里「本机租约」的一行。
@@ -115,6 +121,8 @@ type whoReport struct {
 	ObservedError string           `json:"observed_error,omitempty"`
 	LeasesError   string           `json:"leases_error,omitempty"`
 	Notice        string           `json:"notice,omitempty"`
+	// Via 说明这份事实是直接读本机还是来自看板快照（-server）。
+	Via string `json:"via,omitempty"`
 }
 
 // runWho 是 `council who` 的进程边界：生产依赖写死在这里，输出走标准流。
@@ -142,6 +150,8 @@ func runWhoWith(args []string, deps whoDeps, out, errOut io.Writer) int {
 		"输出语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）"))
 	asJSON := fs.Bool("json", false, text("cli.who.flag.json",
 		"按 JSON 输出（local_agent / managed / observed / leases / notice）"))
+	server := fs.String("server", "", text("cli.who.flag.server",
+		"改问正在跑的看板要一份快照（例如 http://127.0.0.1:8765）：只有它拿得到 PID 与合并结果"))
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(errOut, whoUsageLang(lang))
@@ -162,6 +172,18 @@ func runWhoWith(args []string, deps whoDeps, out, errOut io.Writer) int {
 	// 走同一次解析（与 serve / mcp 一致）。
 	lang = applyLanguageFlag(*langFlag, *configPath)
 	text = whoTextFunc(lang)
+
+	// -server：问那个握着 council.lock 的看板。它手里的快照比跨进程读库多
+	// 两样东西 —— 子进程 PID 与合并结果（⑨ 的钩子表只在内存），这两样正是
+	// 「两段并列」那个老问题的解药。只读 GET，不过写闸，也不需要层级。
+	if serverArg := strings.TrimSpace(*server); serverArg != "" {
+		base, err := normalizeLeaseServer(serverArg)
+		if err != nil {
+			fmt.Fprintf(errOut, "council who: %v\n", err)
+			return exitUsage
+		}
+		return runWhoOverServer(out, errOut, text, base, *asJSON)
+	}
 
 	level, dataDir, err := loadWhoConfig(*configPath)
 	if err != nil {
@@ -221,7 +243,7 @@ func runWhoWith(args []string, deps whoDeps, out, errOut io.Writer) int {
 		text:        text,
 		managed:     managed,
 		managedErr:  managedErr,
-		agents:      agents,
+		agents:      report.Observed,
 		observedErr: observedErr,
 		leases:      report.Leases,
 		leasesErr:   leasesErr,
@@ -231,14 +253,21 @@ func runWhoWith(args []string, deps whoDeps, out, errOut io.Writer) int {
 
 // whoView 是纯文本输出需要的一组事实。用结构体而不是九个位置参数：
 // 三段事实各自带一个错误，位置参数一多就没人记得住顺序。
+//
+// agents 用的是 whoObservedRow（与 -json 同一份），不是 localagent.Agent：
+// 两条数据源（本机扫描 / 看板快照）里后者多带 PID 合并结果，统一成同一种行
+// 才能让「打印什么」与「JSON 里是什么」永远一致。
 type whoView struct {
 	text        func(key, fallback string, args ...any) string
 	managed     []whoManagedRow
 	managedErr  error
-	agents      []localagent.Agent
+	agents      []whoObservedRow
 	observedErr error
 	leases      []whoLeaseRow
 	leasesErr   error
+	// servedFrom 非空表示这一份事实来自看板快照（-server），文本里要标出来：
+	// 两份事实的来源不同，读的人必须知道自己在看哪一份。
+	servedFrom string
 }
 
 // whoTextFunc 绑定一种语言的 TF，只在 runWhoWith 里换两次（解析前后）。
@@ -414,6 +443,11 @@ func writeWhoText(out io.Writer, view whoView) {
 	text := view.text
 	unknown := text("cli.who.unknown", "未知")
 
+	if view.servedFrom != "" {
+		fmt.Fprintln(out, text("cli.who.servedFrom",
+			"（以下事实来自看板 %s 的快照：PID 与合并结果只有它拿得到）", view.servedFrom))
+	}
+
 	fmt.Fprintln(out, text("cli.who.headManaged", "Council 管理的成员（%d）", len(view.managed)))
 	switch {
 	case view.managedErr != nil:
@@ -439,11 +473,20 @@ func writeWhoText(out io.Writer, view whoView) {
 	case len(view.agents) == 0:
 		fmt.Fprintln(out, text("cli.who.observedEmpty", "  （没有发现本机 agent 进程）"))
 	default:
-		for _, agent := range view.agents {
+		for _, row := range view.agents {
+			started := row.StartedAt
+			if started == "" {
+				started = unknown
+			}
+			extra := ""
+			if row.MergeEvidence != "" {
+				extra = text("cli.who.observedMerged",
+					" merged=%s（turn %s）", row.MergeEvidence, row.TurnID)
+			}
 			fmt.Fprintln(out, text("cli.who.observedRow",
-				"  %s  pid=%d ppid=%d exe=%s source=%s certainty=%s 起于 %s",
-				agent.Kind, agent.PID, agent.PPID, agent.ExeName, agent.Source,
-				agent.Certainty, whoTimeText(agent.StartedAt, unknown)))
+				"  %s  pid=%d ppid=%d exe=%s source=%s certainty=%s 起于 %s%s",
+				row.Kind, row.PID, row.PPID, row.ExeName, row.Source,
+				row.Certainty, started, extra))
 		}
 	}
 
@@ -463,6 +506,13 @@ func writeWhoText(out io.Writer, view whoView) {
 		}
 	}
 
+	// 尾注随数据源换：直读本机时确实不做合并，看板快照里已经合过了 ——
+	// 同一句尾注在两种情况下不可能都对。
+	if view.servedFrom != "" {
+		fmt.Fprintln(out, text("cli.who.noteServer",
+			"这份快照由看板进程给出：它把「这一轮起的子进程」与进程表里的那一行按 PID（含 .cmd 垫片）对过；不读取命令行、环境变量或其它 CLI 的配置；租约是提醒，不是文件锁。"))
+		return
+	}
 	fmt.Fprintln(out, text("cli.who.note",
 		"本命令看的是本机进程，不是会话成员；不读取命令行、环境变量或其它 CLI 的配置；三段不做 PID 合并（.cmd 垫片拿到的是 cmd.exe 的 PID）；租约是提醒，不是文件锁。"))
 }
