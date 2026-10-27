@@ -9,16 +9,21 @@
 # 任何一份二进制都能反查到具体源码，脏工作区也不会被误当成正式构建。
 #
 # VERSION 文件只在里程碑时手改；日常构建不动它。
+#
+# 刻意不写死安装路径：默认装到 %USERPROFILE%\bin\council.exe，用 -Out 改。
+# 写死绝对路径既泄露本机用户名，也让别人克隆之后直接不能用。
 [CmdletBinding()]
 param(
-    # 输出路径，默认装到 PATH 上那个位置。
-    [string]$Out = '%USERPROFILE%\bin\council.exe'
+    # 输出路径，默认 %USERPROFILE%\bin\council.exe
+    [string]$Out = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
 try {
+    if (-not $Out) { $Out = Join-Path $env:USERPROFILE 'bin\council.exe' }
+
     $base = (Get-Content VERSION -Raw).Trim()
     if (-not $base) { throw 'VERSION 文件是空的' }
 

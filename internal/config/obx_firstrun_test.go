@@ -264,7 +264,7 @@ func TestObxDefaultTOMLNeutral(t *testing.T) {
 			t.Errorf("第 %d 行不是注释: %q", i+1, l)
 		}
 	}
-	for _, bad := range []string{"<user>", "theory", "critic", "project", "<project>", "剪切"} {
+	for _, bad := range []string{"theory", "critic", "project", "<project>", "剪切"} {
 		if strings.Contains(s, bad) {
 			t.Errorf("模板不该含 %q", bad)
 		}

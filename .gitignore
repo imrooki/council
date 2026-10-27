@@ -15,5 +15,12 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Electron desktop shell
+/desktop/node_modules/
+/desktop/dist/
+/desktop/vendor/
+/desktop/artifacts/
+
 # Council runtime data lives outside the repo (see docs/00_DECISIONS.md D-9),
 # so there is nothing to ignore for it here.
+desktop/*.log

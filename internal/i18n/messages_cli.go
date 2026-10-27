@@ -145,6 +145,31 @@ flags:
 	"cli.serve.flag.verbose": "每个请求打一行到 stderr",
 	"cli.serve.flag.rw":      "写模式：拿 council.lock，网页可以跑议会（会花你的额度；此时 TUI 不能再开）",
 
+	// ---- council mcp：flag 说明 ----
+	"cli.mcp.flag.config":  "配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml",
+	"cli.mcp.flag.lang":    "工具输出语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）",
+	"cli.mcp.flag.verbose": "每个请求与每次工具调用都打一行到 stderr",
+
+	// ---- council mcp：用法块与参数错误 ----
+	"cli.mcp.err.positional": "council mcp 不接受位置参数，多出来的是: %v",
+	"cli.mcp.usage": `用法:
+  council mcp [flags]
+
+在 stdin / stdout 上跑一个 MCP 服务器：JSON-RPC 2.0，一行一条消息。
+stdout 只有协议消息，所有日志走 stderr；stdin 读到底、跑完在飞的工具后退出。
+同一个 data_dir 只能有一个写进程，别在 TUI 或 serve -rw 开着时再开它。
+
+flags:
+  -config <path>       配置文件路径，与全局 -config 含义相同
+  -lang zh|en|auto     工具输出语言，默认 auto
+  -verbose             每个请求与每次工具调用都写一行 stderr
+
+工具:
+  council_ask          问议会一轮（可指定成员、预算、工作目录、续接会话）
+  council_models       列出可用成员（配置 + .claude/agents 导入）
+  council_round        多轮议会 + 汇总（1..5 轮）
+`,
+
 	// ---- council serve：用法块 ----
 	"cli.serve.usage": `用法: council serve [flags]
 
@@ -308,6 +333,29 @@ flags:
 	"cli.serve.flag.lang":    "UI language: zh / en / auto (auto, the default, checks COUNCIL_LANG, then language in the config, then the system locale)",
 	"cli.serve.flag.verbose": "Print one line per request to stderr",
 	"cli.serve.flag.rw":      "Write mode: take council.lock and let the web UI run councils (spends your quota; the TUI cannot be open at the same time)",
+
+	"cli.mcp.flag.config":  "Config file path; takes precedence over COUNCIL_CONFIG and the default ~/.council/config.toml",
+	"cli.mcp.flag.lang":    "Language of tool output: zh / en / auto (auto checks COUNCIL_LANG, then language in the config, then the system locale)",
+	"cli.mcp.flag.verbose": "Print one line per request and per tool call to stderr",
+
+	"cli.mcp.err.positional": "council mcp does not accept positional arguments; got: %v",
+	"cli.mcp.usage": `Usage:
+  council mcp [flags]
+
+Run an MCP server over stdin/stdout: JSON-RPC 2.0, one message per line.
+stdout carries protocol messages only; all logs go to stderr. It exits after stdin ends and in-flight tools finish.
+Only one process may write a data_dir: do not start it while the TUI or serve -rw is running.
+
+flags:
+  -config <path>       config file path, same meaning as the global -config
+  -lang zh|en|auto     language of tool output, default auto
+  -verbose             print one line per request and per tool call to stderr
+
+tools:
+  council_ask          ask the council once (members, budget, cwd, continue a conversation)
+  council_models       list available members (config + .claude/agents imports)
+  council_round        multi-round debate + summary (1..5 rounds)
+`,
 
 	"cli.serve.usage": `Usage: council serve [flags]
 

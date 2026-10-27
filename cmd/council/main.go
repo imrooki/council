@@ -61,6 +61,11 @@ func run(args []string) int {
 	if len(args) > 0 && args[0] == "commands" {
 		return runCommands(args[1:])
 	}
+	// mcp 也要在全局 FlagSet 之前：它是一条长驻的 stdio 服务，没有 TUI / REPL，
+	// 退出码约定也与宿主相关（见 mcp.go）。
+	if len(args) > 0 && args[0] == "mcp" {
+		return runMCP(args[1:])
+	}
 
 	// 语言要在建 FlagSet 之前定：-h 在 Parse 里就返回 ErrHelp，那时再按解析
 	// 结果选说明文字已经晚了。-lang 的值与 -config 的值先按字面预扫一遍，

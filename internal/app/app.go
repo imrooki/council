@@ -22,6 +22,7 @@ import (
 	"council/internal/conversation"
 	"council/internal/headless"
 	"council/internal/i18n"
+	"council/internal/mcp"
 	"council/internal/repl"
 	"council/internal/store"
 	"council/internal/tui"
@@ -63,6 +64,14 @@ type Options struct {
 	// 装配（配置、规则、库）仍走本函数的前半段，这样 headless 与交互模式
 	// 看到的是同一份生效配置、同一个 data_dir 锁。
 	Headless *headless.Options
+
+	// MCP 非 nil 时不做 TUI 也不进入行式 REPL，而是在 stdio 上跑 MCP
+	// 服务器，直到 stdin 结束。装配同样复用本函数的前半段：一份生效配置、
+	// 一个 data_dir 锁、一个 Runner；`council ask` 与 `council mcp` 的
+	// tools/call 因此走的是同一条 headless.Run 执行路径。
+	//
+	// 与 Headless 一样，stdout 只留协议消息，横幅整段不写、通知改走 errOut。
+	MCP *mcp.Options
 
 	// Lang 是本次进程界面使用的语言，由 cmd/council 用 i18n.Resolve 求好
 	// 传进来。零值空串表示调用方没指定：本包按 i18n.Resolve("", "") 再求
@@ -150,7 +159,11 @@ func Run(ctx context.Context, opts Options) error {
 	// 只在「没有任何项目层」时进：项目里已经有 .council/config.toml 时，用户
 	// 已经表达过配置在哪，不该再往家里写一份全局配置。layers 的长度与
 	// Project 标记正好编码了这个判断——一份都没有时它是一条非项目的全局占位层。
-	if !explicit && filepath.IsAbs(path) && onlyDefaultLayer(layers, path) {
+	//
+	// MCP 例外：`council mcp` 是宿主拉起来的长驻进程，它的启动路径上不能
+	// 探测本机 CLI（最慢 20 秒 × 4 家）再往家目录写配置。没有配置就照常
+	// 报「找不到配置文件」；要自动生成，先跑一次 council。
+	if opts.MCP == nil && !explicit && filepath.IsAbs(path) && onlyDefaultLayer(layers, path) {
 		if _, statErr := os.Stat(path); errors.Is(statErr, fs.ErrNotExist) {
 			if frErr := firstRun(ctx, errOut, path, opts.NoAuto); frErr != nil {
 				if errors.Is(frErr, errFirstRunCanceled) {
@@ -245,10 +258,11 @@ func Run(ctx context.Context, opts Options) error {
 		projectDir = repl.NormalizeProjectDir(wd)
 	}
 
-	// headless 的 stdout 只能有那一个 JSON 对象（或 text 模式的结果），
-	// 横幅与下面两类通知会把它变成「JSON 前面还有几行」的不可解析输出，
+	// headless 与 mcp 的 stdout 只能有机器消息（headless 是一个 JSON 对象，
+	// mcp 是 JSON-RPC 行），横幅与下面两类通知会把它变成不可解析的输出，
 	// 所以横幅整段不写，通知改走 errOut。
-	if opts.Headless == nil {
+	machineOutput := opts.Headless != nil || opts.MCP != nil
+	if !machineOutput {
 		// 合并了多层时把其余层写在同一行：用户才看得出家目录那份配置也
 		// 参与了，不会以为项目文件里凭空多出了 provider。
 		shownConfigPath := primaryPath
@@ -258,7 +272,7 @@ func Run(ctx context.Context, opts Options) error {
 		writeBannerLang(out, lang, opts.Version, shownConfigPath, dataDir, st.Path(), convs, projectDir, cfg)
 	}
 	noticeOut := out
-	if opts.Headless != nil {
+	if machineOutput {
 		noticeOut = errOut
 	}
 
@@ -273,6 +287,25 @@ func Run(ctx context.Context, opts Options) error {
 	// os.MkdirAll），建不出来按 refuse 处理，不起进程。
 	// svc 为 nil 时不要构造 Runner：那种情况下 /ask 与 /session 本来就该回「持久化未就绪」，
 	// 还轮不到说 provider 调用未就绪。
+
+	// `council mcp` 的成员表要包含 .claude/agents 的只读导入（与 serve -rw
+	// 同一个概念、同一份扫描）。必须放在 turn.NewRunner 之前：Runner 持有
+	// cfg 指针，之后再原地改 Agents 会破坏它「交给 Runner 之后配置不再变」
+	// 的不变量。导入失败不致命，说明按 stderr 走；MCP 的 stdout 一个字都
+	// 不能多。
+	var claudeImport mcp.ClaudeImport
+	if opts.MCP != nil {
+		claudeImport = mcp.ImportClaudeAgents(cfg, projectDir)
+		for _, warning := range claudeImport.Warnings {
+			fmt.Fprintf(errOut, "council mcp: %s\n", warning)
+		}
+		if opts.Verbose {
+			for _, note := range claudeImport.Notices {
+				fmt.Fprintf(errOut, "council mcp: %s\n", note)
+			}
+		}
+	}
+
 	var rn *turn.Runner
 	if svc != nil {
 		workDir := filepath.Join(dataDir, "workdir")
@@ -348,6 +381,29 @@ func Run(ctx context.Context, opts Options) error {
 			Err:        errOut,
 			Verbose:    opts.Verbose,
 		}, headlessOpts)
+	}
+	// MCP 分支与 headless 同理，且同样在 TUI / 行式 REPL 之前：它复用同一份
+	// 配置、同一个库、同一个 Runner，tools/call 直接调 headless.Run。
+	// stdin 读到底（或 ctx 被取消）就返回，之后本函数的 defer 关库放锁。
+	if opts.MCP != nil {
+		mcpLang := opts.MCP.Lang
+		if mcpLang == "" {
+			mcpLang = lang
+		}
+		return mcp.Run(ctx, mcp.Deps{
+			Cfg:        cfg,
+			Svc:        svc,
+			Rn:         rn,
+			DataDir:    dataDir,
+			ProjectDir: projectDir,
+			In:         in,
+			Out:        out,
+			Err:        errOut,
+			Version:    opts.Version,
+			Verbose:    opts.Verbose,
+			Lang:       mcpLang,
+			Claude:     claudeImport,
+		})
 	}
 	// 复用本函数开头那个 err（config.ResolveConfigPath 那次声明的），不另开一个：
 	// 到这里它已经被查过并且是 nil，而 var err error 会与它撞名编译不过。

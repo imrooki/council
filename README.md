@@ -125,6 +125,107 @@ council serve -rw          # 写模式：网页底部可以输入问题、跑一
 - Ctrl-C 关闭时会先等运行中的议会收尾（10 秒上限）；到点还没完就显式取消，再等 2 秒，然后才关库放锁。
 - 已知限制：任务结束 60 秒后 job 从内存删除，如果浏览器在这之后才重连 EventSource，会收到 404 并按浏览器策略持续重试；刷新页面即可恢复。
 
+## 作为 MCP 服务器使用
+
+`council mcp` 在 stdio 上跑一个 MCP 服务器（JSON-RPC 2.0，一行一条消息，协议版本 `2024-11-05`），让 Claude Code 之类的宿主把议会当工具调用。它不引额外依赖，也不另写一套执行路径：`tools/call` 走的就是 `council ask` 的 `headless.Run`，花的是你配置里那几家 CLI 的额度。
+
+Claude Code：
+
+```sh
+claude mcp add council -- "C:\Users\you\bin\council.exe" mcp
+```
+
+`--` 之后的第一个词必须是 `council.exe` 的完整路径（路径带空格要加引号），第二个词是子命令 `mcp`。加完用 `claude mcp list` 能看到 `council`。要固定用某份配置，再跟 `-config`：
+
+```sh
+claude mcp add council -- "C:\Users\you\bin\council.exe" mcp -config "D:\work\project\.council\config.toml"
+```
+
+三个工具：
+
+| 工具 | 作用 | 参数 |
+|---|---|---|
+| `council_ask` | 每个成员答一轮，可选汇总 | `prompt`（必填）、`members`、`rounds`（只能是 1）、`summary`、`budget_usd`、`cwd`、`conversation`、`lang`（`zh` / `en`） |
+| `council_models` | 列出可用成员：id、显示名、provider、model、权限；`.claude/agents` 导入的标 `source=claude` | 无 |
+| `council_round` | 1–5 轮议会 + 汇总 | `prompt`（必填）、`members`、`rounds`（默认 2）、`summary`、`budget_usd` |
+
+- `members` 省略或给 `[]` 时用配置里的全部成员。`council_ask` 的「全部」不含 `.claude/agents` 导入的成员（与 CLI 的 `council ask` 同口径），要问它们得显式写 id——`council_models` 里 `source=claude` 的那些。
+- `budget_usd` 下限 0.5，默认 5；`rounds` 只接受 1–5，`council_ask` 只接受 1。参数不合法时工具返回 `isError` 文本，不是 JSON-RPC error（协议错误才用 error）。
+- `cwd` 必须是已存在的绝对路径；`conversation` 续接已有会话（id 从返回文本的 `会话:` 行拿）。
+- stdout 只有协议消息，日志全部走 stderr。stdin 读到底之后先让在飞的工具跑完再退出（工具自己有 10 分钟超时）；工具失败时进程退出码仍是 0（宿主不看它），原因在 stderr 与 `isError` 文本里。
+- 同一个 `data_dir` 只能有一个写进程：`council mcp` 开着时不要再开 TUI 或 `serve -rw`，否则它会报锁冲突后退出。
+- `council mcp` 不触发首次运行的自动配置（不在宿主启动路径上探测本机 CLI、往家目录写文件）。第一次用之前先跑一次 `council` 生成配置。
+
+dsh 那边不用这一节：本仓库里的 dsh 集成是 `contrib/dsh-subagent-council` 的 Cordis 插件（`council` / `council_work` 工具），不是 MCP。
+
+## 桌面版（Electron 外壳）
+
+`desktop/` 是工作台的原生桌面外壳：双击打好的 exe 就是一个 1440×900 的窗口，没有地址栏、没有菜单栏，也不依赖本机装 Edge/Chrome。窗口里的页面仍然是 `council serve -rw`；关窗口时，外壳只会结束**自己拉起的那个** `council.exe`。如果 8765 上已经有一个 council 在跑，外壳直接连过去，退出时不会动它。
+
+### 开发运行
+
+```powershell
+cd desktop
+npm install
+npm start
+```
+
+默认先探测 `http://127.0.0.1:8765`（每次 1.5 秒，最多三次）；已经有工作台就直接连，**不会再拉第二个 council**。8765 没响应时才自启：8765 空闲就用 8765，被别的程序占用就退到系统分配的空闲端口。
+
+- `npm start -- --council-exe D:\path\council.exe`：开发时指定另一个 council。
+- `COUNCIL_URL=http://127.0.0.1:9000`：额外的连接目标。先看 8765，8765 没工作台时才看它；自启端口仍按上一条，不会用 `COUNCIL_URL` 的端口去抢同一个 `data_dir`。
+- `COUNCIL_DESKTOP_PORT=9000`（高级/测试）：把主探测端口从 8765 改成 9000。正常使用不要设置，否则会绕过对 8765 上已有实例的自动 attach。
+- `COUNCIL_CWD`：council 的工作目录，默认仓库根；打包后默认是 exe 所在目录（portable 为解压前的位置，安装版为安装目录）。
+- `COUNCIL_EXE` / `COUNCIL_CONFIG` / `COUNCIL_DATA_DIR` 等环境变量原样传给子进程。
+
+启动失败（找不到 exe、端口/数据目录被占、20 秒内 health 没通）会弹原生错误框，并附上子进程 stderr 的末尾。
+
+启动路径可以直接看到，便于排查：
+
+- 窗口标题带 `· 已连接 127.0.0.1:8765` 或 `· 自启 127.0.0.1:<port>`；
+- 页面根元素上有 `data-council-mode`（`attach` / `spawn`）、`data-council-url`、`data-council-source`；
+- `%APPDATA%\Council\desktop.log` 记录每次探测、attach/spawn、端口、pid 与子进程退出码。
+
+### 打包
+
+```powershell
+cd desktop
+$env:COUNCIL_EXE = 'C:\path\to\council.exe'   # 可选，默认 %USERPROFILE%\bin\council.exe
+npm run dist
+```
+
+产物在 `desktop/dist/`：
+
+| 文件 | 用途 |
+| --- | --- |
+| `Council-0.1.0-portable.exe` | 单文件便携版，双击即用，不需要安装 |
+| `Council-Setup-0.1.0.exe` | NSIS 安装器，`oneClick: false`，可选安装目录 |
+| `win-unpacked\Council.exe` | 未打包的目录版，调试用 |
+
+打包前 `scripts/prepare-council.js` 会把 council.exe 复制到 `desktop/vendor/`，electron-builder 再通过 `extraResources` 放到 `resources\council.exe`；仓库里不存这份二进制。窗口图标来自 `build/icon.ico`，运行时图标额外放一份在 `assets/icon.ico`（避开 NSIS 生成安装器时对 build 目录的读取）。
+
+### 依赖下载源（本次实测）
+
+- npm 包：默认 `https://registry.npmjs.org/`，可用（283 个包约 7 秒）。
+- Electron 45.0.0 二进制：默认 `@electron/get` 的 GitHub release，下载成功；解压后约 374 MB。
+- electron-builder 的 7zip / NSIS 二进制：默认 GitHub，下载成功。
+
+网络慢时可以只对当前命令换镜像：
+
+```powershell
+$env:npm_config_registry='https://registry.npmmirror.com'
+$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'
+$env:ELECTRON_BUILDER_BINARIES_MIRROR='https://npmmirror.com/mirrors/electron-builder-binaries/'
+npm install
+npm run dist
+```
+
+> Electron 45 的 npm 包不再在依赖安装阶段自动下载二进制，而是提供 `install-electron`；`desktop/package.json` 的 `postinstall` 已经接上，`npm start` 第一次也会按需补下载。
+
+### 已知限制
+
+设置页的「切语言」目前会写入 `config.toml`，但界面文案要重启后才换：`council serve` 启动时把解析结果写回了 `COUNCIL_LANG`，设置页会明确提示「环境变量仍优先」。这是 Go 侧既有行为，外壳没有改 Go，也没有在桌面层绕过。
+
 ## 文档
 
 - [docs/README.md](docs/README.md)：设计文档索引、路线图、用法。

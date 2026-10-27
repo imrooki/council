@@ -6,10 +6,13 @@
 // Host 的编码问题绊住（无 BOM 的 UTF-8 会被按 ANSI 读，中文注释的奇数字节吃掉
 // 行尾，报错位置还指在别的行）。用 Go 写十行代码就没有这层不确定性。
 //
-// 行为：
-//   - 已有 council 实例在跑 → 只开一个应用窗口指过去，不再起第二个进程
-//     （-rw 会撞 council.lock）；
-//   - 否则隐藏启动 `council serve -rw -app`（或 -ro 时的 `serve -app`）。
+// 用法：council-launch [rw|ro] [工作目录]
+//   rw（默认） serve -rw -app
+//   ro         serve -app
+//   工作目录   不给就用 COUNCIL_CWD，再不行用启动器自己所在的目录。
+//
+// 刻意不写死任何绝对路径：安装位置因人而异，写死了既泄露本机用户名，
+// 也让别人克隆之后直接不能用。要找的 exe 按 COUNCIL_EXE → 同目录 → PATH 查找。
 package main
 
 import (
@@ -21,15 +24,14 @@ import (
 	"syscall"
 )
 
-const (
-	defaultExe = `%USERPROFILE%\bin\council.exe`
-	dashboard  = "http://127.0.0.1:8765"
-	// defaultCwd 是工作台启动时的当前目录。
-	//
-	// 不能让它沿用启动器所在目录：那样左下角的项目会显示成 bin，
-	// 而工作台的目录 chip、会话归属、新建会话都跟着它走。
-	defaultCwd = `<repo>`
-)
+const dashboard = "http://127.0.0.1:8765"
+
+// createNoWindow 是 CREATE_NO_WINDOW。
+//
+// 只设 HideWindow 在 Windows 11 上不够：控制台程序启动时会把控制台交给
+// 「默认终端」（通常是 Windows Terminal），那一层握手会无视 SW_HIDE，
+// 结果是弹出一个标签页。CREATE_NO_WINDOW 干脆不分配控制台，也就没有窗口可弹。
+const createNoWindow = 0x08000000
 
 func main() {
 	mode := "rw"
@@ -37,16 +39,13 @@ func main() {
 		mode = strings.ToLower(os.Args[1])
 	}
 
-	exe := os.Getenv("COUNCIL_EXE")
-	if exe == "" {
-		exe = defaultExe
-	}
-	if _, err := os.Stat(exe); err != nil {
-		message("找不到 council.exe：\n" + exe)
+	exe, err := resolveExe()
+	if err != nil {
+		message("找不到 council.exe：\n" + err.Error())
 		os.Exit(1)
 	}
 
-	if running(exe) {
+	if running() {
 		// 已有实例：只补一个窗口。用户在任务栏点回来时不该看到「又起了一个」。
 		openWindow()
 		return
@@ -56,12 +55,65 @@ func main() {
 	if mode != "ro" {
 		args = []string{"serve", "-rw", "-app"}
 	}
-	start(exe, args)
+	start(exe, args, workingDir())
 }
 
-// running 用可执行文件路径匹配，而不是按进程名。
-// 同名进程可能是别的目录里的旧构建，那种情况各起各的反而更糟。
-func running(exe string) bool {
+// resolveExe 依次尝试：环境变量、与本启动器同目录、PATH。
+func resolveExe() (string, error) {
+	if p := os.Getenv("COUNCIL_EXE"); p != "" {
+		return p, checkFile(p)
+	}
+	if self, err := os.Executable(); err == nil {
+		p := filepath.Join(filepath.Dir(self), "council.exe")
+		if checkFile(p) == nil {
+			return p, nil
+		}
+	}
+	if p, err := exec.LookPath("council.exe"); err == nil {
+		return p, nil
+	}
+	return "", fmt.Errorf("已尝试 COUNCIL_EXE、启动器同目录、PATH")
+}
+
+func checkFile(p string) error {
+	st, err := os.Stat(p)
+	if err != nil {
+		return err
+	}
+	if st.IsDir() {
+		return fmt.Errorf("%s 是目录", p)
+	}
+	return nil
+}
+
+// workingDir 决定工作台把哪个目录当成项目。
+// 优先级：命令行第二个参数 → COUNCIL_CWD → 启动器所在目录。
+func workingDir() string {
+	if len(os.Args) > 2 {
+		if dir := os.Args[2]; isDir(dir) {
+			return dir
+		}
+	}
+	if dir := os.Getenv("COUNCIL_CWD"); isDir(dir) {
+		return dir
+	}
+	if self, err := os.Executable(); err == nil {
+		return filepath.Dir(self)
+	}
+	return ""
+}
+
+func isDir(p string) bool {
+	if p == "" {
+		return false
+	}
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
+}
+
+// running 用进程名判断。同名但不同路径的旧构建也算「在跑」——
+// 那台机器上本来就已经占着 8765，再起一个只会撞端口。
+func running() bool {
 	out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq council.exe", "/FO", "CSV", "/NH").Output()
 	if err != nil {
 		return false
@@ -69,17 +121,10 @@ func running(exe string) bool {
 	return strings.Contains(strings.ToLower(string(out)), "council.exe")
 }
 
-// createNoWindow 是 CREATE_NO_WINDOW。
-//
-// 只设 HideWindow 在 Windows 11 上不够：控制台程序启动时会把控制台交给
-// 「默认终端」（通常是 Windows Terminal），那一层握手会无视 SW_HIDE，
-// 结果是弹出一个标签页。CREATE_NO_WINDOW 干脆不分配控制台，也就没有窗口可弹。
-const createNoWindow = 0x08000000
-
 // start 以无控制台方式启动子进程。
-func start(exe string, args []string) {
+func start(exe string, args []string, dir string) {
 	cmd := exec.Command(exe, args...)
-	cmd.Dir = workingDir()
+	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
 	if err := cmd.Start(); err != nil {
 		message("启动失败：" + err.Error())
@@ -87,20 +132,6 @@ func start(exe string, args []string) {
 	}
 	// 不 Wait：启动器退出，serve 继续在后台跑。
 	_ = cmd.Process.Release()
-}
-
-// workingDir 决定工作台把哪个目录当成项目。环境变量优先，
-// 便于以后把快捷方式指向别的仓库而不用重新编译。
-func workingDir() string {
-	if dir := os.Getenv("COUNCIL_CWD"); dir != "" {
-		if st, err := os.Stat(dir); err == nil && st.IsDir() {
-			return dir
-		}
-	}
-	if st, err := os.Stat(defaultCwd); err == nil && st.IsDir() {
-		return defaultCwd
-	}
-	return ""
 }
 
 // openWindow 复用 serve 已有的端口，只开一个没有地址栏的窗口。
@@ -132,7 +163,7 @@ func findChromium() string {
 				continue
 			}
 			p := filepath.Join(root, rel)
-			if _, err := os.Stat(p); err == nil {
+			if checkFile(p) == nil {
 				return p
 			}
 		}
@@ -140,8 +171,7 @@ func findChromium() string {
 	return ""
 }
 
-// message 用原生对话框而不是往 stderr 写：这个程序由双击启动，
-// 没有控制台可看。
+// message 用原生对话框而不是往 stderr 写：这个程序由双击启动，没有控制台可看。
 func message(text string) {
 	_ = exec.Command("mshta",
 		fmt.Sprintf(`javascript:alert('%s');close()`, strings.ReplaceAll(text, "'", `\'`))).Run()

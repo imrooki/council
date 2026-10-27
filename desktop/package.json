@@ -1,0 +1,66 @@
+{
+  "name": "council-desktop",
+  "productName": "Council",
+  "version": "0.1.0",
+  "description": "Council 工作台的原生桌面外壳",
+  "main": "main.js",
+  "private": true,
+  "author": "Council",
+  "license": "UNLICENSED",
+  "scripts": {
+    "postinstall": "install-electron",
+    "start": "electron .",
+    "prepare:council": "node scripts/prepare-council.js",
+    "dist": "node scripts/prepare-council.js && electron-builder --win",
+    "dist:dir": "node scripts/prepare-council.js && electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.council.workbench",
+    "productName": "Council",
+    "copyright": "Council",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/council.exe",
+        "to": "council.exe"
+      },
+      {
+        "from": "assets/icon.ico",
+        "to": "icon.ico"
+      }
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "Council-${version}-portable.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Council",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "artifactName": "Council-Setup-${version}.${ext}"
+    }
+  }
+}
