@@ -510,7 +510,6 @@ var zhUI = Catalog{
 	"ui.settings.localClaimFailed":    "申请失败：{err}",
 	"ui.settings.localReleased":       "已交还 {id}",
 	"ui.settings.localReleaseFailed":  "交还失败：{err}",
-	"ui.settings.localCoordinatesOnly": "租约相关操作只在「资源协调」档可用。",
 	"ui.settings.localL4Note":         "「模型参与的协作」（L4）在本版本只有说明、没有自动触发：要跑一次审查，仍然由你在既有工作台里显式发起，本模块不会自己叫醒任何成员；agy 不在这条路径里。",
 	"ui.settings.localOverlapWarning": "另一个 agent 正在改这个目录：{holder} 持有写租约（到 {expires}）。租约不会阻止任何进程写文件。",
 
@@ -1109,7 +1108,6 @@ var enUI = Catalog{
 	"ui.settings.localClaimFailed":     "Taking the lease failed: {err}",
 	"ui.settings.localReleased":        "Released {id}",
 	"ui.settings.localReleaseFailed":   "Releasing the lease failed: {err}",
-	"ui.settings.localCoordinatesOnly": "Lease actions are only available at the “Resource coordination” level.",
 	"ui.settings.localL4Note":          "“AI collaboration” (L4) is documentation only in this version and never triggers itself: an extra review still has to be started explicitly from the existing workbench, this module never wakes a member on its own, and agy is not part of that path.",
 	"ui.settings.localOverlapWarning":  "Another agent is working in this directory: {holder} holds a write lease (until {expires}). A lease never stops a process from writing files.",
 

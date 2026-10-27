@@ -171,6 +171,30 @@ func TestGui10LocalAgentKeysInBothCatalogs(t *testing.T) {
 	}
 }
 
+// TestGui10LocalAgentKeysHaveNoDeadCopy 钉住反方向：本片前缀下的每条文案都
+// 必须在页面里真的被引用。死键是漂移的温床 —— 页面改了、文案忘了删，下一次
+// 改动就会以为这条还有用（`ui.settings.localCoordinatesOnly` 就是这么留下的）。
+//
+// 只扫 ui.settings.local 前缀：全库有十个按 .one / .other 后缀动态拼的键，
+// 它们本来就不出现在 HTML 字面量里，全扫会误报。
+func TestGui10LocalAgentKeysHaveNoDeadCopy(t *testing.T) {
+	html := string(indexHTML)
+	zh := i18n.UIMessages(i18n.LangZh)
+	checked := 0
+	for key := range zh {
+		if !strings.HasPrefix(key, "ui.settings.local") {
+			continue
+		}
+		checked++
+		if !strings.Contains(html, key) {
+			t.Errorf("目录里的 %q 在 index.html 里没有任何引用（死键），要么用上它，要么删掉", key)
+		}
+	}
+	if checked < 30 {
+		t.Fatalf("只扫到 %d 条本机 agent 文案，前缀可能写错了", checked)
+	}
+}
+
 // TestGui10LocalAgentPageSaysWhatItDoesNotDo 是文案底线：这一页必须自己
 // 说清「默认关闭、不扫描、不控制进程、零模型调用、agy 不自动拉起」。
 // 这些不是装饰：用户是靠这几句话判断该不该打开开关的。
