@@ -37,7 +37,10 @@ try {
     if ($status) { $version = "$version.dirty" }
 
     Write-Host "构建 $version -> $Out"
-    go build -ldflags "-X main.version=$version" -o $Out ./cmd/council
+    # -trimpath 不是可选优化：不加它，Go 会把本机的绝对源码路径（含用户名）
+    # 写进二进制，而这个仓库是公开的、安装包要发到 release 上。加了之后路径
+    # 统一变成 council/interna/... 这样的模块相对形式，构建也能复现。
+    go build -trimpath -ldflags "-X main.version=$version" -o $Out ./cmd/council
     if ($LASTEXITCODE -ne 0) { throw "go build 失败（exit $LASTEXITCODE）" }
 
     & $Out --version
