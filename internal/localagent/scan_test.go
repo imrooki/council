@@ -23,7 +23,6 @@ func TestScanOffNeverCallsEnumerator(t *testing.T) {
 		LevelOff,
 		"",
 		"register",
-		"coordinate",
 		"collaborate",
 		LevelOf(""),
 		LevelOf("off"),
@@ -106,8 +105,31 @@ func TestScanPropagatesEnumeratorError(t *testing.T) {
 	}
 }
 
-// TestLevelOf 钉住「只认 observe，其余一律 off」：register / coordinate /
-// collaborate 在 L1 没有实现，不能被当成 observe 打开采集面。
+// TestScanCoordinateAlsoEnumerates 钉住 coordinate 层级的采集面：协调需要
+// 同一份进程事实，所以在 observe 之外它也枚举（但 claim 权在 Claims() 里
+// 单独判定，见 lease_test.go）。
+func TestScanCoordinateAlsoEnumerates(t *testing.T) {
+	calls := 0
+	enum := func() ([]Process, error) {
+		calls++
+		return []Process{{PID: 400, PPID: 1, ExeName: "grok.exe"}}, nil
+	}
+
+	agents, err := Scan(LevelCoordinate, enum)
+	if err != nil {
+		t.Fatalf("Scan(coordinate) 返回错误: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("coordinate 调用了 %d 次枚举函数，期望 1 次", calls)
+	}
+	if len(agents) != 1 || agents[0].Kind != KindGrok {
+		t.Errorf("Scan(coordinate) 的结果 = %+v，期望一条 grok", agents)
+	}
+}
+
+// TestLevelOf 钉住「只认 observe 与 coordinate，其余一律 off」：register /
+// collaborate 在 v1 没有实现，不能被当成任何一个已实现的层级打开采集面或
+// 协调权。
 func TestLevelOf(t *testing.T) {
 	tests := []struct {
 		raw  string
@@ -117,10 +139,11 @@ func TestLevelOf(t *testing.T) {
 		{raw: "off", want: LevelOff},
 		{raw: "on", want: LevelOff},
 		{raw: "register", want: LevelOff},
-		{raw: "coordinate", want: LevelOff},
 		{raw: "collaborate", want: LevelOff},
 		{raw: "observe", want: LevelObserve},
 		{raw: " OBSERVE ", want: LevelObserve},
+		{raw: "coordinate", want: LevelCoordinate},
+		{raw: " Coordinate  ", want: LevelCoordinate},
 	}
 	for _, tc := range tests {
 		if got := LevelOf(tc.raw); got != tc.want {

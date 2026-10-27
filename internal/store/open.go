@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"council/internal/conversation"
@@ -93,6 +94,25 @@ const lockFileName = "council.lock"
 // 冲突的前提下——互斥本来就不在 SQLite 这一层，得在 data_dir 级另加一把锁。
 var ErrDataDirLocked = errors.New("data dir is locked by another council process")
 
+// sqliteURIPath 把本地路径编码成可以安全拼进 file: URI 的那一段。
+//
+// 为什么必须编码：SQLite 用 URI 语法解析 file: 后面的路径，`#` 之后是片段、
+// `?` 之后是查询串。`data_dir` 里只要有一个 `#`，file:C:\a#b\council.db 就会
+// 打开 C:\a —— 而且**不会报错**：SQLite 在 C:\a 旁边新建一个叫 a 的库，
+// council.lock 照旧锁在真正的 data_dir 里。于是两个共前缀的 data_dir 会静默
+// 共用一个库，这与「一个 data_dir 只能一个写进程」那把锁的初衷正好相反。
+//
+// 只转义这三个字符：% 是转义引导符本身，必须第一个转；# 与 ? 是 URI 的
+// 分隔符。Windows 文件名里不出现 ?，但这里照样处理 —— 这条函数不依赖平台。
+// 百分号转义由 SQLite 自己解开（实测：带 # 与 % 的目录能正确定位）。
+func sqliteURIPath(path string) string {
+	p := filepath.ToSlash(path)
+	p = strings.ReplaceAll(p, "%", "%25")
+	p = strings.ReplaceAll(p, "#", "%23")
+	p = strings.ReplaceAll(p, "?", "%3F")
+	return p
+}
+
 // Open 打开（必要时创建）dataDir 下的 council.db，建立读写双句柄，
 // 跑完待应用的迁移，返回可用的 Store。dataDir 不存在时会以 0o755 创建。
 func Open(ctx context.Context, dataDir string) (*Store, error) {
@@ -139,7 +159,7 @@ func Open(ctx context.Context, dataDir string) (*Store, error) {
 	//
 	// WAL 必须真的开起来。只做串行化而不开 WAL 的配置虽然也能全过，但慢 178 倍，
 	// 因为退回了 delete 模式，每次提交要重写回滚日志。
-	writeDSN := "file:" + filepath.ToSlash(dbPath) +
+	writeDSN := "file:" + sqliteURIPath(dbPath) +
 		"?_pragma=journal_mode(WAL)" +
 		"&_pragma=busy_timeout(5000)" +
 		"&_pragma=foreign_keys(1)" +
@@ -157,7 +177,7 @@ func Open(ctx context.Context, dataDir string) (*Store, error) {
 		return nil, fmt.Errorf("ping write db %s: %w", dbPath, err)
 	}
 
-	readDSN := "file:" + filepath.ToSlash(dbPath) +
+	readDSN := "file:" + sqliteURIPath(dbPath) +
 		"?_pragma=journal_mode(WAL)" +
 		"&_pragma=busy_timeout(5000)" +
 		"&_pragma=foreign_keys(1)" +

@@ -1816,6 +1816,27 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
+  /* 租约申请那一行的两个文本框：与 .settings-select 同一套外观，
+     只多一个宽度档位（资源路径比「中文 / English」长得多）。 */
+  .settings-input {
+    flex: none;
+    min-width: 148px;
+    max-width: 320px;
+    padding: 7px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12.5px;
+  }
+  .settings-input.is-wide { min-width: 220px; }
+  .settings-input.is-narrow { min-width: 84px; max-width: 96px; }
+  .settings-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
   .settings-layer .layer-tag { color: var(--ink); font-size: 14px; line-height: 20px; }
   .settings-layer .layer-path {
     color: var(--muted-2);
@@ -2434,6 +2455,13 @@
             </svg>
             <span class="settings-nav-label" data-i18n="ui.settings.navProviders">提供方</span>
           </button>
+          <button type="button" class="settings-nav-item" data-settings-section="local">
+            <svg class="settings-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect x="2.5" y="4.5" width="11" height="7" rx="1.4" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M5.5 4.5V2.8M10.5 4.5V2.8M5.5 11.5v1.7M10.5 11.5v1.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+            <span class="settings-nav-label" data-i18n="ui.settings.navLocal">本机 agent</span>
+          </button>
           <button type="button" class="settings-nav-item" data-settings-section="about">
             <svg class="settings-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"/>
@@ -2612,6 +2640,142 @@
               </div>
               <ul id="settings-providers" class="settings-rows"></ul>
               <p id="settings-providers-empty" class="settings-empty" hidden data-i18n="ui.settings.providersEmpty">（没有 provider）</p>
+            </section>
+          </section>
+
+          <section class="settings-page" data-settings-page="local" hidden
+                   aria-labelledby="settings-local-title">
+            <h2 id="settings-local-title" class="settings-page-title" data-i18n="ui.settings.navLocal">本机 agent</h2>
+            <p class="settings-page-intro" data-i18n="ui.settings.localIntro">可选模块，默认关闭。这里只改配置里的 local_agent 层级：本页不扫描进程、不申请租约，也不控制任何外部进程。</p>
+            <section class="settings-group" aria-labelledby="settings-local-status-title">
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-local-status-title" class="settings-group-title" data-i18n="ui.settings.localStatusTitle">当前层级</h3>
+                  <p id="settings-local-desc" class="settings-group-desc"></p>
+                </div>
+                <span id="settings-local-state" class="settings-row-value mono"></span>
+              </div>
+              <ul class="settings-rows">
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-label" data-i18n="ui.settings.localLevel">层级</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.localLevelHint">三档逐级开启：选 observe 不会给出协调权，要协调得自己选 coordinate。</div>
+                  </div>
+                  <select id="settings-local-level" class="settings-select" autocomplete="off">
+                    <option value="off" data-i18n="ui.settings.localLevelOff">关闭（默认）</option>
+                    <option value="observe" data-i18n="ui.settings.localLevelObserve">只观察</option>
+                    <option value="coordinate" data-i18n="ui.settings.localLevelCoordinate">资源协调（含观察）</option>
+                  </select>
+                </li>
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-label" data-i18n="ui.settings.localNoModelCall">本模块新增模型调用：0（off / observe / coordinate 三档都是纯本地事实，不发任何模型请求）</div>
+                    <div id="settings-local-note" class="settings-row-hint"></div>
+                  </div>
+                </li>
+              </ul>
+            </section>
+            <section class="settings-group" aria-labelledby="settings-local-instances-title">
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-local-instances-title" class="settings-group-title" data-i18n="ui.settings.localInstancesTitle">本机实例</h3>
+                  <p id="settings-local-instances-note" class="settings-group-desc" data-i18n="ui.settings.localInstancesDesc">按需扫描一次，不动任何进程；这一页可见时每 3 秒刷新一次，离开就停。</p>
+                </div>
+                <button id="settings-local-refresh" class="btn-small" type="button" data-i18n="ui.settings.localRefresh">刷新</button>
+              </div>
+              <div class="settings-table-wrap">
+                <table class="settings-table">
+                  <thead>
+                    <tr>
+                      <th data-i18n="ui.settings.localColType">类型</th>
+                      <th data-i18n="ui.settings.localColSource">来源</th>
+                      <th data-i18n="ui.settings.localColCertainty">置信度</th>
+                      <th>pid</th>
+                      <th data-i18n="ui.settings.localColStarted">启动时间</th>
+                      <th data-i18n="ui.settings.localColDir">目录</th>
+                      <th data-i18n="ui.settings.localColEvidence">证据</th>
+                    </tr>
+                  </thead>
+                  <tbody id="settings-local-instances"></tbody>
+                </table>
+              </div>
+              <p id="settings-local-instances-empty" class="settings-empty" hidden data-i18n="ui.settings.localInstancesEmpty">（没有发现本机 agent 进程）</p>
+              <p id="settings-local-instances-off" class="settings-empty" hidden data-i18n="ui.settings.localInstancesOff">本功能已关闭：这里没有扫描任何进程。把上面的层级改成「只观察」或「资源协调」之后才有实例列表。</p>
+            </section>
+            <section id="settings-local-leases-group" class="settings-group" aria-labelledby="settings-local-leases-title" hidden>
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-local-leases-title" class="settings-group-title" data-i18n="ui.settings.localLeasesTitle">资源租约（仍然有效的）</h3>
+                  <p class="settings-group-desc" data-i18n="ui.settings.localLeasesDesc">council claim 申请的租约；过期的不会出现在这里。它是提醒，不是文件锁。</p>
+                </div>
+              </div>
+              <div class="settings-table-wrap">
+                <table class="settings-table">
+                  <thead>
+                    <tr>
+                      <th data-i18n="ui.settings.localColResource">资源</th>
+                      <th data-i18n="ui.settings.localColOwner">持有者</th>
+                      <th data-i18n="ui.settings.localColMode">模式</th>
+                      <th data-i18n="ui.settings.localColExpires">到期</th>
+                      <th>lease</th>
+                    </tr>
+                  </thead>
+                  <tbody id="settings-local-leases"></tbody>
+                </table>
+              </div>
+              <p id="settings-local-leases-empty" class="settings-empty" hidden data-i18n="ui.settings.localLeasesEmpty">（没有有效租约）</p>
+              <p id="settings-local-leases-note" class="settings-empty" hidden></p>
+              <p id="settings-local-overlap" class="settings-error" hidden></p>
+              <ul class="settings-rows">
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-label" data-i18n="ui.settings.localClaimTitle">申请一条租约</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.localClaimHint">目录或 tcp:端口；只是「我先占着」的提醒，不会锁住任何文件。</div>
+                  </div>
+                  <div class="settings-row-actions">
+                    <input id="settings-local-claim-resource" class="settings-input is-wide" type="text"
+                           autocomplete="off" spellcheck="false" data-i18n-placeholder="ui.settings.localClaimResourcePlaceholder"
+                           placeholder="目录或 tcp:127.0.0.1:8765">
+                    <select id="settings-local-claim-mode" class="settings-select">
+                      <option value="write" data-i18n="ui.settings.localModeWrite">写（独占）</option>
+                      <option value="read" data-i18n="ui.settings.localModeRead">读（共享）</option>
+                    </select>
+                    <input id="settings-local-claim-ttl" class="settings-input is-narrow" type="number"
+                           min="5" max="86400" step="1" value="120" data-i18n-aria-label="ui.settings.localClaimTTL">
+                    <button id="settings-local-claim" class="btn-small primary" type="button" data-i18n="ui.settings.localClaimButton">申请</button>
+                  </div>
+                </li>
+              </ul>
+            </section>
+            <section class="settings-group" aria-labelledby="settings-local-boundary-title">
+              <div class="settings-group-head">
+                <div>
+                  <h3 id="settings-local-boundary-title" class="settings-group-title" data-i18n="ui.settings.localBoundaryTitle">边界</h3>
+                  <p class="settings-group-desc" data-i18n="ui.settings.localBoundary">本页只读展示 + 写一个配置键：不读命令行、环境变量、聊天内容或其它 CLI 的配置，不启动 / 结束 / 注入任何进程，观察到的实例不落库。</p>
+                </div>
+              </div>
+              <ul class="settings-rows">
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-hint" data-i18n="ui.settings.localCommands">命令行入口：council who 看本机实例；council claim &lt;目录|tcp:端口&gt; 申请租约；council release &lt;lease_id&gt; 交还。</div>
+                  </div>
+                </li>
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-hint" data-i18n="ui.settings.localClaimLock">租约存在 council.db 里，申请要拿 council.lock：桌面壳的 serve -rw 或 TUI 正在跑时，council claim 会明确拒绝，先停下那个进程再用。</div>
+                  </div>
+                </li>
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-hint" data-i18n="ui.settings.localAgyNote">agy（Google Antigravity CLI）仍在条款灰区：只观察它的进程，本模块不会自动拉起它，也不把它放进以后的可选审查路径。</div>
+                  </div>
+                </li>
+                <li class="settings-row">
+                  <div class="settings-row-main">
+                    <div class="settings-row-hint" data-i18n="ui.settings.localL4Note">「模型参与的协作」（L4）在本版本只有说明、没有自动触发：要跑一次审查，仍然由你在既有工作台里显式发起，本模块不会自己叫醒任何成员；agy 不在这条路径里。</div>
+                  </div>
+                </li>
+              </ul>
             </section>
           </section>
 
@@ -3172,6 +3336,23 @@
   const settingsSchemaVersion = document.getElementById('settings-schema-version');
   const settingsProviders = document.getElementById('settings-providers');
   const settingsProvidersEmpty = document.getElementById('settings-providers-empty');
+  const settingsLocalState = document.getElementById('settings-local-state');
+  const settingsLocalDesc = document.getElementById('settings-local-desc');
+  const settingsLocalLevel = document.getElementById('settings-local-level');
+  const settingsLocalNote = document.getElementById('settings-local-note');
+  const settingsLocalInstances = document.getElementById('settings-local-instances');
+  const settingsLocalInstancesEmpty = document.getElementById('settings-local-instances-empty');
+  const settingsLocalInstancesOff = document.getElementById('settings-local-instances-off');
+  const settingsLocalRefresh = document.getElementById('settings-local-refresh');
+  const settingsLocalLeasesGroup = document.getElementById('settings-local-leases-group');
+  const settingsLocalLeases = document.getElementById('settings-local-leases');
+  const settingsLocalLeasesEmpty = document.getElementById('settings-local-leases-empty');
+  const settingsLocalLeasesNote = document.getElementById('settings-local-leases-note');
+  const settingsLocalOverlap = document.getElementById('settings-local-overlap');
+  const settingsLocalClaimResource = document.getElementById('settings-local-claim-resource');
+  const settingsLocalClaimMode = document.getElementById('settings-local-claim-mode');
+  const settingsLocalClaimTTL = document.getElementById('settings-local-claim-ttl');
+  const settingsLocalClaim = document.getElementById('settings-local-claim');
   const settingsWorkspaces = document.getElementById('settings-workspaces');
   const settingsWorkspacesEmpty = document.getElementById('settings-workspaces-empty');
   const settingsAboutVersion = document.getElementById('settings-about-version');
@@ -7733,7 +7914,10 @@
     settingsBody.scrollTop = 0;
     if (next === 'workspaces') renderSettingsWorkspaces();
     if (next === 'providers') renderSettingsProviders();
+    if (next === 'local') renderSettingsLocalAgent(state.settings);
     if (next === 'about') renderSettingsAbout();
+    // 切页之后统一让轮询与当前这一页对齐：进第 6 类才拉，离开就停。
+    syncLocalAgentsPolling();
   }
 
   function renderSettingsLayers() {
@@ -7988,6 +8172,313 @@
     }
   }
 
+  // LOCAL_LEVEL_LABELS / LOCAL_LEVEL_DESCS 只做「档位 -> 文案 key」的映射。
+  // 档位集合本身来自 /api/settings 的 local_agent_supported（源头是 config
+  // 包的枚举）：前端不另抄一份，加一档只改 Go 与两份文案。
+  const LOCAL_LEVEL_LABELS = {
+    off: 'ui.settings.localLevelOff',
+    observe: 'ui.settings.localLevelObserve',
+    coordinate: 'ui.settings.localLevelCoordinate',
+  };
+  const LOCAL_LEVEL_DESCS = {
+    off: 'ui.settings.localDescOff',
+    observe: 'ui.settings.localDescObserve',
+    coordinate: 'ui.settings.localDescCoordinate',
+  };
+
+  // renderSettingsLocalAgent 画第 6 类「本机 agent」的层级那一块。
+  //
+  // 它**不发起任何扫描**：实例表由 syncLocalAgentsPolling 单独决定要不要拉，
+  // 而那个函数的第一道门就是「这一页可见 + 层级不是 off」（§3.3）。
+  function renderSettingsLocalAgent(settings) {
+    if (!settingsLocalLevel) return;
+    const current = settings && typeof settings.local_agent === 'string'
+      ? settings.local_agent
+      : 'off';
+    const supported = settings && Array.isArray(settings.local_agent_supported)
+      && settings.local_agent_supported.length > 0
+      ? settings.local_agent_supported
+      : ['off'];
+    const signature = supported.join('|');
+    if (settingsLocalLevel.dataset.supported !== signature) {
+      settingsLocalLevel.replaceChildren();
+      for (const level of supported) {
+        const option = document.createElement('option');
+        option.value = level;
+        const key = LOCAL_LEVEL_LABELS[level];
+        option.textContent = key ? t(key, level) : level;
+        settingsLocalLevel.appendChild(option);
+      }
+      settingsLocalLevel.dataset.supported = signature;
+    }
+    const shown = supported.includes(current) ? current : supported[0];
+    settingsLocalLevel.value = shown;
+    settingsLocalLevel.disabled = !state.writable;
+    settingsLocalState.textContent = LOCAL_LEVEL_LABELS[shown]
+      ? t(LOCAL_LEVEL_LABELS[shown], shown)
+      : shown;
+    settingsLocalDesc.textContent = LOCAL_LEVEL_DESCS[shown]
+      ? t(LOCAL_LEVEL_DESCS[shown], '')
+      : '';
+    settingsLocalNote.textContent = t('ui.settings.localRestartNote',
+      'council who / council claim 下一次运行就按新层级走；正在跑的 council mcp 与 TUI 要重启才会读到它。');
+  }
+
+  // saveSettingsLocalAgent 走设置页唯一那条写盘路径（备份 + 合并校验 +
+  // 只写 layers[0]）。成功后不整页刷新：改的只是一个配置键，本进程的界面
+  // 没有任何东西要重画。
+  async function saveSettingsLocalAgent(level) {
+    if (!state.writable) {
+      showToast(t('ui.settings.localReadonly', '只读模式不能改本机 agent 层级：用 council serve -rw 启动'));
+      return;
+    }
+    settingsLocalLevel.disabled = true;
+    setSettingsError('');
+    try {
+      const result = await postJSON('/api/settings/local-agent', { level: level });
+      if (state.settings) state.settings.local_agent = level;
+      const label = LOCAL_LEVEL_LABELS[level] ? t(LOCAL_LEVEL_LABELS[level], level) : level;
+      if (result && result.backup_path) {
+        state.settingsResult = t('ui.settings.localSaved', '本机 agent 层级已保存：{level}', { level: label });
+        state.settingsResult += '\n' + t('ui.settings.localRestartNote',
+          'council who / council claim 下一次运行就按新层级走；正在跑的 council mcp 与 TUI 要重启才会读到它。');
+        showToast(state.settingsResult.split('\n')[0]);
+      } else {
+        state.settingsResult = t('ui.settings.localUnchanged', '层级没有变化：文件未改动，也没有生成备份。');
+      }
+      setSettingsResult(state.settingsResult);
+      renderSettingsLocalAgent(state.settings);
+      // 层级变了，轮询该开就开、该停就停：off 之后一次请求都不该再发出去。
+      syncLocalAgentsPolling();
+    } catch (err) {
+      setSettingsError(t('ui.settings.localSaveFailed', '保存本机 agent 层级失败：{err}',
+        { err: err.message }));
+      renderSettingsLocalAgent(state.settings);
+    } finally {
+      settingsLocalLevel.disabled = !state.writable;
+    }
+  }
+
+  if (settingsLocalLevel) {
+    settingsLocalLevel.addEventListener('change', () => {
+      saveSettingsLocalAgent(settingsLocalLevel.value);
+    });
+  }
+
+  // ---- 第 6 类：本机实例与租约（按需拉取，不在后台常驻）----
+  //
+  // 三条纪律，缺一条就是「关着的时候还在扫」：
+  //   1. 只有第 6 类可见、设置面板没关、标签页没隐藏时才发请求；
+  //   2. 层级是 off 时**一次都不发**，直接把表清空并显示「已关闭」；
+  //   3. 离开这一页 / 关面板 / 切到别的标签页立刻 clearInterval。
+  // 服务端那一侧还有第二道闸（off 时连枚举函数都不调），两层各自可测。
+  let localAgentsTimer = null;
+  let localAgentsBusy = false;
+  let localAgentsData = null;
+
+  function stopLocalAgentsPolling() {
+    if (localAgentsTimer !== null) {
+      window.clearInterval(localAgentsTimer);
+      localAgentsTimer = null;
+    }
+  }
+
+  // localAgentCell 建一个 <td>；一律用 textContent 赋值，不用任何 HTML 注入
+  // 写法（仓库的布局测试钉住 index.html 里 0 处 HTML 注入）。
+  function localAgentCell(row, text, className) {
+    const cell = document.createElement('td');
+    cell.textContent = text === undefined || text === null || text === '' ? '—' : String(text);
+    if (className) cell.className = className;
+    row.appendChild(cell);
+    return cell;
+  }
+
+  function renderLocalAgents() {
+    if (!settingsLocalInstances) return;
+    settingsLocalInstances.replaceChildren();
+    settingsLocalLeases.replaceChildren();
+    settingsLocalLeasesNote.hidden = true;
+    settingsLocalLeasesNote.textContent = '';
+
+    const level = state.settings && typeof state.settings.local_agent === 'string'
+      ? state.settings.local_agent
+      : 'off';
+    const data = localAgentsData;
+    // off：不显示任何实例行的残影，也不显示「没发现」——那会被读成扫过了。
+    if (level === 'off' || !data) {
+      settingsLocalInstancesEmpty.hidden = true;
+      settingsLocalInstancesOff.hidden = level !== 'off';
+      settingsLocalLeasesGroup.hidden = true;
+      return;
+    }
+    settingsLocalInstancesOff.hidden = true;
+
+    const rows = [];
+    for (const item of (Array.isArray(data.managed) ? data.managed : [])) rows.push(item);
+    for (const item of (Array.isArray(data.observed) ? data.observed : [])) rows.push(item);
+    settingsLocalInstancesEmpty.hidden = rows.length !== 0;
+    for (const item of rows) {
+      const row = document.createElement('tr');
+      localAgentCell(row, item.kind, 'mono');
+      localAgentCell(row, item.source);
+      localAgentCell(row, item.certainty || '');
+      localAgentCell(row, item.pid || '', 'mono');
+      localAgentCell(row, item.started_at || '');
+      localAgentCell(row, item.work_dir || '');
+      localAgentCell(row, Array.isArray(item.evidence) ? item.evidence.join(' ') : '');
+      settingsLocalInstances.appendChild(row);
+    }
+    if (data.observed_error) {
+      settingsLocalInstancesEmpty.hidden = false;
+      settingsLocalInstancesEmpty.textContent = t('ui.settings.localObservedError',
+        '进程枚举不可用：{err}', { err: data.observed_error });
+    } else if (data.managed_error) {
+      settingsLocalInstancesEmpty.hidden = false;
+      settingsLocalInstancesEmpty.textContent = t('ui.settings.localManagedError',
+        '在飞成员读不出来：{err}', { err: data.managed_error });
+    } else {
+      settingsLocalInstancesEmpty.textContent = t('ui.settings.localInstancesEmpty',
+        '（没有发现本机 agent 进程）');
+    }
+
+    // 租约表只在层级有租约面时出现（coordinate）。
+    const leases = Array.isArray(data.leases) ? data.leases : [];
+    settingsLocalLeasesGroup.hidden = !data.leases_supported;
+    if (!data.leases_supported) return;
+    // 申请表单默认填看板进程的启动目录：那是「我在这儿干活」最常用的答案。
+    if (settingsLocalClaimResource && settingsLocalClaimResource.value === '' && data.cwd) {
+      settingsLocalClaimResource.value = data.cwd;
+    }
+    settingsLocalLeasesEmpty.hidden = leases.length !== 0;
+    for (const lease of leases) {
+      const row = document.createElement('tr');
+      localAgentCell(row, lease.resource_key, 'mono');
+      localAgentCell(row, lease.owner_kind + '/' + lease.owner_id);
+      localAgentCell(row, lease.mode);
+      localAgentCell(row, lease.expires_at || '');
+      localAgentCell(row, lease.lease_id, 'mono');
+      const actions = document.createElement('td');
+      const release = document.createElement('button');
+      release.type = 'button';
+      release.className = 'btn-small';
+      release.textContent = t('ui.settings.localRelease', '交还');
+      release.addEventListener('click', () => releaseLocalAgentLease(lease.lease_id));
+      actions.appendChild(release);
+      row.appendChild(actions);
+      settingsLocalLeases.appendChild(row);
+    }
+    if (data.leases_error) {
+      settingsLocalLeasesNote.hidden = false;
+      settingsLocalLeasesNote.textContent = t('ui.settings.localLeasesError',
+        '租约读不出来：{err}', { err: data.leases_error });
+    }
+    // P5 的页面提醒：与看板所在目录重叠的**写**租约 → 另一个 agent 可能正在
+    // 改这个目录。借租约说的是「谁占着」，不是「已经锁住了」。
+    if (settingsLocalOverlap) {
+      const overlapping = leases.filter((lease) => lease.overlaps_cwd && lease.mode === 'write');
+      settingsLocalOverlap.hidden = overlapping.length === 0;
+      if (overlapping.length > 0) {
+        const first = overlapping[0];
+        settingsLocalOverlap.textContent = tn('ui.settings.localOverlapWarning',
+          overlapping.length,
+          '另一个 agent 正在改这个目录：{holder} 持有写租约（到 {expires}）。租约不会阻止任何进程写文件。',
+          { holder: first.owner_kind + '/' + first.owner_id, expires: first.expires_at });
+      }
+    }
+  }
+
+  // claimLocalAgentLease 申请一条租约。层级不够时服务端回 403，与冲突（409）
+  // 一样都是「没做成」，这里只原样显示那句话 —— 前端不替用户猜原因。
+  async function claimLocalAgentLease() {
+    if (!state.writable || !settingsLocalClaimResource) return;
+    const resource = settingsLocalClaimResource.value.trim();
+    if (resource === '') return;
+    const ttl = Number.parseInt(settingsLocalClaimTTL.value, 10);
+    settingsLocalClaim.disabled = true;
+    setSettingsError('');
+    try {
+      const result = await postJSON('/api/local-agents/lease', {
+        resource: resource,
+        mode: settingsLocalClaimMode.value,
+        ttl_seconds: Number.isFinite(ttl) ? ttl : 0,
+        owner: 'dashboard',
+      });
+      if (result && result.lease) {
+        showToast(t('ui.settings.localClaimed', '已申请：{resource}', { resource: result.lease.resource_key }));
+        state.settingsResult = t('ui.settings.localClaimedDetail',
+          '已申请租约 {id}（{mode}，到 {expires}）。租约不会阻止任何进程写文件。',
+          { id: result.lease.lease_id, mode: result.lease.mode, expires: result.lease.expires_at });
+        setSettingsResult(state.settingsResult);
+      }
+      await loadLocalAgents();
+    } catch (err) {
+      setSettingsError(t('ui.settings.localClaimFailed', '申请失败：{err}', { err: err.message }));
+    } finally {
+      settingsLocalClaim.disabled = false;
+    }
+  }
+
+  // releaseLocalAgentLease 交还一条租约（按 lease_id）。
+  async function releaseLocalAgentLease(leaseID) {
+    if (!state.writable || !leaseID) return;
+    setSettingsError('');
+    try {
+      await postJSON('/api/local-agents/lease/release', { lease_id: leaseID });
+      showToast(t('ui.settings.localReleased', '已交还 {id}', { id: leaseID }));
+      await loadLocalAgents();
+    } catch (err) {
+      setSettingsError(t('ui.settings.localReleaseFailed', '交还失败：{err}', { err: err.message }));
+    }
+  }
+
+  if (settingsLocalClaim) {
+    settingsLocalClaim.addEventListener('click', () => claimLocalAgentLease());
+  }
+
+  async function loadLocalAgents() {
+    if (localAgentsBusy) return;
+    localAgentsBusy = true;
+    try {
+      localAgentsData = await api('/api/local-agents');
+    } catch (err) {
+      localAgentsData = null;
+      setSettingsError(t('ui.settings.localLoadFailed', '读取本机实例失败：{err}', { err: err.message }));
+    } finally {
+      localAgentsBusy = false;
+    }
+    renderLocalAgents();
+  }
+
+  // syncLocalAgentsPolling 是「要不要扫」的唯一判断点：切页、开关面板、标签页
+  // 可见性变化、层级保存成功之后都只调它，避免四处各写一遍条件。
+  function syncLocalAgentsPolling() {
+    stopLocalAgentsPolling();
+    const level = state.settings && typeof state.settings.local_agent === 'string'
+      ? state.settings.local_agent
+      : 'off';
+    const visible = state.settingsSection === 'local'
+      && settingsOverlay && !settingsOverlay.hidden
+      && !document.hidden;
+    if (!visible || level === 'off') {
+      localAgentsData = null;
+      renderLocalAgents();
+      return;
+    }
+    loadLocalAgents();
+    localAgentsTimer = window.setInterval(loadLocalAgents, 3000);
+  }
+
+  if (settingsLocalRefresh) {
+    settingsLocalRefresh.addEventListener('click', () => {
+      const level = state.settings && state.settings.local_agent;
+      if (!state.writable || level === 'off') return;
+      loadLocalAgents();
+    });
+  }
+  document.addEventListener('visibilitychange', () => {
+    syncLocalAgentsPolling();
+  });
+
   // workspaceConversationCount 优先用接口给的计数；旧响应没有这个字段时
   // 退回本地两份列表（未归档 + 已归档）的合计，不在前端猜。
   function workspaceConversationCount(workspace) {
@@ -8087,6 +8578,7 @@
     }
     renderSettingsFacts();
     renderSettingsProviders();
+    renderSettingsLocalAgent(settings);
     renderSettingsWorkspaces();
     renderSettingsAbout();
     setSettingsResult(state.settingsResult);
@@ -8143,6 +8635,9 @@
 
   function closeSettings() {
     if (state.settingsPreview && state.settingsPreview.busy) return;
+    // 关面板就停掉本机实例的轮询：它是这一页可见时才有意义的请求。
+    stopLocalAgentsPolling();
+    localAgentsData = null;
     // 直接收起整摞界面：预览 / 表单都不该留在一个看不见的面板里。
     state.settingsPreview = null;
     state.settingsForm = null;

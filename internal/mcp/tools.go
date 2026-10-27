@@ -168,7 +168,7 @@ func toolDefinitions() []toolDefinition {
 		{
 			Name: "council_who",
 			Description: "List the agent processes visible on this machine (claude / codex / grok / agy), read-only. " +
-				"Requires local_agent = \"observe\" in the config; when observation is off it explains that and enumerates nothing. " +
+				"Requires local_agent = \"observe\" or \"coordinate\" in the config; when the module is off it explains that and enumerates nothing. " +
 				"Returns one text block with kind, pid, ppid, exe name, start time, source and certainty " +
 				"(exact only when the image path is under a known CLI install directory; probable otherwise). " +
 				"It reads no command lines, environment variables or other CLIs' config files, and never calls a model.",
@@ -478,9 +478,10 @@ var enumerate = localagent.Enumerate
 
 // toolWho 是 council_who 的实现：只读、无参数、不新增任何模型调用。
 //
-// off 时返回一句说明并**不枚举**：localagent.Scan 在 LevelOff 那一侧就
-// 返回了，连函数指针都不调（S-01）。开启后输出与 toolModels 同构：
-// 一行表头 + 每实例一行 + 一行固定脚注，整体是一个 text block。
+// off 时返回一句说明并**不枚举**：localagent.Scan 在 Scans()==false 那一侧
+// 就返回了，连函数指针都不调（S-01）。observe 与 coordinate 都扫（协调需要
+// 同一份进程事实），区别只在 claim 权；本工具不申请租约。开启后输出与
+// toolModels 同构：一行表头 + 每实例一行 + 一行固定脚注，整体是一个 text block。
 func (s *server) toolWho() toolResult {
 	t := messagesFor(s.lang)
 
@@ -489,7 +490,7 @@ func (s *server) toolWho() toolResult {
 	if s.deps.Cfg != nil {
 		level = localagent.LevelOf(s.deps.Cfg.LocalAgent)
 	}
-	if level != localagent.LevelObserve {
+	if !level.Scans() {
 		return textResult(t.whoOff)
 	}
 

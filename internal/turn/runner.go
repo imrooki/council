@@ -120,6 +120,19 @@ type Runner struct {
 	// 保证，能保证的是「本成员的 turn_started 一定早于本成员的 turn」。
 	OnTurnStart func(agentID string)
 
+	// OnProcessStart 在某个成员的子进程**真的起来之后**调用一次，带上 PID。
+	//
+	// 与 OnTurnStart 的分工：那个在 spawn 之前发（界面上的「思考中」），这个在
+	// cmd.Start() 成功之后才有，而且只在生产 Spawner（spawnProcess）上会触发 ——
+	// 测试替身不起进程，自然也不会调它。
+	//
+	// 生产默认 nil：REPL / headless / TUI 都不设它，行为与没有这个字段时一致。
+	// 只有 serve -rw 在 local_agent 允许观察时接上它，用来把「在飞的轮」和
+	// 「本机进程」对成同一条实例（Plan §4.3 ⑨）。
+	//
+	// 回调必须立刻返回：它在 worker goroutine 上、刚起完进程、还没等结果。
+	OnProcessStart func(convID, agentID string, pid int)
+
 	// gatesMu 只护 gates 这张 map 的 get-or-create。临界区里只做 map
 	// 读写，拿完立刻放，绝不在持有它时做 IO，也绝不在持有它时去取
 	// g.mu —— 否则 Ask 整轮持有 g.mu 再回头碰 map，就和旧的全局锁
@@ -745,6 +758,15 @@ func (r *Runner) askUpToWith(ctx context.Context, convID, agentID string, upTo i
 	}
 
 	spawnCtx, cancel := context.WithTimeout(ctx, timeout)
+	// PID 钩子挂在 spawnCtx 上：它跟着这一次 spawn 走，子进程结束就作废。
+	// 取 r.OnProcessStart 与 OnTurnStart 同一时机（worker goroutine、起进程前），
+	// 调用方只在装配期赋值，不在运行期改。
+	if r.OnProcessStart != nil {
+		convID, agent := convID, agentID
+		spawnCtx = WithProcessIDObserver(spawnCtx, func(pid int) {
+			r.OnProcessStart(convID, agent, pid)
+		})
+	}
 	start := time.Now()
 	stdout, stderr, exitCode, killed, spawnErr := r.spawn(spawnCtx, cmd)
 	rec.WallMS = int(time.Since(start) / time.Millisecond)

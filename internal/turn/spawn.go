@@ -174,6 +174,14 @@ func spawnProcess(ctx context.Context, c provider.Command) (stdout, stderr []byt
 	if cmd.Process != nil {
 		pid = cmd.Process.Pid
 	}
+	// 「子进程真的起来了」的通知（Plan §4.3 ⑨）。只在这一条生产路径上有；
+	// 回调挂在 ctx 上，测试替身走的不是这个函数，所以不会误触发。
+	// 顺序在 Start 成功之后、Wait 之前：这一轮还没跑完，PID 就已经有意义了。
+	if pid > 0 {
+		if notify := processIDObserverFrom(ctx); notify != nil {
+			notify(pid)
+		}
+	}
 
 	waitErr := make(chan error, 1)
 	go func() {

@@ -17,6 +17,7 @@ import (
 
 	"council/internal/conversation"
 	"council/internal/i18n"
+	"council/internal/localagent"
 	"council/internal/provider"
 	"council/internal/store"
 )
@@ -94,6 +95,19 @@ type Server struct {
 	langMu   sync.RWMutex
 	lang     i18n.Lang
 	langFlag string
+
+	// localAgentEnum 是 /api/local-agents 的进程枚举接缝，生产为 nil
+	// （用手 localagent.Enumerate）。只有测试会换掉它，用来证明 off 层级
+	// 下这一条路径没有枚举任何进程（S-01）。
+	localAgentEnum localagent.Enumerator
+	// localAgentPIDs 记住本进程起的每一轮子进程 PID（Plan §4.3 ⑨），
+	// 用来把 inflight_turns 与进程表里的一条对成同一条实例。只在内存里，
+	// 不落库；跨进程的 council who 读不到它。
+	localAgentPIDs *localagent.PIDRegistry
+	// localAgentMu 让同一时刻只有一个请求在枚举进程。看板每 3 秒轮询一次，
+	// 多开几个标签页就会并发进入；枚举本身是只读的，但让它们排队比让
+	// 四个快照同时跑更省事，也不会把 CPU 打满。
+	localAgentMu sync.Mutex
 }
 
 // NewServer 构造看板 handler。models 会被复制一份，调用方之后改自己的 map
@@ -107,6 +121,9 @@ func NewServer(st *store.Store, version string, models map[string]string) *Serve
 		store:   st,
 		version: version,
 		models:  copied,
+		// PID 表跟 Server 同生命周期：它只活在内存里，进程退出即消失
+		// （观察到的进程不落库，S-09）。
+		localAgentPIDs: localagent.NewPIDRegistry(),
 		// 生产路径紧接着会调用 SetLanguage（serve.Run 拿到了配置里的
 		// language）。直接构造 Server 的测试与未来别的调用方得到一个
 		// 确定的默认值，而不是随开发机环境变量漂移。
@@ -137,6 +154,15 @@ func (s *Server) Handler() http.Handler {
 	// 模型识别（GUI 第 8 片）：GET /api/models 跑一次零花费的识别，把本机
 	// 每一家当前可用的模型列出来。只在 -rw 下可用，判断与 /api/options 同一个门。
 	mux.HandleFunc("/api/models", s.handleModels)
+	// 本机 agent 的只读视图（L2）：GET /api/local-agents 按需做一次快照
+	// （每请求一次，没有后台循环）。层级是 off 时它只回空表与层级，一次
+	// 进程枚举都不做。只在 -rw 下可用：只读看板没有用户授权层级可读。
+	mux.HandleFunc("/api/local-agents", s.handleLocalAgents)
+	// 租约写端点（L2/P3）：与设置页同一套写闸（只读 405 → 方法 405 →
+	// JSON 415 → 同源 403）加一道层级门（要 coordinate）。租约是自愿遵守的
+	// 提醒，不是文件锁；这两个端点不会也不能阻止任何进程写文件。
+	mux.HandleFunc("/api/local-agents/lease", s.handleLocalAgentLease)
+	mux.HandleFunc("/api/local-agents/lease/release", s.handleLocalAgentLeaseRelease)
 	// 工作目录选择器（GUI 第 9 片）：GET /api/fs/dirs 列出子目录，供点选。
 	mux.HandleFunc("/api/fs/dirs", s.handleFSDirs)
 	// 设置页（GUI 第 6 片）：GET /api/settings 是合并配置的只读快照，
@@ -146,6 +172,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/settings", s.handleSettings)
 	// 语言是顶层键、不进身份指纹：它有自己的写端点，保存后立即生效。
 	mux.HandleFunc("/api/settings/language", s.handleSettingsLanguageSave)
+	// 本机 agent 模块的层级（off / observe / coordinate）同样是顶层键、
+	// 不进身份指纹，也不改变 Runner 的任何行为：它只决定 council who /
+	// council claim 这些独立进程下一次运行时能看到什么、能申请什么。
+	mux.HandleFunc("/api/settings/local-agent", s.handleSettingsLocalAgentSave)
 	mux.HandleFunc("/api/settings/agents", s.handleSettingsAgentSave)
 	mux.HandleFunc("/api/settings/agents/", s.handleSettingsAgentPath)
 	// 工作区（纯分组，GUI 第 9 片）：/api/workspaces 是 GET 列表 + POST 新建，

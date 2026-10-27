@@ -1,15 +1,19 @@
-// Package localagent 观察本机正在运行的 agent 进程，是 Local Agent 模块
-// 的第一阶段（L1「看得见」）。
+// Package localagent 观察本机正在运行的 agent 进程，并给出资源租约的
+// 本地策略（Local Agent 模块的 L1「看得见」与 L2「登记资源」）。
 //
-// 它默认关闭。配置里的 local_agent 不是 observe 时，Scan 一次枚举都不做，
-// 调用方拿到空列表（S-01：关着的时候零扫描、零后台、零行为变化）。开启后
-// 它也只读一份最小事实：可执行文件名、PID、父 PID、启动时间（若系统给得出）。
-// 它不读完整命令行、环境变量、窗口标题、剪贴板或其它 CLI 的配置文件
-// （S-03 / S-09），也不启动、结束、挂起或注入任何进程（S-07）。
+// 它默认关闭。配置里的 local_agent 是 off（或这个键缺席）时，Scan 一次枚举
+// 都不做，调用方拿到空列表（S-01：关着的时候零扫描、零后台、零行为变化）。
+// 开启 observe 后它也只读一份最小事实：可执行文件名、PID、父 PID、启动时间
+// （若系统给得出）。它不读完整命令行、环境变量、窗口标题、剪贴板或其它 CLI
+// 的配置文件（S-03 / S-09），也不启动、结束、挂起或注入任何进程（S-07）。
 //
-// 为什么单独成包：CLI（council who）与 MCP（council_who）必须用同一份事实
-// 与同一张规则表。放进 internal/turn 会让「跑一轮」知道机器上有几个编辑器；
-// 放进 internal/serve 会让 CLI 依赖 Web 层。
+// 租约（lease.go + internal/store/localagent.go）是另一档授权：只有
+// coordinate 层级能申请。租约只做「自愿遵守 + 提醒」，不是文件系统锁
+// （Plan §8.2：权限只翻译成 CLI flag，本仓库没有强制写入层）。
+//
+// 为什么单独成包：CLI（council who / council claim）与 MCP（council_who）
+// 必须用同一份事实与同一张规则表。放进 internal/turn 会让「跑一轮」知道
+// 机器上有几个编辑器；放进 internal/serve 会让 CLI 依赖 Web 层。
 package localagent
 
 import (
@@ -115,6 +119,16 @@ type Agent struct {
 	// Certainty 只对 SourceObserved 有意义：exact 表示路径命中了已知
 	// CLI 安装位置，probable 表示只有映像名 / 父进程证据。
 	Certainty Certainty
+	// 下面四个字段只在 MergeManaged 把这一条与某个在飞轮对上之后才有值
+	// （此时 Source 也会被改成 SourceManaged）。没对上的观察行一律留空：
+	// 不知道就是不知道，不编一个 turn_id 出来（Plan §4.3 ⑨）。
+	ConversationID string
+	AgentID        string
+	TurnID         string
+	// MergeEvidence 记录合并依据："pid"（钩子拿到的就是 CLI 进程本身）
+	// 或 "shim=cmd.exe"（钩子拿到的是 .cmd/.bat 垫片，按唯一的 agent 子进程
+	// 认回来的）。空串表示这条没有参与合并。
+	MergeEvidence string
 }
 
 // Enumerator 返回一次本机进程快照。返回值只允许上面 Process 的四个字段。
@@ -123,27 +137,55 @@ type Agent struct {
 // 测试注入一个会 panic 的实现，断言 off 路径没有调用它。
 type Enumerator func() ([]Process, error)
 
-// Level 是 local_agent 开关的两种取值。L1 只有关与观察两档。
+// Level 是 local_agent 开关的取值。默认 off；observe 只读观察；
+// coordinate 在观察之外还允许申请资源租约。
+//
+// 三档是**逐级授权**，不是同位开关：observe 不会启用租约，coordinate 也不会
+// 被 observe 悄悄打开（Plan §3.2：不得级联自动启用）。反过来 coordinate
+// 包含观察，因为协调的资源事实来自同一份进程视图；选择它的人看到的是
+// 「协调（含观察）」这几个字，而不是两个勾。
 type Level string
 
 const (
-	// LevelOff 是默认值：不枚举、不扫描、不留后台痕迹。
+	// LevelOff 是默认值：不枚举、不扫描、不留后台痕迹、不接受租约申请。
 	LevelOff Level = "off"
 	// LevelObserve 表示用户显式开启只读观察。
 	LevelObserve Level = "observe"
+	// LevelCoordinate 表示用户另行开启了资源协调（L2 的租约面）。
+	LevelCoordinate Level = "coordinate"
 )
+
+// Scans 回答这个层级要不要枚举本机进程。只有 observe 与 coordinate 要；
+// 其它一切取值（含空串与未来没实现的层级）都不枚举（fail closed）。
+func (l Level) Scans() bool {
+	return l == LevelObserve || l == LevelCoordinate
+}
+
+// Claims 回答这个层级能不能**申请**资源租约。只有 coordinate 可以：
+// 换来观察权的那个勾不该顺手把协调权也给了（Plan §3.2）。
+//
+// 交还租约（release）不看这个：把开关调小不应该让一条已经发出去的授权
+// 无法收回，那会把用户逼回「只能改库」。
+func (l Level) Claims() bool {
+	return l == LevelCoordinate
+}
 
 // LevelOf 把配置里的字符串折成 Level。
 //
-// 只认 observe（大小写、首尾空白不敏感），其它一律 off：Load 已经做过一次
-// 归一与校验，这里再 fail closed 一次，防止直接构造 Config 的调用方把未来
-// 某个层级名（register / coordinate / …）带进来 —— 那些层级在 v1 没有实现，
-// 当成 observe 会静默扩大采集面。
+// 只认 observe 与 coordinate（大小写、首尾空白不敏感），其它一律 off：
+// Load 已经做过一次归一与校验，这里再 fail closed 一次，防止直接构造
+// Config 的调用方把未来某个层级名（register / collaborate）带进来 ——
+// 那些层级在 v1 没有实现，当成 observe 会静默扩大采集面，当成 coordinate
+// 会静默给出协调权。
 func LevelOf(raw string) Level {
-	if strings.EqualFold(strings.TrimSpace(raw), string(LevelObserve)) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case string(LevelObserve):
 		return LevelObserve
+	case string(LevelCoordinate):
+		return LevelCoordinate
+	default:
+		return LevelOff
 	}
-	return LevelOff
 }
 
 // Enumerate 返回一次本机进程快照（只读）。这是生产代码唯一的进程枚举
@@ -155,13 +197,13 @@ func Enumerate() ([]Process, error) {
 // Scan 是唯一的扫描入口：council who 与 MCP 的 council_who 都走它。
 // 「off 时不枚举」只需要在这一处保证，不会因为两个调用方各写一遍而漏掉。
 //
-// level 不是 LevelObserve 时直接返回空列表，连 enum 都不碰：即便调用方传
+// level 的 Scans() 为 false 时直接返回空列表，连 enum 都不碰：即便调用方传
 // 进来一个会 panic 的枚举函数，off 路径也不会调用它（S-01，测试直接钉住）。
 //
 // enum 为 nil 时返回 ErrUnsupported 而不是 panic：调用方漏注入时应当拿到
 // 一条可展示的错误，而不是让整个 council who 崩掉。
 func Scan(level Level, enum Enumerator) ([]Agent, error) {
-	if level != LevelObserve {
+	if !level.Scans() {
 		return []Agent{}, nil
 	}
 	if enum == nil {

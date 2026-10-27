@@ -96,6 +96,6 @@ flags:
   council_ask          问议会一轮（可指定成员、预算、工作目录、续接会话）
   council_models       列出可用成员（配置 + .claude/agents 导入）
   council_round        多轮议会 + 汇总（1..5 轮）
-  council_who          只读列出本机 agent 进程（需要 config 里 local_agent = "observe"；不花额度）
+  council_who          只读列出本机 agent 进程（需要 config 里 local_agent = "observe" 或 "coordinate"；不花额度）
 `)
 }

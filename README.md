@@ -66,6 +66,30 @@ claude mcp add council -- C:\path\to\council.exe mcp
 
 挂上之后宿主可以使用三个工具：`council_ask`（单轮）、`council_round`（多轮 + 汇总）、`council_models`（列出可用成员）。协议是 stdio 上的 JSON-RPC，不依赖任何 SDK，日志全部走 stderr。
 
+## 本机 agent（可选，默认关闭）
+
+看板与 CLI 能顺带看一眼**本机正在跑哪些 agent CLI**，并在需要时登记一条资源租约。它是可选模块，配置里那一个键控制一切：
+
+```toml
+local_agent = "off"          # 默认值：一次进程都不枚举、不起后台任务、不接受租约
+# local_agent = "observe"    # 只读观察
+# local_agent = "coordinate" # 观察 + 允许申请资源租约
+```
+
+| 命令 | 作用 |
+|---|---|
+| `council who` | 只读列出三件事：在飞的成员、本机 claude/codex/grok/agy 进程、仍然有效的租约。不拿锁，TUI 或看板开着时也能跑 |
+| `council claim <目录\|tcp:端口>` | 申请一条租约（`-mode read\|write`、`-ttl 5m`）。要 `coordinate` |
+| `council release -lease <id>` | 交还租约。不需要 `coordinate`：关小开关不该把授权锁死 |
+
+设置页第 6 类「本机 agent」也能改层级、看实例与租约、点按钮申请/交还。
+
+三条边界，界面上也这么写：
+
+- **默认关闭时零行为**：不枚举进程、不起后台循环、不读库；`council who` 只打印一句「未开启」。
+- **租约是提醒，不是文件锁**：它拦不住任何进程写文件，只在页面上和 `council who` 里说清「这个目录有人占着」。
+- **不新增任何模型调用**：三档都是纯本地事实。`agy`（Google Antigravity CLI）处于条款灰区，只观察它的进程，不自动拉起、也不参与任何自动审查路径。
+
 ## 桌面版
 
 `desktop/` 是 Electron 外壳：关窗口进托盘，托盘里可彻底退出。

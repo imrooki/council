@@ -8,8 +8,12 @@ package config
 // 所以这里不能像 agent 段那样追加到文件末尾（那会把它写进最后一个
 // [agents.x] 表里），而是：已有顶层 language 就原地替换；没有就插在第一个
 // 表头之前。顶层键、注释与行尾的字节保持不变。
+//
+// local_agent 走的是同一个 setTopLevelKey（见 localagentwrite.go）：两个键
+// 在 TOML 里的位置规则一模一样，复制一份只会让「插在哪一行」出现两种实现。
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -30,12 +34,19 @@ func LanguageValue(language string) string {
 func WriteLanguage(layers []Layer, language string) (AgentWriteResult, error) {
 	value := LanguageValue(language)
 	return writeAgentFile(layers, func(orig []byte) ([]byte, bool, error) {
-		return setTopLevelLanguage(orig, value)
+		return setTopLevelKey(orig, "language", value)
 	})
 }
 
-// setTopLevelLanguage 是纯字节实现：只碰 language 这一行，其余行原样保留。
-func setTopLevelLanguage(content []byte, value string) ([]byte, bool, error) {
+// setTopLevelKey 是纯字节实现：只碰 key 这一行，其余行原样保留。
+//
+// key 只允许简单标识符。当前的调用方传的都是包内常量，这道检查是给以后
+// 加键的人留的护栏：key 会被拼进 `key = "value"`，拼进一个带引号、换行或
+// 等号的字符串就等于让调用方往配置文件里注入任意字节。
+func setTopLevelKey(content []byte, key, value string) ([]byte, bool, error) {
+	if !validTopLevelKeyName(key) {
+		return nil, false, fmt.Errorf("顶层键 %q 不是合法标识符", key)
+	}
 	lines := splitFileLines(string(content))
 	eol := dominantEOL(lines)
 
@@ -46,7 +57,7 @@ func setTopLevelLanguage(content []byte, value string) ([]byte, bool, error) {
 			firstHeader = i
 			break
 		}
-		if isKeyLine(line.text, "language") {
+		if isKeyLine(line.text, key) {
 			existing = i
 			break
 		}
@@ -58,7 +69,7 @@ func setTopLevelLanguage(content []byte, value string) ([]byte, bool, error) {
 			limit = firstHeader
 		}
 		end := statementEnd(lines, existing, limit)
-		replacement := fileLine{text: `language = ` + tomlBasicString(value), eol: lines[existing].eol}
+		replacement := fileLine{text: key + ` = ` + tomlBasicString(value), eol: lines[existing].eol}
 		if replacement.eol == "" {
 			replacement.eol = eol
 		}
@@ -74,7 +85,7 @@ func setTopLevelLanguage(content []byte, value string) ([]byte, bool, error) {
 		return []byte(joinFileLines(out)), true, nil
 	}
 
-	keyLine := fileLine{text: `language = ` + tomlBasicString(value), eol: eol}
+	keyLine := fileLine{text: key + ` = ` + tomlBasicString(value), eol: eol}
 	if firstHeader >= 0 {
 		out := make([]fileLine, 0, len(lines)+2)
 		out = append(out, lines[:firstHeader]...)
@@ -102,4 +113,27 @@ func setTopLevelLanguage(content []byte, value string) ([]byte, bool, error) {
 		return []byte(text + eol + keyLine.text), true, nil
 	}
 	return []byte(text + keyLine.text + eol), true, nil
+}
+
+// validTopLevelKeyName 只放行 TOML 的裸键写法（ASCII 字母、数字、连字符、
+// 下划线，且不以数字开头）。本项目自己要写的两个键都是这种形状。
+func validTopLevelKeyName(key string) bool {
+	if key == "" {
+		return false
+	}
+	if key[0] >= '0' && key[0] <= '9' {
+		return false
+	}
+	for i := 0; i < len(key); i++ {
+		c := key[i]
+		switch {
+		case c >= 'a' && c <= 'z':
+		case c >= 'A' && c <= 'Z':
+		case c >= '0' && c <= '9':
+		case c == '_' || c == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }

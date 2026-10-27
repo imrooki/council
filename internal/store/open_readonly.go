@@ -75,7 +75,7 @@ func OpenReadOnly(ctx context.Context, dataDir string) (*Store, error) {
 	// 在 TUI 正提交一轮时等一会儿而不是立刻报 database is locked。
 	// 不写 journal_mode=WAL：journal_mode 是库文件头的持久属性，只读连接
 	// 也不该试图改它；库是 WAL 的话 SQLite 自己按 WAL 读。
-	dsn := "file:" + filepath.ToSlash(dbPath) +
+	dsn := "file:" + sqliteURIPath(dbPath) +
 		"?mode=ro&_pragma=busy_timeout(5000)&_pragma=query_only(1)"
 
 	db, err := sql.Open("sqlite", dsn)

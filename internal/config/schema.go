@@ -25,18 +25,25 @@ const (
 	LanguageEn   = "en"
 )
 
-// local_agent 的合法取值。L1 只有两档：off（默认）与 observe。
+// local_agent 的合法取值。三档逐级授权：off（默认）→ observe → coordinate。
 //
-// 为什么不在这里预先写出 register / coordinate / collaborate：那三档
-// （L2/L3/L4）在 v1 没有实现，写进合法枚举等于让用户配置一个「看起来
-// 开着、实际什么都不做」的层级。校验拒绝它们，比静默降级成 off 诚实。
+// 为什么不在这里预先写出 register / collaborate：那两档（L2 的登记、L4 的
+// 模型协作）在 v1 没有实现，写进合法枚举等于让用户配置一个「看起来开着、
+// 实际什么都不做」的层级。校验拒绝它们，比静默降级成 off 诚实。coordinate
+// 是 L2 实现了租约之后才加进来的：它今天真的能做的只有「申请/交还资源租约」，
+// 不会再是空壳。
 //
 // 空串与 off 同义：Load 会把空串归一成 off（applyDefaults），但直接构造的
-// Config（测试、旧调用方）可能没有这个字段；读取方对任何非 observe 的取值
-// 都按 off 处理（fail closed），不会因为读到空串就把扫描打开。
+// Config（测试、旧调用方）可能没有这个字段；读取方对任何未实现的取值都按
+// off 处理（fail closed），不会因为读到空串就把扫描或协调打开。
 const (
-	LocalAgentOff     = "off"
+	LocalAgentOff = "off"
+	// LocalAgentObserve 是只读观察：council who / council_who 会枚举进程。
 	LocalAgentObserve = "observe"
+	// LocalAgentCoordinate 在观察之外允许 council claim / release 申请租约。
+	// 它包含观察（协调的资源事实来自同一份进程视图），但 observe **不**包含
+	// 它 —— 开观察不会顺手给出协调权。
+	LocalAgentCoordinate = "coordinate"
 )
 
 // Permission 是 agent 的权限档。
@@ -89,8 +96,8 @@ type Config struct {
 	// 运行期改它并立刻生效（见 internal/serve/settings.go 的语言端点）。
 	// 空串按 auto 处理：直接构造的 Config（测试 / 旧调用方）没有这个字段。
 	Language string `toml:"language"`
-	// LocalAgent 是本机 agent 观察（Local Agent 模块的 L1）的总开关，
-	// 取值见 LocalAgentOff / LocalAgentObserve，默认 off。
+	// LocalAgent 是本机 agent 模块（观察 + 资源租约）的总开关，
+	// 取值见 LocalAgentOff / LocalAgentObserve / LocalAgentCoordinate，默认 off。
 	//
 	// 为什么是顶层键而不是 [local_agent] 表：这一项只有一个枚举值，复用的
 	// 是 language / store_thought 那条「高优先级层写了才覆盖」的合并规则；
@@ -100,7 +107,8 @@ type Config struct {
 	//
 	// 为什么默认必须是 off：S-01 要求关着的时候零扫描、零后台、零行为变化。
 	// 这个键缺席时 council who / MCP 的 council_who 一次进程都不枚举，
-	// 只打印一句「未开启」。它不触发任何后台循环、端口或 IPC。
+	// council claim 直接拒绝，只打印一句「未开启」。它不触发任何后台循环、
+	// 端口或 IPC。
 	//
 	// 它与 language 一样不进身份指纹：改它不影响任何成员的 provider 会话。
 	LocalAgent string                    `toml:"local_agent"`

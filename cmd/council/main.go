@@ -72,6 +72,15 @@ func run(args []string) int {
 	if len(args) > 0 && args[0] == "who" {
 		return runWho(args[1:])
 	}
+	// claim / release 同理：它们的 -mode / -ttl / -owner 与全局 flag 没有任何
+	// 同义关系，而且它们会**写库**（要拿 council.lock），绝不能混进
+	// 「council 不带参数就进 REPL」那条路径。
+	if len(args) > 0 && args[0] == "claim" {
+		return runClaim(args[1:])
+	}
+	if len(args) > 0 && args[0] == "release" {
+		return runRelease(args[1:])
+	}
 
 	// 语言要在建 FlagSet 之前定：-h 在 Parse 里就返回 ErrHelp，那时再按解析
 	// 结果选说明文字已经晚了。-lang 的值与 -config 的值先按字面预扫一遍，

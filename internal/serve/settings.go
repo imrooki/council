@@ -125,6 +125,16 @@ type settingsResponse struct {
 	LanguageEffective string `json:"language_effective"`
 	LanguageFlag      string `json:"language_flag,omitempty"`
 	LanguageEnv       string `json:"language_env,omitempty"`
+	// LocalAgent 是本机 agent 模块的层级（off / observe / coordinate），
+	// 供设置页第 6 类那一行下拉显示。它是配置里的顶层键、不进身份指纹。
+	//
+	// 注意它只是**配置值**，不是本进程的行为：serve 本身不做任何进程扫描，
+	// 也不申请租约（council who / council claim 是各自读配置的独立进程）。
+	LocalAgent string `json:"local_agent"`
+	// LocalAgentSupported 是这一版二进制接受的层级全集，前端据此画下拉。
+	// 放在响应里而不是 JS 里另抄一份：抄了就会与 config 的枚举走失，
+	// 而配置拒绝未知取值（加一档要改代码，不该只改前端）。
+	LocalAgentSupported []string `json:"local_agent_supported"`
 }
 
 // settingsAgentRequest 是 POST /api/settings/agents 的请求体。
@@ -277,6 +287,10 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		LanguageEffective: string(s.Language()),
 		LanguageFlag:      s.LanguageFlag(),
 		LanguageEnv:       s.LanguageEnv(),
+		LocalAgent:        config.LocalAgentOff,
+		LocalAgentSupported: []string{
+			config.LocalAgentOff, config.LocalAgentObserve, config.LocalAgentCoordinate,
+		},
 	}
 	for _, layer := range layers {
 		exists := false
@@ -298,6 +312,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if cfg != nil {
 		resp.SummaryAgent = cfg.Summary.Agent
 		resp.Language = config.LanguageValue(cfg.Language)
+		resp.LocalAgent = config.LocalAgentValue(cfg.LocalAgent)
 		if resp.DataDir == "" {
 			resp.DataDir = cfg.DataDir
 		}
@@ -621,6 +636,77 @@ func (s *Server) handleSettingsLanguageSave(w http.ResponseWriter, r *http.Reque
 		WriteTarget: res.WriteTarget,
 		Reloaded:    true,
 		Note:        note,
+	})
+}
+
+// settingsLocalAgentRequest 是 POST /api/settings/local-agent 的请求体。
+// 只接受 off / observe / coordinate（config 包的 Validate 兜底，非法值会
+// 带着「文件未改动」的 400 回来）。
+type settingsLocalAgentRequest struct {
+	Level string `json:"level"`
+}
+
+// handleSettingsLocalAgentSave 把本机 agent 模块的层级写进配置。
+//
+// 它与语言那条同构：单个顶层键、不进身份指纹、不碰任何成员的 provider 会话，
+// 所以不需要重启本进程、也不走 A2 的 agent 字段分级表。
+//
+// 但「立即生效」的边界必须说清（note 里写明）：council who / council claim /
+// council release 每次运行都读一次配置，下一次调用就按新层级走；而正在跑的
+// council mcp（宿主拉起的 stdio 进程）在启动时读了一次 Cfg，要重启才看得到。
+// serve 自己不做任何扫描，所以本进程没有任何东西需要重新装配。
+func (s *Server) handleSettingsLocalAgentSave(w http.ResponseWriter, r *http.Request) {
+	if !s.settingsWriteGate(w, r) {
+		return
+	}
+	var req settingsLocalAgentRequest
+	if !decodeSettingsBody(w, r, &req) {
+		return
+	}
+	// 空值不会经过下拉到达这里；当成「把配置重置成 off」太隐蔽了，明确回
+	// 400，让调用方自己写 off（与语言那条同一条纪律）。
+	if strings.TrimSpace(req.Level) == "" {
+		writeError(w, http.StatusBadRequest,
+			"level 不能为空（可选 off / observe / coordinate）")
+		return
+	}
+	// 与 agent / 语言保存共用一把锁：两次并发写盘不该各自基于一份旧内容算目标。
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	layers, err := s.settingsLayers()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if s.currentCfg() == nil {
+		writeError(w, http.StatusInternalServerError, "写模式没有加载配置，无法保存本机 agent 层级")
+		return
+	}
+
+	res, err := config.WriteLocalAgent(layers, req.Level)
+	if err != nil {
+		s.writeSettingsError(w, err)
+		return
+	}
+	if !res.Changed {
+		writeJSON(w, http.StatusOK, settingsWriteResponse{
+			BackupPath:  res.BackupPath,
+			WriteTarget: res.WriteTarget,
+			Note:        "本机 agent 层级没有变化：文件未改动，也没有生成备份。",
+		})
+		return
+	}
+
+	// 展示配置换成磁盘上的新内容；Runner 不碰（它不读这个键）。
+	s.adoptReloadedConfig(res.Config)
+	writeJSON(w, http.StatusOK, settingsWriteResponse{
+		BackupPath:  res.BackupPath,
+		WriteTarget: res.WriteTarget,
+		Reloaded:    true,
+		Note: "本机 agent 层级已保存（" + config.LocalAgentValue(req.Level) +
+			"）：council who / council claim / council release 下一次运行就按它走；" +
+			"正在跑的 council mcp 与 TUI 在启动时读过一次配置，要重启才会看到新层级。" +
+			"本进程不做任何进程扫描，也不申请租约。",
 	})
 }
 

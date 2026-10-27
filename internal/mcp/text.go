@@ -41,7 +41,7 @@ type messages struct {
 	whoHead        string // 本机 agent 进程（%d）:
 	whoEmpty       string // （没有发现本机 agent 进程）
 	whoRow         string // - kind=%s pid=%d ppid=%d exe=%s started_at=%s source=%s certainty=%s
-	whoOff         string // 本机 agent 观察未开启（config 里 local_agent = "observe" 可开启）
+	whoOff         string // 本机 agent 未开启（config 里 local_agent = "observe" 开启观察，"coordinate" 同时开启资源租约）
 	whoUnavailable string // 进程枚举不可用: %v
 	whoFooter      string // 本工具不新增任何模型调用。
 
@@ -90,7 +90,7 @@ var zhMessages = messages{
 	whoHead:        "本机 agent 进程（%d）:",
 	whoEmpty:       "（没有发现本机 agent 进程）",
 	whoRow:         "- kind=%s pid=%d ppid=%d exe=%s started_at=%s source=%s certainty=%s",
-	whoOff:         `本机 agent 观察未开启（config 里 local_agent = "observe" 可开启）`,
+	whoOff:         `本机 agent 未开启（config 里 local_agent = "observe" 开启观察，"coordinate" 同时开启资源租约）`,
 	whoUnavailable: "进程枚举不可用: %v",
 	whoFooter:      "本工具不新增任何模型调用。",
 
@@ -139,7 +139,7 @@ var enMessages = messages{
 	whoHead:        "local agent processes (%d):",
 	whoEmpty:       "(no local agent processes found)",
 	whoRow:         "- kind=%s pid=%d ppid=%d exe=%s started_at=%s source=%s certainty=%s",
-	whoOff:         `local agent observation is off (set local_agent = "observe" in the config to enable it)`,
+	whoOff:         `local agent is off (set local_agent = "observe" to observe, or "coordinate" to also allow resource leases)`,
 	whoUnavailable: "process enumeration unavailable: %v",
 	whoFooter:      "This tool adds no model calls.",
 

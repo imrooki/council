@@ -34,6 +34,7 @@ import (
 	"council/internal/config"
 	"council/internal/conversation"
 	"council/internal/headless"
+	"council/internal/localagent"
 	"council/internal/repl"
 	"council/internal/store"
 	"council/internal/turn"
@@ -143,6 +144,24 @@ func (s *Server) EnableWrite(deps WriteDeps) {
 	s.jobs = newJobTable()
 	// 后台议会的父 ctx 跟着 Server 的生命周期，不跟任何一条 HTTP 请求。
 	s.jobCtx, s.cancelJobs = context.WithCancel(context.Background())
+	// PID 钩子：只在这一处接上，所有装配方（生产与测试）拿到同一条路径。
+	// 回调里会先看当前层级，off 时是空操作 —— 关着的时候不写任何状态（S-01）。
+	if deps.Rn != nil {
+		deps.Rn.OnProcessStart = s.observeProcessStart
+	}
+}
+
+// observeProcessStart 是 turn.Runner 的 PID 钩子（Plan §4.3 ⑨）。
+//
+// 层级关着时它立刻返回：不写内存、不打日志、不留痕迹。它只记 PID，不判断
+// 「这一轮还在不在飞」—— 那个判断在 /api/local-agents 里拿 inflight_turns 做，
+// 所以一条已经结束的轮留在表里也无害（调用方根本不会去查它）。
+func (s *Server) observeProcessStart(convID, agentID string, pid int) {
+	cfg := s.currentCfg()
+	if cfg == nil || !localagent.LevelOf(cfg.LocalAgent).Scans() {
+		return
+	}
+	s.localAgentPIDs.Observe(convID, agentID, pid)
 }
 
 // drainJobs 等所有后台议会结束，供 listenAndServe 在 HTTP Shutdown 之后
@@ -273,6 +292,10 @@ func runWritable(ctx context.Context, opts Options, version string, out, errOut 
 	// 这些行，serve -rw 既然接管了同一个库，就必须做同一件事。
 	// 失败只提示、不阻止启动：对账本身读不了库时，看板仍值得开着。
 	reconcileLostTurns(ctx, rn, errOut)
+	// P5：租约冲突提醒。只在用户开了协调（coordinate）时读一次租约表 ——
+	// 关着的时候连这张表都不碰（S-01）。它不是拦截：serve 照常启动，
+	// 只是把「这个目录已经有人占了」当场说出来（租约拦不住任何进程）。
+	printLeaseNotice(ctx, st, cfg, cwd, errOut)
 
 	srv := NewServer(st, version, modelsFromConfig(cfg))
 	srv.Verbose = opts.Verbose

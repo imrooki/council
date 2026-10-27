@@ -49,6 +49,8 @@ func TestLocalAgentLoadNormalizesValues(t *testing.T) {
 	}{
 		{name: "显式 observe", raw: "observe", want: LocalAgentObserve},
 		{name: "大写与空白", raw: `  OBSERVE  `, want: LocalAgentObserve},
+		{name: "显式 coordinate", raw: "coordinate", want: LocalAgentCoordinate},
+		{name: "coordinate 大写与空白", raw: ` Coordinate `, want: LocalAgentCoordinate},
 		{name: "显式 off", raw: "off", want: LocalAgentOff},
 		{name: "大写 off", raw: "OFF", want: LocalAgentOff},
 		{name: "空串", raw: "", want: LocalAgentOff},
@@ -126,11 +128,14 @@ model = "opus"
 	}
 }
 
-// TestLocalAgentValidation 覆盖合法与非法取值。register / coordinate /
-// collaborate 在 L1 没有实现，必须被拒，不能静默当成 off —— 那会让用户
-// 以为已经开了登记或协调。
+// TestLocalAgentValidation 覆盖合法与非法取值。register / collaborate 在 v1
+// 没有实现，必须被拒，不能静默当成 off —— 那会让用户以为已经开了登记或
+// 模型协作。coordinate 在 L2 实现租约之后是合法值。
 func TestLocalAgentValidation(t *testing.T) {
-	for _, ok := range []string{"", LocalAgentOff, LocalAgentObserve, "OFF", " Observe "} {
+	for _, ok := range []string{
+		"", LocalAgentOff, LocalAgentObserve, LocalAgentCoordinate,
+		"OFF", " Observe ", " Coordinate ",
+	} {
 		t.Run("valid_"+ok, func(t *testing.T) {
 			cfg := Default()
 			cfg.LocalAgent = ok
@@ -139,12 +144,12 @@ func TestLocalAgentValidation(t *testing.T) {
 			}
 		})
 	}
-	for _, bad := range []string{"on", "true", "register", "coordinate", "collaborate", "observing"} {
+	for _, bad := range []string{"on", "true", "register", "collaborate", "observing", "coordination"} {
 		t.Run("invalid_"+bad, func(t *testing.T) {
 			cfg := Default()
 			cfg.LocalAgent = bad
 			err := cfg.Validate()
-			tstRequireErrContains(t, err, "local_agent", "off / observe")
+			tstRequireErrContains(t, err, "local_agent", "off / observe / coordinate")
 		})
 	}
 }

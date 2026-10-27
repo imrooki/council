@@ -161,7 +161,7 @@ func (c *Config) Validate() error {
 	// 空串按 off 处理：直接构造的 Config 不经过 applyDefaults（同语言那条）。
 	// 错误文案把合法取值列全，否则用户写 local_agent = "on" 只能靠猜。
 	if !validLocalAgentLevel(c.LocalAgent) {
-		add("local_agent", fmt.Sprintf("不支持的本机 agent 开关 %q（可选 off / observe）", c.LocalAgent))
+		add("local_agent", fmt.Sprintf("不支持的本机 agent 开关 %q（可选 off / observe / coordinate）", c.LocalAgent))
 	}
 
 	if c.DataDir != "" && !filepath.IsAbs(c.DataDir) {
@@ -203,17 +203,18 @@ func validLanguage(language string) bool {
 	}
 }
 
-// validLocalAgentLevel 只接受空串、off 与 observe，大小写不敏感（Load 会
-// 归一成小写；手写配置里写 OBSERVE 不该被拒绝）。空串接受的理由与
+// validLocalAgentLevel 只接受空串、off、observe 与 coordinate，大小写不敏感
+// （Load 会归一成小写；手写配置里写 OBSERVE 不该被拒绝）。空串接受的理由与
 // validLanguage 相同：直接构造的 Config 没有经过 applyDefaults，语义上
 // 空串就是 off。
 //
-// 为什么只认这两档：L2 及以上的层级（register / coordinate / collaborate）
-// 在 v1 没有实现，写进合法枚举会让用户以为功能已经开了，而实际没有任何
-// 消息、租约或模型调用。
+// 为什么只认这三档：register（外部登记）与 collaborate（模型参与的协作）在
+// v1 没有实现，写进合法枚举会让用户以为功能已经开了，而实际没有任何消息或
+// 模型调用。coordinate 是实现了租约之后才放进来的（Plan §4.3 ③ 的取值表里
+// 它的含义就是资源协调）。
 func validLocalAgentLevel(level string) bool {
 	switch strings.ToLower(strings.TrimSpace(level)) {
-	case "", LocalAgentOff, LocalAgentObserve:
+	case "", LocalAgentOff, LocalAgentObserve, LocalAgentCoordinate:
 		return true
 	default:
 		return false

@@ -168,7 +168,7 @@ flags:
   council_ask          问议会一轮（可指定成员、预算、工作目录、续接会话）
   council_models       列出可用成员（配置 + .claude/agents 导入）
   council_round        多轮议会 + 汇总（1..5 轮）
-  council_who          只读列出本机 agent 进程（需要 config 里 local_agent = "observe"；不花额度）
+  council_who          只读列出本机 agent 进程（需要 config 里 local_agent = "observe" 或 "coordinate"；不花额度）
 `,
 
 	// ---- council serve：用法块 ----
@@ -196,12 +196,12 @@ Flags:
 	"cli.serve.err.addrNotLoopback": "只允许绑定回环地址（127.0.0.0/8、::1、localhost），%q 不是回环地址",
 
 	// ---- council who ----
-	"cli.who.flag.json":           "按 JSON 输出（local_agent / managed / observed / notice）",
+	"cli.who.flag.json":           "按 JSON 输出（local_agent / managed / observed / leases / notice）",
 	"cli.who.flag.config":         "配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml",
 	"cli.who.flag.lang":           "输出语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）",
 	"cli.who.error.positional":    "council who 不接受位置参数，多出来的是: %v\n",
 	"cli.who.configBroken":        "council who: 配置文件有问题: %v\n",
-	"cli.who.off":                 `本机 agent 观察未开启（config 里 local_agent = "observe" 可开启）`,
+	"cli.who.off":                 `本机 agent 未开启（config 里 local_agent = "observe" 开启观察，"coordinate" 同时开启资源租约）`,
 	"cli.who.headManaged":         "Council 管理的成员（%d）",
 	"cli.who.managedRow":          "  会话 %s / 成员 %s / turn %s / phase %s / 起于 %s",
 	"cli.who.managedEmpty":        "  （没有在飞的成员）",
@@ -211,23 +211,119 @@ Flags:
 	"cli.who.observedEmpty":       "  （没有发现本机 agent 进程）",
 	"cli.who.observedUnavailable": "  （进程枚举不可用：%v）",
 	"cli.who.unknown":             "未知",
-	"cli.who.note":                "本命令看的是本机进程，不是会话成员；不读取命令行、环境变量或其它 CLI 的配置；两段不做 PID 合并（.cmd 垫片拿到的是 cmd.exe 的 PID）。",
+	"cli.who.headLeases":          "本机租约（%d）",
+	"cli.who.leaseRow":            "  资源 %s / 持有者 %s/%s / 模式 %s / 代数 %d / 到期 %s / lease %s",
+	"cli.who.leasesEmpty":         "  （没有有效租约）",
+	"cli.who.leasesUnavailable":   "  （租约读不出来：%v）",
+	"cli.who.note":                "本命令看的是本机进程，不是会话成员；不读取命令行、环境变量或其它 CLI 的配置；三段不做 PID 合并（.cmd 垫片拿到的是 cmd.exe 的 PID）；租约是提醒，不是文件锁。",
 	"cli.who.usage": `用法: council who [flags]
 
-只读列出两段本机事实，不拿 council.lock，可以在 TUI 或 serve -rw 开着的时候跑：
+只读列出三段本机事实，不拿 council.lock，可以在 TUI 或 serve -rw 开着的时候跑：
   1. Council 管理的成员：库里正在飞的 turn
-  2. 本机其他 agent 进程：claude / codex / grok / agy（需要 config 里 local_agent = "observe"）
+  2. 本机其他 agent 进程：claude / codex / grok / agy（需要 config 里 local_agent = "observe" 或 "coordinate"）
+  3. 本机租约：仍然有效的 council claim（租约要 schema v10；旧库这一段只说读不出来）
 本命令看的是本机进程，不是会话成员（那是在 council 里敲 /who）。
 certainty=exact 只给落在已知 CLI 安装目录里的进程；路径拿不到或不在安装目录里的标 probable，
 桌面客户端（Claude Desktop 等）的同名 claude.exe 不报。
 不读取命令行、环境变量或其它 CLI 的配置；local_agent = "off"（默认）时一次进程都不枚举。
 
 flags:
-  -json                按 JSON 输出（local_agent / managed / observed / notice）
+  -json                按 JSON 输出（local_agent / managed / observed / leases / notice）
   -config <path>       配置文件路径，与全局 -config 含义相同
   -lang zh|en|auto     输出语言，默认 auto
 `,
-	// ---- 命令细则输出（本片；中文值 = 调用处的 fallback 原文） ----
+	// ---- council claim / release（L2 资源租约） ----
+	"cli.claim.flag.config": "配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml",
+	"cli.claim.flag.lang":   "输出语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）",
+	"cli.claim.flag.json":   "按 JSON 输出（granted / resource / mode / lease / holder / notice）",
+	"cli.claim.flag.mode":   "租约模式：write（独占，默认）或 read（共享）",
+	"cli.claim.flag.ttl":    "租约有效期，例如 5m / 1h（默认 2m，最短 5s，最长 24h）",
+	"cli.claim.flag.owner":  "持有者名字（默认 cli@主机名）；它只是展示与交还时的匹配条件，不参与鉴权",
+
+	"cli.claim.error.positional": "council claim 需要恰好一个资源参数（目录路径，或 tcp:<host>:<port>），多出来的是: %v\n",
+	"cli.claim.notEnabled":       `本机 agent 协调未开启（config 里 local_agent = "coordinate" 可开启）：本命令不写任何租约。`,
+	"cli.claim.failed":           "council claim: %v\n",
+	"cli.claim.granted": `已获得租约
+  资源    %s
+  模式    %s
+  持有者  %s/%s
+  lease   %s
+  代数    %d
+  到期    %s（%s 之后）
+交还：council release %s。租约只写库，不扫描进程、不调用任何模型。
+`,
+	"cli.claim.busy": `资源被占用，没有拿到租约
+  资源    %s
+  持有者  %s/%s（%s 租约）
+  lease   %s
+  到期    %s
+先等它到期，或请持有者 council release %s 之后再申请。租约是自愿遵守的提醒，不会阻止任何进程写文件。
+`,
+	"cli.claim.usage": `用法: council claim <目录|tcp:端口> [flags]
+
+在 council.db（schema v10）里申请一条资源租约。租约是**自愿遵守的提醒**，
+不是文件锁：它不阻止任何进程写文件，只是让下一个 agent 知道这个资源有人占着。
+本命令零模型调用、零进程扫描，只读写两张表。
+
+开启方式：config 里 local_agent = "coordinate"（设置页第 6 类也能改）。
+写库要拿 council.lock，所以 serve -rw / TUI / council mcp 正在跑时会明确拒绝。
+
+退出码: 0 拿到租约；3 被拒（被占用 / 层级未开启 / 没有这条租约）；1 出错；2 用法错误。
+
+flags:
+  -mode read|write     租约模式，默认 write（独占）；read 可并存
+  -ttl <duration>      有效期，例如 5m / 1h（默认 2m，最短 5s，最长 24h）
+  -owner <name>        持有者名字，默认 cli@主机名（只是展示与交还匹配，不参与鉴权）
+  -json                按 JSON 输出（granted / resource / mode / lease / holder / notice）
+  -config <path>       配置文件路径，与全局 -config 含义相同
+  -lang zh|en|auto     输出语言，默认 auto
+`,
+
+	"cli.release.flag.config":   "配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml",
+	"cli.release.flag.lang":     "输出语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）",
+	"cli.release.flag.json":     "按 JSON 输出（released / resource / notice）",
+	"cli.release.flag.lease":    "要交还的 lease_id（council claim 的输出里有）",
+	"cli.release.flag.resource": "按资源交还自己在这个资源上的全部租约（需要 -owner 匹配，默认 cli@主机名）",
+	"cli.release.flag.owner":    "持有者名字，与 claim 时给的一致（默认 cli@主机名）；只释放名字完全相同的租约",
+
+	"cli.release.error.positional": "council release 不接受位置参数，用 -lease 或 -resource 指定目标；多出来的是: %v\n",
+	"cli.release.error.target":     "council release 需要一个目标：-lease <lease_id> 或 -resource <目录|tcp:端口>\n",
+	"cli.release.error.both":       "council release 只接受一个目标：-lease 与 -resource 不能同时给\n",
+	"cli.release.failed":           "council release: %v\n",
+	"cli.release.notFound":         "没有这条租约：%s（它可能已经被删掉，或 lease_id 抄错了）",
+	"cli.release.already":          "租约 %s 的状态是 %s，不需要再交还（没有改动，也没有写事件）。",
+	"cli.release.nothing":          "这个资源上没有 %s 的租约可交还（只释放 owner_id 完全相同的租约，没有 force）。",
+	"cli.release.released":         "已交还 %d 条租约\n",
+	"cli.release.usage": `用法: council release -lease <lease_id>
+       council release -resource <目录|tcp:端口> [-owner <name>]
+
+交还自己申请的租约（state 改成 released 并留一条事件）。交还**不需要**
+local_agent = coordinate：关小开关不该让已经发出去的授权无法收回。
+
+只释放 owner_id 完全相同的租约，没有 force 参数 —— 释放别人的租约不在本模块
+的能力里。写库同样要拿 council.lock。
+
+退出码: 0 交还成功（或本来就已交还）；3 没找到可交还的租约；1 出错；2 用法错误。
+
+flags:
+  -lease <id>          要交还的 lease_id（council claim 的输出里有）
+  -resource <dir|port> 按资源交还自己在这个资源上的全部租约
+  -owner <name>        持有者名字，默认 cli@主机名
+  -json                按 JSON 输出（released / resource / notice）
+  -config <path>       配置文件路径，与全局 -config 含义相同
+  -lang zh|en|auto     输出语言，默认 auto
+`,
+
+	// 两个子命令共用的两条环境失败文案。
+	"cli.lease.configBroken": "%s: 配置文件有问题: %v\n",
+	"cli.lease.openFailed":   "%s: 打不开本地库（数据目录 %s）: %v\n",
+	"cli.lease.locked": `%s: 数据目录正被另一个 council 进程占用（council.lock）。
+租约与主库在同一个 council.db 里，写它必须先拿到那把锁；本命令不会绕过锁另开一个库。
+  数据目录  %s
+先停下 serve -rw（含桌面壳自己拉起的那个）、TUI 或 council mcp，再重跑本命令。
+`,
+
+	// ---- 命令细则输出（中文值 = 调用处的 fallback 原文） ----
 
 	"cli.add.comment":            "council /add 追加：%s 识别出的 %s（%s）",
 	"cli.add.backupPrefix":       "备份: ",
@@ -389,7 +485,7 @@ tools:
   council_ask          ask the council once (members, budget, cwd, continue a conversation)
   council_models       list available members (config + .claude/agents imports)
   council_round        multi-round debate + summary (1..5 rounds)
-  council_who          list local agent processes read-only (requires local_agent = "observe"; costs nothing)
+  council_who          list local agent processes read-only (requires local_agent = "observe" or "coordinate"; costs nothing)
 `,
 
 	"cli.serve.usage": `Usage: council serve [flags]
@@ -420,7 +516,7 @@ Flags:
 	"cli.who.flag.lang":           "Output language: zh / en / auto (auto, the default, checks COUNCIL_LANG, then language in the config, then the system locale)",
 	"cli.who.error.positional":    "council who does not accept positional arguments; got: %v\n",
 	"cli.who.configBroken":        "council who: the config file has problems: %v\n",
-	"cli.who.off":                 `local agent observation is off (set local_agent = "observe" in the config to enable it)`,
+	"cli.who.off":                 `local agent is off (set local_agent = "observe" to observe, or "coordinate" to also allow resource leases)`,
 	"cli.who.headManaged":         "Members managed by Council (%d)",
 	"cli.who.managedRow":          "  conversation %s / member %s / turn %s / phase %s / started %s",
 	"cli.who.managedEmpty":        "  (no in-flight turns)",
@@ -430,21 +526,119 @@ Flags:
 	"cli.who.observedEmpty":       "  (no local agent processes found)",
 	"cli.who.observedUnavailable": "  (process enumeration unavailable: %v)",
 	"cli.who.unknown":             "unknown",
-	"cli.who.note":                "This command looks at local processes, not conversation members; it reads no command lines, environment variables or other CLIs' config files; the two sections are not joined by PID (.cmd shims report cmd.exe's PID).",
+	"cli.who.headLeases":          "Local leases (%d)",
+	"cli.who.leaseRow":            "  resource %s / holder %s/%s / mode %s / generation %d / expires %s / lease %s",
+	"cli.who.leasesEmpty":         "  (no valid leases)",
+	"cli.who.leasesUnavailable":   "  (leases could not be read: %v)",
+	"cli.who.note":                "This command looks at local processes, not conversation members; it reads no command lines, environment variables or other CLIs' config files; the three sections are not joined by PID (.cmd shims report cmd.exe's PID); a lease is a reminder, not a file lock.",
 	"cli.who.usage": `Usage: council who [flags]
 
-Print two read-only local sections without taking council.lock, so it works while the TUI or serve -rw is running:
+Print three read-only local sections without taking council.lock, so it works while the TUI or serve -rw is running:
   1. Members managed by Council: in-flight turns from the database
-  2. Other local agent processes: claude / codex / grok / agy (requires local_agent = "observe" in the config)
+  2. Other local agent processes: claude / codex / grok / agy (requires local_agent = "observe" or "coordinate" in the config)
+  3. Local leases: still-valid council claim records (leases need schema v10; on an older database this section only says it could not be read)
 This command looks at local processes, not conversation members (that is /who inside council).
 certainty=exact is only for processes under a known CLI install directory; missing or unknown paths are probable,
 and same-named claude.exe of desktop clients (Claude Desktop etc.) is not reported.
 It reads no command lines, environment variables or other CLIs' config files; with local_agent = "off" (the default) it enumerates nothing.
 
 flags:
-  -json                print JSON (local_agent / managed / observed / notice)
+  -json                print JSON (local_agent / managed / observed / leases / notice)
   -config <path>       config file path, same meaning as the global -config
   -lang zh|en|auto     output language, default auto
+`,
+	// ---- council claim / release (L2 resource leases) ----
+	"cli.claim.flag.config": "Config file path; takes precedence over COUNCIL_CONFIG and the default ~/.council/config.toml",
+	"cli.claim.flag.lang":   "Output language: zh / en / auto (auto, the default, checks COUNCIL_LANG, then language in the config, then the system locale)",
+	"cli.claim.flag.json":   "Print JSON (granted / resource / mode / lease / holder / notice)",
+	"cli.claim.flag.mode":   "Lease mode: write (exclusive, the default) or read (shared)",
+	"cli.claim.flag.ttl":    "Lease lifetime, e.g. 5m / 1h (default 2m, minimum 5s, maximum 24h)",
+	"cli.claim.flag.owner":  "Owner name (default cli@hostname); used for display and for matching on release, never for authorization",
+
+	"cli.claim.error.positional": "council claim needs exactly one resource argument (a directory path, or tcp:<host>:<port>); got: %v\n",
+	"cli.claim.notEnabled":       `Local agent coordination is off (set local_agent = "coordinate" in the config to enable it): this command writes no lease.`,
+	"cli.claim.failed":           "council claim: %v\n",
+	"cli.claim.granted": `Lease granted
+  resource   %s
+  mode       %s
+  owner      %s/%s
+  lease      %s
+  generation %d
+  expires    %s (in %s)
+Release it with: council release %s. A lease only touches the database: no process scan, no model call.
+`,
+	"cli.claim.busy": `The resource is taken; no lease was granted
+  resource   %s
+  holder     %s/%s (%s lease)
+  lease      %s
+  expires    %s
+Wait for it to expire, or ask the holder to run council release %s and try again. Leases are voluntary reminders; they never stop a process from writing files.
+`,
+	"cli.claim.usage": `Usage: council claim <dir|tcp:port> [flags]
+
+Take a resource lease in council.db (schema v10). A lease is a voluntary reminder,
+not a file lock: it never stops a process from writing, it only tells the next agent
+that someone holds this resource. This command makes no model call and scans no
+process; it only reads and writes two tables.
+
+Enabling it: local_agent = "coordinate" in the config (the 6th settings page works too).
+Writing needs council.lock, so it refuses clearly while serve -rw / the TUI / council mcp is running.
+
+Exit codes: 0 lease granted; 3 denied (taken / level off / lease not found); 1 error; 2 usage error.
+
+flags:
+  -mode read|write     lease mode, write (exclusive) by default; read can be shared
+  -ttl <duration>      lifetime, e.g. 5m / 1h (default 2m, minimum 5s, maximum 24h)
+  -owner <name>        owner name, default cli@hostname (display and release matching only, never authorization)
+  -json                print JSON (granted / resource / mode / lease / holder / notice)
+  -config <path>       config file path, same meaning as the global -config
+  -lang zh|en|auto     output language, default auto
+`,
+
+	"cli.release.flag.config":   "Config file path; takes precedence over COUNCIL_CONFIG and the default ~/.council/config.toml",
+	"cli.release.flag.lang":     "Output language: zh / en / auto (auto, the default, checks COUNCIL_LANG, then language in the config, then the system locale)",
+	"cli.release.flag.json":     "Print JSON (released / resource / notice)",
+	"cli.release.flag.lease":    "The lease_id to release (council claim prints it)",
+	"cli.release.flag.resource": "Release all of your own leases on this resource (matched by -owner, default cli@hostname)",
+	"cli.release.flag.owner":    "Owner name, the same one used with claim (default cli@hostname); only leases with exactly this name are released",
+
+	"cli.release.error.positional": "council release does not accept positional arguments; use -lease or -resource; got: %v\n",
+	"cli.release.error.target":     "council release needs a target: -lease <lease_id> or -resource <dir|tcp:port>\n",
+	"cli.release.error.both":       "council release accepts a single target: -lease and -resource cannot be combined\n",
+	"cli.release.failed":           "council release: %v\n",
+	"cli.release.notFound":         "No such lease: %s (it may have been deleted, or the lease_id is mistyped)",
+	"cli.release.already":          "Lease %s is already %s; nothing to release (file untouched, no event written).",
+	"cli.release.nothing":          "No lease of %s to release on this resource (only leases with an exactly matching owner_id are released; there is no force).",
+	"cli.release.released":         "Released %d lease(s)\n",
+	"cli.release.usage": `Usage: council release -lease <lease_id>
+       council release -resource <dir|tcp:port> [-owner <name>]
+
+Return a lease you took (state becomes released and an event is recorded). Releasing
+does **not** require local_agent = coordinate: turning the setting down must not
+strand an authorization you already handed out.
+
+Only leases with an exactly matching owner_id are released; there is no force
+parameter, because releasing someone else's lease is outside this module. Writing
+also needs council.lock.
+
+Exit codes: 0 released (or already released); 3 nothing matchable to release; 1 error; 2 usage error.
+
+flags:
+  -lease <id>          the lease_id to release (council claim prints it)
+  -resource <dir|port> release all of your own leases on this resource
+  -owner <name>        owner name, default cli@hostname
+  -json                print JSON (released / resource / notice)
+  -config <path>       config file path, same meaning as the global -config
+  -lang zh|en|auto     output language, default auto
+`,
+
+	// Shared by both subcommands when the environment is the problem.
+	"cli.lease.configBroken": "%s: the config file has problems: %v\n",
+	"cli.lease.openFailed":   "%s: cannot open the local database (data dir %s): %v\n",
+	"cli.lease.locked": `%s: the data dir is held by another council process (council.lock).
+Leases live in the same council.db, so writing them needs that lock; this command never opens a second database to bypass it.
+  data dir  %s
+Stop serve -rw (including the one the desktop shell starts), the TUI or council mcp, then run the command again.
 `,
 	// ---- command-detail output (this slice) ----
 

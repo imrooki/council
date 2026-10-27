@@ -125,7 +125,7 @@ func TestWhoOffDoesNotEnumerateOrOpenDB(t *testing.T) {
 			if code != exitOK {
 				t.Fatalf("退出码 = %d，期望 %d（stderr: %s）", code, exitOK, errOut.String())
 			}
-			want := `本机 agent 观察未开启（config 里 local_agent = "observe" 可开启）`
+			want := `本机 agent 未开启（config 里 local_agent = "observe" 开启观察，"coordinate" 同时开启资源租约）`
 			if got := strings.TrimSpace(out.String()); got != want {
 				t.Errorf("off 输出 = %q，期望恰好 %q", got, want)
 			}
@@ -309,6 +309,108 @@ func TestWhoObserveJSON(t *testing.T) {
 	if report.Observed[1].Kind != "codex" || report.Observed[1].StartedAt != "" ||
 		report.Observed[1].Certainty != "probable" {
 		t.Errorf("拿不到路径时应当标 probable 且启动时间为空串，实际: %+v", report.Observed[1])
+	}
+}
+
+// TestWhoShowsLeases 覆盖第三段（L2 的租约）：只读打开 v10 库时列出仍然有效的
+// 租约；没有租约时也照样打标题与「没有有效租约」，让用户分得清「没有」与
+// 「这段没跑」。
+func TestWhoShowsLeases(t *testing.T) {
+	whoTestEnv(t)
+	dataDir := filepath.Join(t.TempDir(), "data")
+	cfgPath := whoTestConfig(t, dataDir, `local_agent = "coordinate"`)
+
+	// 用写模式造一条租约（也是 v10 库的第一次建立）。
+	ctx := context.Background()
+	st, err := store.Open(ctx, dataDir)
+	if err != nil {
+		t.Fatalf("建库失败: %v", err)
+	}
+	lease, err := st.ClaimLease(ctx, store.LeaseRequest{
+		ResourceKey: `d:\shared\proj`,
+		OwnerKind:   store.LeaseOwnerCLI,
+		OwnerID:     "someone",
+		Access:      store.LeaseWrite,
+		TTL:         time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("ClaimLease 失败: %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("关库失败: %v", err)
+	}
+
+	deps := whoDeps{
+		Enumerate:    func() ([]localagent.Process, error) { return nil, nil },
+		OpenReadOnly: store.OpenReadOnly,
+	}
+
+	var out, errOut bytes.Buffer
+	if code := runWhoWith([]string{"-config", cfgPath}, deps, &out, &errOut); code != exitOK {
+		t.Fatalf("退出码 = %d（stderr: %s）", code, errOut.String())
+	}
+	text := out.String()
+	for _, want := range []string{
+		"本机租约（1）",
+		"资源 d:\\shared\\proj / 持有者 cli/someone / 模式 write / 代数 1 / 到期 ",
+		lease.ID,
+		"租约是提醒，不是文件锁",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("文本输出缺少 %q，实际:\n%s", want, text)
+		}
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if code := runWhoWith([]string{"-config", cfgPath, "-json"}, deps, &out, &errOut); code != exitOK {
+		t.Fatalf("JSON 退出码 = %d（stderr: %s）", code, errOut.String())
+	}
+	var report struct {
+		Leases []struct {
+			LeaseID     string `json:"lease_id"`
+			ResourceKey string `json:"resource_key"`
+			OwnerKind   string `json:"owner_kind"`
+			OwnerID     string `json:"owner_id"`
+			Mode        string `json:"mode"`
+			Generation  int64  `json:"generation"`
+			ExpiresAt   string `json:"expires_at"`
+		} `json:"leases"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("输出不是合法 JSON: %v\n输出: %s", err, out.String())
+	}
+	if len(report.Leases) != 1 {
+		t.Fatalf("leases 有 %d 行，期望 1 行", len(report.Leases))
+	}
+	got := report.Leases[0]
+	if got.LeaseID != lease.ID || got.ResourceKey != `d:\shared\proj` ||
+		got.OwnerKind != "cli" || got.OwnerID != "someone" ||
+		got.Mode != "write" || got.Generation != 1 || got.ExpiresAt == "" {
+		t.Errorf("租约行内容不对: %+v", got)
+	}
+
+	// 没有租约时：标题照打，正文说「没有有效租约」。
+	emptyDir := filepath.Join(t.TempDir(), "empty-data")
+	emptyCfg := whoTestConfig(t, emptyDir, `local_agent = "observe"`)
+	seeded, err := store.Open(ctx, emptyDir)
+	if err != nil {
+		t.Fatalf("建空库失败: %v", err)
+	}
+	if err := seeded.Close(); err != nil {
+		t.Fatalf("关空库失败: %v", err)
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := runWhoWith([]string{"-config", emptyCfg}, whoDeps{
+		Enumerate:    func() ([]localagent.Process, error) { return nil, nil },
+		OpenReadOnly: store.OpenReadOnly,
+	}, &out, &errOut); code != exitOK {
+		t.Fatalf("空库退出码 = %d（stderr: %s）", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "本机租约（0）") ||
+		!strings.Contains(out.String(), "没有有效租约") {
+		t.Errorf("空租约输出不对:\n%s", out.String())
 	}
 }
 

@@ -36,6 +36,7 @@ var migrations = []migration{
 	{version: 7, stmts: v7DDL, shape: v7Shape},
 	{version: 8, stmts: v8DDL, shape: v8Shape},
 	{version: 9, stmts: v9DDL, shape: v9Shape},
+	{version: 10, stmts: v10DDL, shape: v10Shape},
 }
 
 // v1DDL 一次建齐 schema_migrations 与六张业务表。
@@ -626,6 +627,104 @@ func buildV9Shape() map[string][]columnShape {
 		{name: "name", typ: "TEXT", notnull: true},
 		{name: "sort_order", typ: "INTEGER", notnull: true},
 		{name: "created_at", typ: "TEXT", notnull: true},
+	}
+	return shape
+}
+
+// v10DDL 建资源租约与租约事件两张表，只加不改：没有任何既有表被改动。
+//
+// 为什么租约要落库，而观察到的进程不落库（S-09 / Plan §9.1）：进程是「此刻」
+// 的事实，刷新一次就失去价值，落库只会留下「某天某时你开着什么」的历史；
+// 租约是**跨轮次、跨进程重启**的事实，下一次启动必须读到「这个目录现在归谁」，
+// 否则协调层会重复授权。两张表进同一个 schema 账本，不另立第二套迁移。
+//
+// 列与 Plan §8.3 一一对应：lease_id / owner_kind / owner_id / resource_key /
+// access_mode / generation / state / granted_at / expires_at / heartbeat_at。
+//
+// 两个部分索引合起来表达「读共享、写独占」：
+//   - idx_local_leases_write 是**唯一**索引：同一个 resource_key 上只能有
+//     一条 state='granted' 且 access_mode='write' 的行。这一条由 SQLite 保证，
+//     不依赖 Go 侧判断的先后顺序。
+//   - idx_local_leases_live 覆盖同一资源上的全部 granted 行（含 read），
+//     冲突判定按它读，避免全表扫。
+//
+// read+read 可以并存，read 与 write 互斥；后者靠写入事务里的判定（读共享
+// 无法用一条唯一索引表达）。Plan §4.3 ④ 的草图只有一条
+// `UNIQUE(resource_key) WHERE state='granted'`，那会把两个 read 也判成冲突，
+// 与 §8.3 的「读共享/写独占」矛盾；这里按 §8.3 实现，唯一性只加在写租约上。
+//
+// 为什么不给 state / access_mode / owner_kind 加 CHECK（v1 的 messages.kind
+// 有）：Plan §8.3 明确要给等待队列留 state='queued'，而 SQLite 改不了 CHECK，
+// 只能重建整张表来放宽它。枚举由 store 层的 Go 代码守，DDL 只守住「同一资源
+// 不能有两条 granted 的写租约」这条硬约束。
+//
+// 为什么没有 REFERENCES：租约引用的是资源键与自述持有者，不是会话行或成员行；
+// 挂外键会让「成员被删掉」把一条仍然有效的租约一起带走，那是更坏的结果。
+var v10DDL = []string{
+	`CREATE TABLE local_leases (
+    lease_id     TEXT PRIMARY KEY,
+    resource_key TEXT NOT NULL,
+    owner_kind   TEXT NOT NULL,
+    owner_id     TEXT NOT NULL,
+    access_mode  TEXT NOT NULL,
+    generation   INTEGER NOT NULL,
+    state        TEXT NOT NULL,
+    granted_at   TEXT NOT NULL,
+    expires_at   TEXT NOT NULL,
+    heartbeat_at TEXT NOT NULL
+)`,
+	`CREATE INDEX idx_local_leases_live ON local_leases (resource_key) WHERE state = 'granted'`,
+	`CREATE UNIQUE INDEX idx_local_leases_write ON local_leases (resource_key) WHERE state = 'granted' AND access_mode = 'write'`,
+	`CREATE TABLE local_lease_events (
+    id       TEXT PRIMARY KEY,
+    lease_id TEXT NOT NULL,
+    at       TEXT NOT NULL,
+    kind     TEXT NOT NULL,
+    detail   TEXT NOT NULL DEFAULT '{}'
+)`,
+	// 事件表只按 lease_id 读（一条租约的完整历史）。没有这条索引，读一次
+	// 历史就是全表扫，而这张表只增不删。
+	`CREATE INDEX idx_local_lease_events_lease ON local_lease_events (lease_id, at)`,
+}
+
+// v10Shape 必须从 v9 深拷贝：新的 map，并且每张表一份新的列切片。
+// v10Shape = v9Shape 是裸别名，两份变量指向同一张 map，加表会把 v9Shape
+// 一起改掉 —— 拿着 v9 旧库的人从此对不上，而迁移本身照跑、Open 照样成功。
+//
+// 这一版只**新增两张表**，不往既有表的切片里 append，所以逐表 copy 一次就够
+// （cap 大于 len 只会在 append 时咬人）。将来若要给既有表加列，必须像
+// buildV9Shape 对 conversations 那样再拷一次，把容量也拷干净。
+//
+// notnull 的填写规则同前几版：TEXT PRIMARY KEY 在 pragma_table_info 里报
+// notnull=0（workspaces.id、conversations.id 同一体例），其余 NOT NULL 列报 1；
+// detail 写了 DEFAULT 但仍是 NOT NULL，所以也是 1。
+var v10Shape = buildV10Shape()
+
+func buildV10Shape() map[string][]columnShape {
+	shape := make(map[string][]columnShape, len(v9Shape)+2)
+	for table, cols := range v9Shape {
+		copied := make([]columnShape, len(cols))
+		copy(copied, cols)
+		shape[table] = copied
+	}
+	shape["local_leases"] = []columnShape{
+		{name: "lease_id", typ: "TEXT", notnull: false},
+		{name: "resource_key", typ: "TEXT", notnull: true},
+		{name: "owner_kind", typ: "TEXT", notnull: true},
+		{name: "owner_id", typ: "TEXT", notnull: true},
+		{name: "access_mode", typ: "TEXT", notnull: true},
+		{name: "generation", typ: "INTEGER", notnull: true},
+		{name: "state", typ: "TEXT", notnull: true},
+		{name: "granted_at", typ: "TEXT", notnull: true},
+		{name: "expires_at", typ: "TEXT", notnull: true},
+		{name: "heartbeat_at", typ: "TEXT", notnull: true},
+	}
+	shape["local_lease_events"] = []columnShape{
+		{name: "id", typ: "TEXT", notnull: false},
+		{name: "lease_id", typ: "TEXT", notnull: true},
+		{name: "at", typ: "TEXT", notnull: true},
+		{name: "kind", typ: "TEXT", notnull: true},
+		{name: "detail", typ: "TEXT", notnull: true},
 	}
 	return shape
 }

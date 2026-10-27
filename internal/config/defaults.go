@@ -69,9 +69,11 @@ func DefaultTOML() string {
 # 本键、系统区域；都不是英文/中文时回落到中文。
 # language = 'auto'
 #
-# local_agent: 本机 agent 观察（可选模块）。off（默认）或 observe。
-# off 时一次进程都不枚举、不起后台任务；observe 之后 council who 与 MCP 的
-# council_who 才会只读地列出本机 claude / codex / grok / agy 进程。
+# local_agent: 本机 agent 模块（可选）。off（默认）/ observe / coordinate。
+# off 时一次进程都不枚举、不起后台任务、不接受租约申请；observe 之后 council who
+# 与 MCP 的 council_who 才会只读地列出本机 claude / codex / grok / agy 进程；
+# coordinate 在观察之外还允许 council claim / release 申请资源租约（自愿遵守，不是锁）。
+# 三档逐级开启：observe 不会打开租约，coordinate 需要自己选。
 # local_agent = 'off'
 #
 # [providers.<id>]: council 去哪找这家工具。id 是 claude、grok、agy、codex 之一，
