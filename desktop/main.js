@@ -4,7 +4,7 @@
 // 所有业务仍然在 Go 的 HTTP 服务里，Electron 这边不读库、不跑议会，
 // 也不替用户登录任何东西。
 
-const { app, BrowserWindow, Menu, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, shell } = require('electron');
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -46,8 +46,12 @@ let councilStdoutTail = '';
 let councilStderrTail = '';
 let spawnedInfo = null;
 let startupFinished = false;
+let startupStarted = false;
 let startupFailed = false;
 let quitting = false;
+let quitInProgress = false;
+let tray = null;
+let lastSecondInstanceLogAt = 0;
 
 class StartupFailure extends Error {
   constructor(title, message) {
@@ -640,9 +644,147 @@ function modeSuffix() {
   return host ? ` · ${label} ${host}` : ` · ${label}`;
 }
 
+function appTitleText() {
+  return `${pageTitle || APP_TITLE}${modeSuffix()}`;
+}
+
+// 托盘 tip 与窗口标题用同一句话：页面标题本身带「写模式 / 只读看板」，
+// modeSuffix 再补「已连接 / 自启 + host」，正好是任务要求的模式与地址。
 function updateWindowTitle() {
+  const title = appTitleText();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setTitle(title);
+  if (!tray) return;
+  try {
+    tray.setToolTip(title);
+  } catch {
+    /* 托盘刚被销毁时忽略。 */
+  }
+  refreshTrayMenu();
+}
+
+function browserTargetUrl() {
+  if (baseUrl) return baseUrl;
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+  const current = mainWindow.webContents.getURL();
+  if (isHttpUrl(current) && isSameAppOrigin(current)) return current;
+  return null;
+}
+
+function refreshTrayMenu() {
+  if (!tray) return;
+  const target = browserTargetUrl();
+  const menu = Menu.buildFromTemplate([
+    {
+      label: '打开 Council',
+      click: () => showMainWindow(),
+    },
+    {
+      label: '在浏览器中打开',
+      enabled: Boolean(target),
+      click: () => {
+        if (!target) return;
+        logEvent(`tray open in browser url=${target}`);
+        shell.openExternal(target).catch((error) => {
+          logEvent(`tray open in browser failed: ${error.message}`);
+        });
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '彻底退出',
+      click: () => {
+        quitFromTray().catch((error) => {
+          logEvent(`tray quit failed: ${error && error.message ? error.message : String(error)}`);
+          app.exit(1);
+        });
+      },
+    },
+  ]);
+  tray.setContextMenu(menu);
+}
+
+function createTray() {
+  if (tray) return;
+  const icon = windowIconPath();
+  if (!icon) {
+    // 没有图标就不隐藏窗口：否则用户只能靠任务管理器结束一个看不见的进程。
+    logEvent('tray icon missing; close will quit instead of hiding');
+    return;
+  }
+  try {
+    tray = new Tray(icon);
+  } catch (error) {
+    tray = null;
+    logEvent(`tray creation failed: ${error.message}; close will quit instead of hiding`);
+    return;
+  }
+  tray.setToolTip(appTitleText());
+  tray.on('click', () => showMainWindow());
+  tray.on('double-click', () => showMainWindow());
+  refreshTrayMenu();
+  logEvent(`tray created icon="${icon}"`);
+}
+
+function destroyTray() {
+  if (!tray) return;
+  try {
+    tray.destroy();
+  } catch {
+    /* 已经销毁。 */
+  }
+  tray = null;
+}
+
+// 点 × 只隐藏窗口。真正退出的路径是托盘菜单的「彻底退出」（或系统结束进程），
+// 这样自启的 council 不会被顺手带走，再打开时界面状态也还在。
+function hideMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.setTitle(`${pageTitle || APP_TITLE}${modeSuffix()}`);
+  try {
+    // 显式再确认一次；webPreferences 里同样是 true，双保险，绝不打开节流开关的反面。
+    mainWindow.webContents.setBackgroundThrottling(true);
+  } catch {
+    /* 窗口正在销毁时忽略。 */
+  }
+  mainWindow.hide();
+  logEvent('window hidden to tray; backgroundThrottling=true');
+}
+
+function showMainWindow() {
+  if (quitting || startupFailed) return;
+  if (!startupStarted) return;
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    if (!startupFinished) return;
+    logEvent('window is gone; recreating it from tray');
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) mainWindow.show();
+  // single-instance 的 2 秒重试会连着发多次事件：已经在前台就不要再抢焦点。
+  if (!mainWindow.isFocused()) mainWindow.focus();
+}
+
+async function quitFromTray() {
+  if (quitInProgress || quitting) return;
+  quitInProgress = true;
+  quitting = true;
+  logEvent(
+    `tray quit requested mode=${connectionMode ? connectionMode.kind : 'none'}`
+    + ` owned=${councilOwned} child=${isChildAlive()}`,
+  );
+  // 先摘掉托盘，用户立刻能看到「确实在退出」。
+  destroyTray();
+  try {
+    // attach 模式下 councilOwned=false，这里不会碰用户自己的 serve。
+    await stopOwnedChild();
+  } finally {
+    app.quit();
+  }
+}
+
+function focusWindow() {
+  showMainWindow();
 }
 
 function applyModeMarker() {
@@ -653,13 +795,6 @@ function applyModeMarker() {
     document.documentElement.dataset.councilSource = ${JSON.stringify(connectionMode.source)};
   })();`;
   mainWindow.webContents.executeJavaScript(script, true).catch(() => {});
-}
-
-function focusWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
 }
 
 function createWindow() {
@@ -677,6 +812,10 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
+      // 窗口隐藏后 Chromium 默认会节流后台计时器；这里显式写明 true，
+      // 避免以后有人为了「后台刷新」把它改掉。前端自己也有 document.hidden
+      // 判断（visibilitychange 时 stopPolling），两层一起保证隐藏后不空转。
+      backgroundThrottling: true,
     },
   };
   const icon = windowIconPath();
@@ -692,8 +831,29 @@ function createWindow() {
     mainWindow.focus();
   });
 
+  // 点 × / Alt+F4：只隐藏。没有托盘时不能藏（会变成看不见的后台进程），
+  // 此时放行 close，由 window-all-closed 负责退出。
+  mainWindow.on('close', (event) => {
+    if (quitting) return;
+    if (!tray) {
+      logEvent('close requested without tray; allowing quit');
+      return;
+    }
+    event.preventDefault();
+    hideMainWindow();
+  });
+
+  mainWindow.on('hide', () => {
+    logEvent('window hide event');
+  });
+
+  mainWindow.on('show', () => {
+    logEvent('window show event');
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
+    if (!quitting && tray) logEvent('window destroyed; tray keeps app alive');
   });
 
   const contents = mainWindow.webContents;
@@ -744,7 +904,11 @@ function createWindow() {
     );
   });
 
-  mainWindow.loadURL(loadingDataUrl(`正在检查 ${PRIMARY_PORT} 端口…`)).catch(() => {});
+  // 首次启动先画加载页；窗口若被托盘重建，则直接回到已知的 baseUrl。
+  const initialUrl = (startupFinished && baseUrl)
+    ? baseUrl
+    : loadingDataUrl(`正在检查 ${PRIMARY_PORT} 端口…`);
+  mainWindow.loadURL(initialUrl).catch(() => {});
 }
 
 function isChildAlive() {
@@ -852,6 +1016,9 @@ async function start() {
   Menu.setApplicationMenu(null);
   app.setAppUserModelId('com.council.workbench');
 
+  startupStarted = true;
+  // 托盘先建好：窗口从 ready-to-show 出现之前，× 就已经有地方可去。
+  createTray();
   createWindow();
 
   logEvent(
@@ -992,7 +1159,14 @@ async function boot() {
     return;
   }
 
+  // 已有实例在托盘时再次双击 exe：把它的窗口唤出来，新实例自己退出。
+  // 拿锁重试会连续触发这个事件，日志按 1.5 秒合并，避免一次双击写十几行。
   app.on('second-instance', () => {
+    const now = Date.now();
+    if (now - lastSecondInstanceLogAt > 1500) {
+      lastSecondInstanceLogAt = now;
+      logEvent('second instance launched; focusing existing window');
+    }
     focusWindow();
   });
 
@@ -1000,25 +1174,35 @@ async function boot() {
     failStartup(error).catch(() => app.exit(1));
   });
 
+  // 窗口关掉不代表进程退出：托盘还在，council 也还在。只有托盘不可用
+  // （图标缺失等异常）时才退回「关窗即退出」。
   app.on('window-all-closed', () => {
-    app.quit();
+    if (quitting) return;
+    if (!tray) {
+      app.quit();
+      return;
+    }
+    logEvent('all windows closed; tray keeps app alive');
   });
 
   app.on('activate', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      focusWindow();
-    }
+    showMainWindow();
   });
 
   app.on('before-quit', (event) => {
-    if (quitting) return;
+    if (quitting) {
+      destroyTray();
+      return;
+    }
     logEvent(`quit requested mode=${connectionMode ? connectionMode.kind : 'none'} owned=${councilOwned} child=${isChildAlive()}`);
     if (!isChildAlive()) {
       quitting = true;
+      destroyTray();
       return;
     }
     event.preventDefault();
     quitting = true;
+    destroyTray();
     stopOwnedChild().finally(() => {
       app.quit();
     });
@@ -1026,6 +1210,7 @@ async function boot() {
 
   // 极少数情况下 before-quit 没走到（例如开发时 Ctrl-C），最后再兜一次。
   app.on('will-quit', () => {
+    destroyTray();
     if (isChildAlive()) {
       try {
         councilProcess.kill();
