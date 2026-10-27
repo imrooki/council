@@ -70,6 +70,10 @@ type localAgentProcessJSON struct {
 }
 
 // localAgentLeaseJSON 是一行有效租约（只有 coordinate 才查）。
+//
+// granted_at 一起给出：`council claim -server` / `council release -server` 会把
+// 这一行还原成 store.Lease，再按与直接写库完全相同的一套文案打印
+// （页面自己用不到这个字段）。
 type localAgentLeaseJSON struct {
 	LeaseID     string `json:"lease_id"`
 	ResourceKey string `json:"resource_key"`
@@ -77,6 +81,7 @@ type localAgentLeaseJSON struct {
 	OwnerID     string `json:"owner_id"`
 	Mode        string `json:"mode"`
 	Generation  int64  `json:"generation"`
+	GrantedAt   string `json:"granted_at"`
 	ExpiresAt   string `json:"expires_at"`
 	// OverlapsCwd 表示这条租约与看板进程的启动目录相同或互为父子：
 	// 页面据此提示「另一个 agent 正在改这个目录」（Plan §11 P5）。
@@ -210,9 +215,12 @@ type localAgentLeaseRequest struct {
 // 冲突不走这个形状：它用仓库统一的 {"error": "..."} + 409，错误文案里带着
 // 持有者与到期时间（store.LeaseConflictError 已经写好了那句话）。
 type localAgentLeaseResult struct {
-	Granted  bool                  `json:"granted"`
-	Lease    *localAgentLeaseJSON  `json:"lease,omitempty"`
-	Released []localAgentLeaseJSON `json:"released,omitempty"`
+	Granted bool `json:"granted"`
+	// LocalAgent 是本次请求时看到的层级，给 `council claim -server` 原样报告
+	// 用：那个客户端不读配置，不该自己猜一个。
+	LocalAgent string                `json:"local_agent,omitempty"`
+	Lease      *localAgentLeaseJSON  `json:"lease,omitempty"`
+	Released   []localAgentLeaseJSON `json:"released,omitempty"`
 }
 
 // localAgentLeaseReleaseRequest 是 POST /api/local-agents/lease/release 的请求体。
@@ -314,7 +322,20 @@ func (s *Server) handleLocalAgentLease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows := grantedLeaseRows([]store.Lease{lease}, s.localAgentCwd())
-	writeJSON(w, http.StatusOK, localAgentLeaseResult{Granted: true, Lease: &rows[0]})
+	writeJSON(w, http.StatusOK, localAgentLeaseResult{
+		Granted:    true,
+		LocalAgent: string(localagent.LevelOf(s.localAgentLevelRaw())),
+		Lease:      &rows[0],
+	})
+}
+
+// localAgentLevelRaw 返回当前配置里的 local_agent 原值（给响应回显用）。
+func (s *Server) localAgentLevelRaw() string {
+	cfg := s.currentCfg()
+	if cfg == nil {
+		return ""
+	}
+	return cfg.LocalAgent
 }
 
 // handleLocalAgentLeaseRelease 交还一条租约（按 lease_id，或按资源 + 持有者）。
@@ -532,6 +553,7 @@ func grantedLeaseRows(leases []store.Lease, cwd string) []localAgentLeaseJSON {
 			OwnerID:     lease.OwnerID,
 			Mode:        string(lease.Access),
 			Generation:  lease.Generation,
+			GrantedAt:   localAgentTime(lease.GrantedAt),
 			ExpiresAt:   localAgentTime(lease.ExpiresAt),
 			OverlapsCwd: normalizedCwd != "" && localagent.ResourceOverlaps(lease.ResourceKey, normalizedCwd),
 		})

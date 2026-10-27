@@ -69,22 +69,27 @@ type leaseRow struct {
 // granted=false 时 lease 缺席、holder 或 notice 说明原因；调用方只判 granted，
 // 不必解析 denied 的枚举（它给日志看）。
 type claimReport struct {
-	Granted    bool      `json:"granted"`
-	LocalAgent string    `json:"local_agent"`
-	Resource   string    `json:"resource"`
-	Mode       string    `json:"mode"`
-	Owner      string    `json:"owner"`
-	Lease      *leaseRow `json:"lease,omitempty"`
-	Holder     *leaseRow `json:"holder,omitempty"`
-	Denied     string    `json:"denied,omitempty"`
-	Notice     string    `json:"notice,omitempty"`
-	Error      string    `json:"error,omitempty"`
+	Granted bool `json:"granted"`
+	// LocalAgent 是本次生效的层级。走 -server 且被拒时看板只回一句统一形状的
+	// error，拿不到层级，这时整个键不出现（不写一个空的 ""）。
+	LocalAgent string `json:"local_agent,omitempty"`
+	Resource   string `json:"resource"`
+	Mode       string `json:"mode"`
+	Owner      string `json:"owner"`
+	// Via 说明这次是直接写库还是经看板（-server）；空串（direct）不出现。
+	Via    string    `json:"via,omitempty"`
+	Lease  *leaseRow `json:"lease,omitempty"`
+	Holder *leaseRow `json:"holder,omitempty"`
+	Denied string    `json:"denied,omitempty"`
+	Notice string    `json:"notice,omitempty"`
+	Error  string    `json:"error,omitempty"`
 }
 
 // releaseReport 是 `council release -json` 的形状。
 type releaseReport struct {
-	LocalAgent string     `json:"local_agent"`
+	LocalAgent string     `json:"local_agent,omitempty"`
 	Resource   string     `json:"resource,omitempty"`
+	Via        string     `json:"via,omitempty"`
 	Released   []leaseRow `json:"released"`
 	Notice     string     `json:"notice,omitempty"`
 	Error      string     `json:"error,omitempty"`
@@ -142,6 +147,8 @@ func runClaimWith(args []string, deps leaseDeps, out, errOut io.Writer) int {
 		"租约有效期，例如 5m / 1h（默认 2m，最短 5s，最长 24h）"))
 	owner := fs.String("owner", "", text("cli.claim.flag.owner",
 		"持有者名字（默认 cli@主机名）；它只是展示与交还时的匹配条件，不参与鉴权"))
+	server := fs.String("server", "", text("cli.claim.flag.server",
+		"改走已经持有 council.lock 的看板，例如 http://127.0.0.1:8765；不给就自己开库"))
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(errOut, claimUsageLang(lang))
@@ -182,6 +189,22 @@ func runClaimWith(args []string, deps leaseDeps, out, errOut io.Writer) int {
 
 	lang = applyLanguageFlag(*langFlag, *configPath)
 	text = whoTextFunc(lang)
+
+	// -server：看板正握着 council.lock，写库的唯一入口是它。
+	// 与 -config 互斥：配置归那个进程负责，两边各读一份只会互相打脸。
+	if serverArg := strings.TrimSpace(*server); serverArg != "" {
+		if strings.TrimSpace(*configPath) != "" {
+			fmt.Fprint(errOut, text("cli.lease.error.serverWithConfig",
+				"-server 与 -config 不能同时给：走看板时配置由那个进程负责\n"))
+			return exitUsage
+		}
+		base, err := normalizeLeaseServer(serverArg)
+		if err != nil {
+			fmt.Fprintf(errOut, "council claim: %v\n", err)
+			return exitUsage
+		}
+		return runClaimOverServer(out, errOut, text, base, resource, access, ttlValue, who, *asJSON)
+	}
 
 	level, dataDir, err := loadWhoConfig(*configPath)
 	if err != nil {
@@ -254,15 +277,7 @@ func runClaimWith(args []string, deps leaseDeps, out, errOut io.Writer) int {
 			}
 			// 拒绝的说明走 stderr：它解释「为什么什么都没发生」，与成功结果
 			// （stdout）分开，管道里 `council claim . > 结果` 才不会把提示吞掉。
-			fmt.Fprint(errOut, text("cli.claim.busy", `资源被占用，没有拿到租约
-  资源    %s
-  持有者  %s/%s（%s 租约）
-  lease   %s
-  到期    %s
-先等它到期，或请持有者 council release %s 之后再申请。租约是自愿遵守的提醒，不会阻止任何进程写文件。
-`, resource, conflict.Holder.OwnerKind, conflict.Holder.OwnerID,
-				conflict.Holder.Access, conflict.Holder.ID,
-				formatWhoTime(conflict.Holder.ExpiresAt), conflict.Holder.ID))
+			printClaimBusy(errOut, text, conflict.Holder)
 			return exitLeaseDenied
 		}
 		fmt.Fprint(errOut, text("cli.claim.failed", "council claim: %v\n", err))
@@ -280,6 +295,15 @@ func runClaimWith(args []string, deps leaseDeps, out, errOut io.Writer) int {
 			Lease:      &row,
 		}, exitOK)
 	}
+	printClaimGranted(out, text, lease)
+	return exitOK
+}
+
+// printClaimGranted 是两个入口（直接写库 / 经看板）共用的成功输出。
+//
+// 抽出来的理由只有一个：两条路的文案必须逐字相同。复制一份，「看板那边多
+// 一句提示、命令行这边少一句」这类漂移迟早会发生。
+func printClaimGranted(out io.Writer, text func(key, fallback string, args ...any) string, lease store.Lease) {
 	fmt.Fprint(out, text("cli.claim.granted", `已获得租约
   资源    %s
   模式    %s
@@ -288,10 +312,30 @@ func runClaimWith(args []string, deps leaseDeps, out, errOut io.Writer) int {
   代数    %d
   到期    %s（%s 之后）
 交还：council release %s。租约只写库，不扫描进程、不调用任何模型。
-`, resource, lease.Access, lease.OwnerKind, lease.OwnerID, lease.ID,
+`, lease.ResourceKey, lease.Access, lease.OwnerKind, lease.OwnerID, lease.ID,
 		lease.Generation, formatWhoTime(lease.ExpiresAt),
 		lease.ExpiresAt.Sub(lease.GrantedAt).Round(time.Second), lease.ID))
-	return exitOK
+}
+
+// printClaimBusy 是冲突时的说明（走 stderr，见调用处）。
+func printClaimBusy(errOut io.Writer, text func(key, fallback string, args ...any) string, holder store.Lease) {
+	fmt.Fprint(errOut, text("cli.claim.busy", `资源被占用，没有拿到租约
+  资源    %s
+  持有者  %s/%s（%s 租约）
+  lease   %s
+  到期    %s
+先等它到期，或请持有者 council release %s 之后再申请。租约是自愿遵守的提醒，不会阻止任何进程写文件。
+`, holder.ResourceKey, holder.OwnerKind, holder.OwnerID,
+		holder.Access, holder.ID, formatWhoTime(holder.ExpiresAt), holder.ID))
+}
+
+// printReleaseRows 是交还成功的输出（两个入口共用）。
+func printReleaseRows(out io.Writer, text func(key, fallback string, args ...any) string, rows []leaseRow) {
+	fmt.Fprint(out, text("cli.release.released", "已交还 %d 条租约\n", len(rows)))
+	for _, row := range rows {
+		fmt.Fprintf(out, "  %s  %s  %s/%s  代数 %d\n",
+			row.LeaseID, row.ResourceKey, row.OwnerKind, row.OwnerID, row.Generation)
+	}
 }
 
 // runRelease 是 `council release` 的进程边界。
@@ -321,6 +365,8 @@ func runReleaseWith(args []string, deps leaseDeps, out, errOut io.Writer) int {
 		"按资源交还自己在这个资源上的全部租约（需要 -owner 匹配，默认 cli@主机名）"))
 	owner := fs.String("owner", "", text("cli.release.flag.owner",
 		"持有者名字，与 claim 时给的一致（默认 cli@主机名）；只释放名字完全相同的租约"))
+	server := fs.String("server", "", text("cli.release.flag.server",
+		"改走已经持有 council.lock 的看板，例如 http://127.0.0.1:8765；不给就自己开库"))
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(errOut, releaseUsageLang(lang))
@@ -367,6 +413,21 @@ func runReleaseWith(args []string, deps leaseDeps, out, errOut io.Writer) int {
 
 	lang = applyLanguageFlag(*langFlag, *configPath)
 	text = whoTextFunc(lang)
+
+	// -server：交还也不需要层级，但要交给握着锁的那个进程去写。
+	if serverArg := strings.TrimSpace(*server); serverArg != "" {
+		if strings.TrimSpace(*configPath) != "" {
+			fmt.Fprint(errOut, text("cli.lease.error.serverWithConfig",
+				"-server 与 -config 不能同时给：走看板时配置由那个进程负责\n"))
+			return exitUsage
+		}
+		base, err := normalizeLeaseServer(serverArg)
+		if err != nil {
+			fmt.Fprintf(errOut, "council release: %v\n", err)
+			return exitUsage
+		}
+		return runReleaseOverServer(out, errOut, text, base, byID, resource, who, *asJSON)
+	}
 
 	level, dataDir, err := loadWhoConfig(*configPath)
 	if err != nil {
@@ -447,11 +508,7 @@ func runReleaseWith(args []string, deps leaseDeps, out, errOut io.Writer) int {
 			Released:   rows,
 		}, exitOK)
 	}
-	fmt.Fprint(out, text("cli.release.released", "已交还 %d 条租约\n", len(rows)))
-	for _, row := range rows {
-		fmt.Fprintf(out, "  %s  %s  %s/%s  代数 %d\n",
-			row.LeaseID, row.ResourceKey, row.OwnerKind, row.OwnerID, row.Generation)
-	}
+	printReleaseRows(out, text, rows)
 	return exitOK
 }
 
@@ -496,7 +553,8 @@ func claimUsageLang(lang i18n.Lang) string {
 本命令零模型调用、零进程扫描，只读写两张表。
 
 开启方式：config 里 local_agent = "coordinate"（设置页第 6 类也能改）。
-写库要拿 council.lock，所以 serve -rw / TUI / council mcp 正在跑时会明确拒绝。
+写库要拿 council.lock，所以 serve -rw / TUI / council mcp 正在跑时会明确拒绝；
+那种情况下加 -server 走那个看板，它本来就握着锁。
 
 退出码: 0 拿到租约；3 被拒（被占用 / 层级未开启 / 没有这条租约）；1 出错；2 用法错误。
 
@@ -504,8 +562,9 @@ flags:
   -mode read|write     租约模式，默认 write（独占）；read 可并存
   -ttl <duration>      有效期，例如 5m / 1h（默认 2m，最短 5s，最长 24h）
   -owner <name>        持有者名字，默认 cli@主机名（只是展示与交还匹配，不参与鉴权）
+  -server <url>        走已经持有 council.lock 的看板，例如 http://127.0.0.1:8765
   -json                按 JSON 输出（granted / resource / mode / lease / holder / notice）
-  -config <path>       配置文件路径，与全局 -config 含义相同
+  -config <path>       配置文件路径，与全局 -config 含义相同（与 -server 互斥）
   -lang zh|en|auto     输出语言，默认 auto
 `)
 }
@@ -519,7 +578,7 @@ func releaseUsageLang(lang i18n.Lang) string {
 local_agent = coordinate：关小开关不该让已经发出去的授权无法收回。
 
 只释放 owner_id 完全相同的租约，没有 force 参数 —— 释放别人的租约不在本模块
-的能力里。写库同样要拿 council.lock。
+的能力里。写库同样要拿 council.lock；看板正握着它时加 -server。
 
 退出码: 0 交还成功（或本来就已交还）；3 没找到可交还的租约；1 出错；2 用法错误。
 
@@ -527,8 +586,9 @@ flags:
   -lease <id>          要交还的 lease_id（council claim 的输出里有）
   -resource <dir|port> 按资源交还自己在这个资源上的全部租约
   -owner <name>        持有者名字，默认 cli@主机名
+  -server <url>        走已经持有 council.lock 的看板，例如 http://127.0.0.1:8765
   -json                按 JSON 输出（released / resource / notice）
-  -config <path>       配置文件路径，与全局 -config 含义相同
+  -config <path>       配置文件路径，与全局 -config 含义相同（与 -server 互斥）
   -lang zh|en|auto     输出语言，默认 auto
 `)
 }

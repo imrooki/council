@@ -239,6 +239,8 @@ flags:
 	"cli.claim.flag.mode":   "租约模式：write（独占，默认）或 read（共享）",
 	"cli.claim.flag.ttl":    "租约有效期，例如 5m / 1h（默认 2m，最短 5s，最长 24h）",
 	"cli.claim.flag.owner":  "持有者名字（默认 cli@主机名）；它只是展示与交还时的匹配条件，不参与鉴权",
+	"cli.claim.flag.server": "改走已经持有 council.lock 的看板，例如 http://127.0.0.1:8765；不给就自己开库",
+	"cli.claim.busyServer":  "资源被占用，没有拿到租约：\n  %s\n",
 
 	"cli.claim.error.positional": "council claim 需要恰好一个资源参数（目录路径，或 tcp:<host>:<port>），多出来的是: %v\n",
 	"cli.claim.notEnabled":       `本机 agent 协调未开启（config 里 local_agent = "coordinate" 可开启）：本命令不写任何租约。`,
@@ -266,7 +268,8 @@ flags:
 本命令零模型调用、零进程扫描，只读写两张表。
 
 开启方式：config 里 local_agent = "coordinate"（设置页第 6 类也能改）。
-写库要拿 council.lock，所以 serve -rw / TUI / council mcp 正在跑时会明确拒绝。
+写库要拿 council.lock，所以 serve -rw / TUI / council mcp 正在跑时会明确拒绝；
+那种情况下加 -server 走那个看板，它本来就握着锁。
 
 退出码: 0 拿到租约；3 被拒（被占用 / 层级未开启 / 没有这条租约）；1 出错；2 用法错误。
 
@@ -274,8 +277,9 @@ flags:
   -mode read|write     租约模式，默认 write（独占）；read 可并存
   -ttl <duration>      有效期，例如 5m / 1h（默认 2m，最短 5s，最长 24h）
   -owner <name>        持有者名字，默认 cli@主机名（只是展示与交还匹配，不参与鉴权）
+  -server <url>        走已经持有 council.lock 的看板，例如 http://127.0.0.1:8765
   -json                按 JSON 输出（granted / resource / mode / lease / holder / notice）
-  -config <path>       配置文件路径，与全局 -config 含义相同
+  -config <path>       配置文件路径，与全局 -config 含义相同（与 -server 互斥）
   -lang zh|en|auto     输出语言，默认 auto
 `,
 
@@ -285,6 +289,8 @@ flags:
 	"cli.release.flag.lease":    "要交还的 lease_id（council claim 的输出里有）",
 	"cli.release.flag.resource": "按资源交还自己在这个资源上的全部租约（需要 -owner 匹配，默认 cli@主机名）",
 	"cli.release.flag.owner":    "持有者名字，与 claim 时给的一致（默认 cli@主机名）；只释放名字完全相同的租约",
+	"cli.release.flag.server":   "改走已经持有 council.lock 的看板，例如 http://127.0.0.1:8765；不给就自己开库",
+	"cli.release.nothingServer": "看板那边没有可交还的租约（可能已经交还过，或 owner 不匹配）。",
 
 	"cli.release.error.positional": "council release 不接受位置参数，用 -lease 或 -resource 指定目标；多出来的是: %v\n",
 	"cli.release.error.target":     "council release 需要一个目标：-lease <lease_id> 或 -resource <目录|tcp:端口>\n",
@@ -301,7 +307,7 @@ flags:
 local_agent = coordinate：关小开关不该让已经发出去的授权无法收回。
 
 只释放 owner_id 完全相同的租约，没有 force 参数 —— 释放别人的租约不在本模块
-的能力里。写库同样要拿 council.lock。
+的能力里。写库同样要拿 council.lock；看板正握着它时加 -server。
 
 退出码: 0 交还成功（或本来就已交还）；3 没找到可交还的租约；1 出错；2 用法错误。
 
@@ -309,14 +315,18 @@ flags:
   -lease <id>          要交还的 lease_id（council claim 的输出里有）
   -resource <dir|port> 按资源交还自己在这个资源上的全部租约
   -owner <name>        持有者名字，默认 cli@主机名
+  -server <url>        走已经持有 council.lock 的看板，例如 http://127.0.0.1:8765
   -json                按 JSON 输出（released / resource / notice）
-  -config <path>       配置文件路径，与全局 -config 含义相同
+  -config <path>       配置文件路径，与全局 -config 含义相同（与 -server 互斥）
   -lang zh|en|auto     输出语言，默认 auto
 `,
 
 	// 两个子命令共用的两条环境失败文案。
-	"cli.lease.configBroken": "%s: 配置文件有问题: %v\n",
-	"cli.lease.openFailed":   "%s: 打不开本地库（数据目录 %s）: %v\n",
+	"cli.lease.configBroken":           "%s: 配置文件有问题: %v\n",
+	"cli.lease.openFailed":             "%s: 打不开本地库（数据目录 %s）: %v\n",
+	"cli.lease.serverFailed":           "%s: 连不上 %s：%v（地址就是看板启动时打印的那一行）\n",
+	"cli.lease.serverBadReply":         "%s: 看板返回了看不懂的内容: %s\n",
+	"cli.lease.error.serverWithConfig": "-server 与 -config 不能同时给：走看板时配置由那个进程负责\n",
 	"cli.lease.locked": `%s: 数据目录正被另一个 council 进程占用（council.lock）。
 租约与主库在同一个 council.db 里，写它必须先拿到那把锁；本命令不会绕过锁另开一个库。
   数据目录  %s
@@ -554,6 +564,8 @@ flags:
 	"cli.claim.flag.mode":   "Lease mode: write (exclusive, the default) or read (shared)",
 	"cli.claim.flag.ttl":    "Lease lifetime, e.g. 5m / 1h (default 2m, minimum 5s, maximum 24h)",
 	"cli.claim.flag.owner":  "Owner name (default cli@hostname); used for display and for matching on release, never for authorization",
+	"cli.claim.flag.server": "Post to the dashboard that already holds council.lock, e.g. http://127.0.0.1:8765; omit to open the database yourself",
+	"cli.claim.busyServer":  "The resource is taken; no lease was granted:\n  %s\n",
 
 	"cli.claim.error.positional": "council claim needs exactly one resource argument (a directory path, or tcp:<host>:<port>); got: %v\n",
 	"cli.claim.notEnabled":       `Local agent coordination is off (set local_agent = "coordinate" in the config to enable it): this command writes no lease.`,
@@ -582,7 +594,8 @@ that someone holds this resource. This command makes no model call and scans no
 process; it only reads and writes two tables.
 
 Enabling it: local_agent = "coordinate" in the config (the 6th settings page works too).
-Writing needs council.lock, so it refuses clearly while serve -rw / the TUI / council mcp is running.
+Writing needs council.lock, so it refuses clearly while serve -rw / the TUI / council mcp is running;
+in that case add -server to go through that dashboard, which already holds the lock.
 
 Exit codes: 0 lease granted; 3 denied (taken / level off / lease not found); 1 error; 2 usage error.
 
@@ -590,8 +603,9 @@ flags:
   -mode read|write     lease mode, write (exclusive) by default; read can be shared
   -ttl <duration>      lifetime, e.g. 5m / 1h (default 2m, minimum 5s, maximum 24h)
   -owner <name>        owner name, default cli@hostname (display and release matching only, never authorization)
+  -server <url>        go through the dashboard that already holds council.lock, e.g. http://127.0.0.1:8765
   -json                print JSON (granted / resource / mode / lease / holder / notice)
-  -config <path>       config file path, same meaning as the global -config
+  -config <path>       config file path, same meaning as the global -config (mutually exclusive with -server)
   -lang zh|en|auto     output language, default auto
 `,
 
@@ -601,6 +615,8 @@ flags:
 	"cli.release.flag.lease":    "The lease_id to release (council claim prints it)",
 	"cli.release.flag.resource": "Release all of your own leases on this resource (matched by -owner, default cli@hostname)",
 	"cli.release.flag.owner":    "Owner name, the same one used with claim (default cli@hostname); only leases with exactly this name are released",
+	"cli.release.flag.server":   "Post to the dashboard that already holds council.lock, e.g. http://127.0.0.1:8765; omit to open the database yourself",
+	"cli.release.nothingServer": "The dashboard had no lease to release (already released, or the owner does not match).",
 
 	"cli.release.error.positional": "council release does not accept positional arguments; use -lease or -resource; got: %v\n",
 	"cli.release.error.target":     "council release needs a target: -lease <lease_id> or -resource <dir|tcp:port>\n",
@@ -619,7 +635,7 @@ strand an authorization you already handed out.
 
 Only leases with an exactly matching owner_id are released; there is no force
 parameter, because releasing someone else's lease is outside this module. Writing
-also needs council.lock.
+also needs council.lock; add -server while the dashboard holds it.
 
 Exit codes: 0 released (or already released); 3 nothing matchable to release; 1 error; 2 usage error.
 
@@ -627,14 +643,18 @@ flags:
   -lease <id>          the lease_id to release (council claim prints it)
   -resource <dir|port> release all of your own leases on this resource
   -owner <name>        owner name, default cli@hostname
+  -server <url>        go through the dashboard that already holds council.lock, e.g. http://127.0.0.1:8765
   -json                print JSON (released / resource / notice)
-  -config <path>       config file path, same meaning as the global -config
+  -config <path>       config file path, same meaning as the global -config (mutually exclusive with -server)
   -lang zh|en|auto     output language, default auto
 `,
 
 	// Shared by both subcommands when the environment is the problem.
-	"cli.lease.configBroken": "%s: the config file has problems: %v\n",
-	"cli.lease.openFailed":   "%s: cannot open the local database (data dir %s): %v\n",
+	"cli.lease.configBroken":           "%s: the config file has problems: %v\n",
+	"cli.lease.openFailed":             "%s: cannot open the local database (data dir %s): %v\n",
+	"cli.lease.serverFailed":           "%s: cannot reach %s: %v (the address is the line the dashboard prints at startup)\n",
+	"cli.lease.serverBadReply":         "%s: the dashboard returned something unreadable: %s\n",
+	"cli.lease.error.serverWithConfig": "-server and -config cannot be combined: when you go through the dashboard, that process owns the config\n",
 	"cli.lease.locked": `%s: the data dir is held by another council process (council.lock).
 Leases live in the same council.db, so writing them needs that lock; this command never opens a second database to bypass it.
   data dir  %s

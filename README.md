@@ -80,7 +80,8 @@ local_agent = "off"          # 默认值：一次进程都不枚举、不起后�
 |---|---|
 | `council who` | 只读列出三件事：在飞的成员、本机 claude/codex/grok/agy 进程、仍然有效的租约。不拿锁，TUI 或看板开着时也能跑 |
 | `council claim <目录\|tcp:端口>` | 申请一条租约（`-mode read\|write`、`-ttl 5m`）。要 `coordinate` |
-| `council release -lease <id>` | 交还租约。不需要 `coordinate`：关小开关不该把授权锁死 |
+| `council claim -server <url> …` | 同上，但走**已经开着**的看板（它握着 `council.lock`）；地址就是 `serve` 启动时打印的那一行，例如 `http://127.0.0.1:8765` |
+| `council release -lease <id>` | 交还租约（也可 `-server`）。不需要 `coordinate`：关小开关不该把授权锁死 |
 
 设置页第 6 类「本机 agent」也能改层级、看实例与租约、点按钮申请/交还。
 
@@ -89,6 +90,8 @@ local_agent = "off"          # 默认值：一次进程都不枚举、不起后�
 - **默认关闭时零行为**：不枚举进程、不起后台循环、不读库；`council who` 只打印一句「未开启」。
 - **租约是提醒，不是文件锁**：它拦不住任何进程写文件，只在页面上和 `council who` 里说清「这个目录有人占着」。
 - **不新增任何模型调用**：三档都是纯本地事实。`agy`（Google Antigravity CLI）处于条款灰区，只观察它的进程，不自动拉起、也不参与任何自动审查路径。
+
+一个 `data_dir` 同时只允许一个写进程（看板、TUI、MCP 都算）。所以看板开着时，`council claim` 会明确拒绝并告诉你去停哪个进程 —— 想继续用命令行，加 `-server` 让它走那个看板；两条路拿到的租约、退出码、文案完全一样。
 
 ## 桌面版
 

@@ -63,6 +63,11 @@ func TestPostLeaseGrantsAndAppearsInView(t *testing.T) {
 	if result.Lease.Mode != "write" {
 		t.Errorf("mode = %q，期望 write", result.Lease.Mode)
 	}
+	// granted_at 是给 `council claim -server` 还原租约用的：少了它那条路
+	// 会解析失败（真机上就是这么发现的）。
+	if result.Lease.GrantedAt == "" || result.Lease.ExpiresAt == "" {
+		t.Errorf("租约行缺少时间字段: %+v", result.Lease)
+	}
 	if !result.Lease.OverlapsCwd {
 		t.Error("申请的正是看板启动目录，overlaps_cwd 应为 true")
 	}
