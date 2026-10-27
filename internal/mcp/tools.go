@@ -14,6 +14,7 @@ import (
 
 	"council/internal/headless"
 	"council/internal/i18n"
+	"council/internal/localagent"
 )
 
 // 与 `council ask` 同口径的默认值：预算下限 0.5、默认 5 USD、整体超时 10m。
@@ -164,12 +165,25 @@ func toolDefinitions() []toolDefinition {
 				"additionalProperties": false,
 			},
 		},
+		{
+			Name: "council_who",
+			Description: "List the agent processes visible on this machine (claude / codex / grok / agy), read-only. " +
+				"Requires local_agent = \"observe\" in the config; when observation is off it explains that and enumerates nothing. " +
+				"Returns one text block with kind, pid, ppid, exe name, start time, source and certainty " +
+				"(exact only when the image path is under a known CLI install directory; probable otherwise). " +
+				"It reads no command lines, environment variables or other CLIs' config files, and never calls a model.",
+			InputSchema: map[string]any{
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
+			},
+		},
 	}
 }
 
 func knownTool(name string) bool {
 	switch name {
-	case "council_ask", "council_models", "council_round":
+	case "council_ask", "council_models", "council_round", "council_who":
 		return true
 	default:
 		return false
@@ -192,6 +206,8 @@ func (s *server) callTool(ctx context.Context, name string, raw json.RawMessage)
 		return s.toolRound(ctx, args)
 	case "council_models":
 		return s.toolModels()
+	case "council_who":
+		return s.toolWho()
 	default:
 		// handleToolCall 已经挡过未知工具名，这里只是不让未来新增的分支漏掉。
 		return errorResult(fmt.Sprintf("unknown tool %q", name))
@@ -450,6 +466,51 @@ func (s *server) toolModels() toolResult {
 		skipped := sortedAgentIDs(s.deps.Claude.WithoutProvider)
 		fmt.Fprintf(&b, t.importedSkipped+"\n", n, quoteIDs(skipped, t.listSep))
 	}
+	return textResult(strings.TrimRight(b.String(), "\n"))
+}
+
+// enumerate 是 council_who 的进程枚举接缝。生产值就是
+// localagent.Enumerate（Windows 上走 Toolhelp32），只有测试会换掉它。
+//
+// 为什么要接缝：off 分支必须能被证明「一次枚举都没有发生」。注入一个会
+// panic 的实现比断言输出文本更硬 —— 调用方只要碰了枚举函数，测试立刻崩。
+var enumerate = localagent.Enumerate
+
+// toolWho 是 council_who 的实现：只读、无参数、不新增任何模型调用。
+//
+// off 时返回一句说明并**不枚举**：localagent.Scan 在 LevelOff 那一侧就
+// 返回了，连函数指针都不调（S-01）。开启后输出与 toolModels 同构：
+// 一行表头 + 每实例一行 + 一行固定脚注，整体是一个 text block。
+func (s *server) toolWho() toolResult {
+	t := messagesFor(s.lang)
+
+	// 配置没加载时按 off 处理：没有配置就没有用户授权，不能默认打开扫描。
+	level := localagent.LevelOff
+	if s.deps.Cfg != nil {
+		level = localagent.LevelOf(s.deps.Cfg.LocalAgent)
+	}
+	if level != localagent.LevelObserve {
+		return textResult(t.whoOff)
+	}
+
+	agents, err := localagent.Scan(level, enumerate)
+	if err != nil {
+		return errorResult(fmt.Sprintf(t.whoUnavailable, err))
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, t.whoHead+"\n", len(agents))
+	if len(agents) == 0 {
+		b.WriteString(t.whoEmpty + "\n")
+	}
+	for _, agent := range agents {
+		started := "unknown"
+		if !agent.StartedAt.IsZero() {
+			started = agent.StartedAt.UTC().Format(time.RFC3339)
+		}
+		fmt.Fprintf(&b, t.whoRow+"\n", agent.Kind, agent.PID, agent.PPID, agent.ExeName, started, agent.Source, agent.Certainty)
+	}
+	b.WriteString(t.whoFooter)
 	return textResult(strings.TrimRight(b.String(), "\n"))
 }
 

@@ -25,6 +25,20 @@ const (
 	LanguageEn   = "en"
 )
 
+// local_agent 的合法取值。L1 只有两档：off（默认）与 observe。
+//
+// 为什么不在这里预先写出 register / coordinate / collaborate：那三档
+// （L2/L3/L4）在 v1 没有实现，写进合法枚举等于让用户配置一个「看起来
+// 开着、实际什么都不做」的层级。校验拒绝它们，比静默降级成 off 诚实。
+//
+// 空串与 off 同义：Load 会把空串归一成 off（applyDefaults），但直接构造的
+// Config（测试、旧调用方）可能没有这个字段；读取方对任何非 observe 的取值
+// 都按 off 处理（fail closed），不会因为读到空串就把扫描打开。
+const (
+	LocalAgentOff     = "off"
+	LocalAgentObserve = "observe"
+)
+
 // Permission 是 agent 的权限档。
 type Permission string
 
@@ -74,10 +88,25 @@ type Config struct {
 	// 它不是 agent 字段、不进身份指纹，只影响界面文案；Web 设置页可以在
 	// 运行期改它并立刻生效（见 internal/serve/settings.go 的语言端点）。
 	// 空串按 auto 处理：直接构造的 Config（测试 / 旧调用方）没有这个字段。
-	Language  string                    `toml:"language"`
-	Providers map[string]ProviderConfig `toml:"providers"`
-	Agents    map[string]AgentConfig    `toml:"agents"`
-	Teams     map[string]TeamConfig     `toml:"teams"`
+	Language string `toml:"language"`
+	// LocalAgent 是本机 agent 观察（Local Agent 模块的 L1）的总开关，
+	// 取值见 LocalAgentOff / LocalAgentObserve，默认 off。
+	//
+	// 为什么是顶层键而不是 [local_agent] 表：这一项只有一个枚举值，复用的
+	// 是 language / store_thought 那条「高优先级层写了才覆盖」的合并规则；
+	// 而本仓库的配置写盘实现只认识 [agents.x] 表与顶层的 language
+	// （internal/config/langwrite.go），为一张单键表再造一套 TOML 表插入
+	// 逻辑不值得。
+	//
+	// 为什么默认必须是 off：S-01 要求关着的时候零扫描、零后台、零行为变化。
+	// 这个键缺席时 council who / MCP 的 council_who 一次进程都不枚举，
+	// 只打印一句「未开启」。它不触发任何后台循环、端口或 IPC。
+	//
+	// 它与 language 一样不进身份指纹：改它不影响任何成员的 provider 会话。
+	LocalAgent string                    `toml:"local_agent"`
+	Providers  map[string]ProviderConfig `toml:"providers"`
+	Agents     map[string]AgentConfig    `toml:"agents"`
+	Teams      map[string]TeamConfig     `toml:"teams"`
 	// Summary 是 [summary] 表，#45 第二节。
 	// 要写成表而不是顶层键：TOML 的顶层键必须写在所有表之前，
 	// 维护者 要能把这张表追加到文件末尾。

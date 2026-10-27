@@ -135,10 +135,14 @@ func LoadMerged(layers []Layer) (MergedConfig, error) {
 		StoreThought: true,
 		// language 的默认值同样不是零值：空串会被 applyDefaults 变成 auto，
 		// 但先写出来，任何一层都没定义时合并结果与 Load 的默认一致。
-		Language:  LanguageAuto,
-		Providers: map[string]ProviderConfig{},
-		Agents:    map[string]AgentConfig{},
-		Teams:     map[string]TeamConfig{},
+		Language: LanguageAuto,
+		// local_agent 与 language 同一条规则，只是默认值是 off。先写出来，
+		// 任何一层都没定义时合并结果就是出厂状态（关），不会留一个空串让
+		// 调用方去猜。
+		LocalAgent: LocalAgentOff,
+		Providers:  map[string]ProviderConfig{},
+		Agents:     map[string]AgentConfig{},
+		Teams:      map[string]TeamConfig{},
 	}
 	owner := provenance{
 		agents:    map[string]string{},
@@ -174,6 +178,14 @@ func LoadMerged(layers []Layer) (MergedConfig, error) {
 		if d.md.IsDefined("language") {
 			merged.Language = d.cfg.Language
 			owner.language = path
+		}
+		// local_agent 与 language 同一段纪律：高优先级层写了才覆盖。
+		// 这一行漏掉的话，合并结果永远是上面预置的 off —— 用户把项目层
+		// 写成 observe 也会静默无效，而且没有任何报错（LoadMerged 不校验
+		// 「这个键有没有被合并」）。所以它必须与字段同批落地。
+		if d.md.IsDefined("local_agent") {
+			merged.LocalAgent = d.cfg.LocalAgent
+			owner.localAgent = path
 		}
 		if d.md.IsDefined("summary", "agent") {
 			merged.Summary.Agent = d.cfg.Summary.Agent
@@ -234,6 +246,7 @@ type provenance struct {
 	summary       string
 	dataDir       string
 	language      string
+	localAgent    string
 	rulesFileBase string
 }
 
@@ -276,6 +289,9 @@ func (p provenance) sourceFor(path string) string {
 	}
 	if path == "language" {
 		return p.language
+	}
+	if path == "local_agent" {
+		return p.localAgent
 	}
 	return ""
 }

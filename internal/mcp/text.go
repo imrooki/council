@@ -38,6 +38,13 @@ type messages struct {
 	noConfig        string // 配置未加载，无法列出成员
 	listSep         string // 名单分隔符（中英标点不同）
 
+	whoHead        string // 本机 agent 进程（%d）:
+	whoEmpty       string // （没有发现本机 agent 进程）
+	whoRow         string // - kind=%s pid=%d ppid=%d exe=%s started_at=%s source=%s certainty=%s
+	whoOff         string // 本机 agent 观察未开启（config 里 local_agent = "observe" 可开启）
+	whoUnavailable string // 进程枚举不可用: %v
+	whoFooter      string // 本工具不新增任何模型调用。
+
 	errNoConfig      string // 配置未加载，无法执行
 	errNotReady      string // 持久化或 provider 调用未就绪
 	errPrompt        string // prompt 不能为空
@@ -80,6 +87,13 @@ var zhMessages = messages{
 	noConfig:        "配置未加载，无法列出成员",
 	listSep:         "、",
 
+	whoHead:        "本机 agent 进程（%d）:",
+	whoEmpty:       "（没有发现本机 agent 进程）",
+	whoRow:         "- kind=%s pid=%d ppid=%d exe=%s started_at=%s source=%s certainty=%s",
+	whoOff:         `本机 agent 观察未开启（config 里 local_agent = "observe" 可开启）`,
+	whoUnavailable: "进程枚举不可用: %v",
+	whoFooter:      "本工具不新增任何模型调用。",
+
 	errNoConfig:      "配置未加载，无法执行",
 	errNotReady:      "持久化或 provider 调用未就绪，无法执行",
 	errPrompt:        "prompt 不能为空",
@@ -121,6 +135,13 @@ var enMessages = messages{
 	importedSkipped: "note: %d .claude/agents members were not imported because [providers.claude] is missing: %s",
 	noConfig:        "config not loaded; cannot list members",
 	listSep:         ", ",
+
+	whoHead:        "local agent processes (%d):",
+	whoEmpty:       "(no local agent processes found)",
+	whoRow:         "- kind=%s pid=%d ppid=%d exe=%s started_at=%s source=%s certainty=%s",
+	whoOff:         `local agent observation is off (set local_agent = "observe" in the config to enable it)`,
+	whoUnavailable: "process enumeration unavailable: %v",
+	whoFooter:      "This tool adds no model calls.",
 
 	errNoConfig:      "config not loaded; cannot run",
 	errNotReady:      "storage or provider calls are not ready; cannot run",

@@ -168,6 +168,7 @@ flags:
   council_ask          问议会一轮（可指定成员、预算、工作目录、续接会话）
   council_models       列出可用成员（配置 + .claude/agents 导入）
   council_round        多轮议会 + 汇总（1..5 轮）
+  council_who          只读列出本机 agent 进程（需要 config 里 local_agent = "observe"；不花额度）
 `,
 
 	// ---- council serve：用法块 ----
@@ -193,6 +194,39 @@ Flags:
 	"cli.serve.err.addrNoPort":      "地址 %q 没有指定端口",
 	"cli.serve.err.addrBadPort":     "地址 %q 的端口 %q 不合法，必须是 0 到 65535 的整数",
 	"cli.serve.err.addrNotLoopback": "只允许绑定回环地址（127.0.0.0/8、::1、localhost），%q 不是回环地址",
+
+	// ---- council who ----
+	"cli.who.flag.json":           "按 JSON 输出（local_agent / managed / observed / notice）",
+	"cli.who.flag.config":         "配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml",
+	"cli.who.flag.lang":           "输出语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）",
+	"cli.who.error.positional":    "council who 不接受位置参数，多出来的是: %v\n",
+	"cli.who.configBroken":        "council who: 配置文件有问题: %v\n",
+	"cli.who.off":                 `本机 agent 观察未开启（config 里 local_agent = "observe" 可开启）`,
+	"cli.who.headManaged":         "Council 管理的成员（%d）",
+	"cli.who.managedRow":          "  会话 %s / 成员 %s / turn %s / phase %s / 起于 %s",
+	"cli.who.managedEmpty":        "  （没有在飞的成员）",
+	"cli.who.managedUnavailable":  "  （库不可用：%v；只显示本机进程部分）",
+	"cli.who.headObserved":        "本机其他 agent 进程（%d）",
+	"cli.who.observedRow":         "  %s  pid=%d ppid=%d exe=%s source=%s certainty=%s 起于 %s",
+	"cli.who.observedEmpty":       "  （没有发现本机 agent 进程）",
+	"cli.who.observedUnavailable": "  （进程枚举不可用：%v）",
+	"cli.who.unknown":             "未知",
+	"cli.who.note":                "本命令看的是本机进程，不是会话成员；不读取命令行、环境变量或其它 CLI 的配置；两段不做 PID 合并（.cmd 垫片拿到的是 cmd.exe 的 PID）。",
+	"cli.who.usage": `用法: council who [flags]
+
+只读列出两段本机事实，不拿 council.lock，可以在 TUI 或 serve -rw 开着的时候跑：
+  1. Council 管理的成员：库里正在飞的 turn
+  2. 本机其他 agent 进程：claude / codex / grok / agy（需要 config 里 local_agent = "observe"）
+本命令看的是本机进程，不是会话成员（那是在 council 里敲 /who）。
+certainty=exact 只给落在已知 CLI 安装目录里的进程；路径拿不到或不在安装目录里的标 probable，
+桌面客户端（Claude Desktop 等）的同名 claude.exe 不报。
+不读取命令行、环境变量或其它 CLI 的配置；local_agent = "off"（默认）时一次进程都不枚举。
+
+flags:
+  -json                按 JSON 输出（local_agent / managed / observed / notice）
+  -config <path>       配置文件路径，与全局 -config 含义相同
+  -lang zh|en|auto     输出语言，默认 auto
+`,
 	// ---- 命令细则输出（本片；中文值 = 调用处的 fallback 原文） ----
 
 	"cli.add.comment":            "council /add 追加：%s 识别出的 %s（%s）",
@@ -355,6 +389,7 @@ tools:
   council_ask          ask the council once (members, budget, cwd, continue a conversation)
   council_models       list available members (config + .claude/agents imports)
   council_round        multi-round debate + summary (1..5 rounds)
+  council_who          list local agent processes read-only (requires local_agent = "observe"; costs nothing)
 `,
 
 	"cli.serve.usage": `Usage: council serve [flags]
@@ -378,6 +413,39 @@ Flags:
 	"cli.serve.err.addrNoPort":      "address %q has no port",
 	"cli.serve.err.addrBadPort":     "address %q has an invalid port %q; it must be an integer from 0 to 65535",
 	"cli.serve.err.addrNotLoopback": "only loopback addresses are allowed (127.0.0.0/8, ::1, localhost); %q is not one",
+
+	// ---- council who ----
+	"cli.who.flag.json":           "Print JSON (local_agent / managed / observed / notice)",
+	"cli.who.flag.config":         "Config file path; takes precedence over COUNCIL_CONFIG and the default ~/.council/config.toml",
+	"cli.who.flag.lang":           "Output language: zh / en / auto (auto, the default, checks COUNCIL_LANG, then language in the config, then the system locale)",
+	"cli.who.error.positional":    "council who does not accept positional arguments; got: %v\n",
+	"cli.who.configBroken":        "council who: the config file has problems: %v\n",
+	"cli.who.off":                 `local agent observation is off (set local_agent = "observe" in the config to enable it)`,
+	"cli.who.headManaged":         "Members managed by Council (%d)",
+	"cli.who.managedRow":          "  conversation %s / member %s / turn %s / phase %s / started %s",
+	"cli.who.managedEmpty":        "  (no in-flight turns)",
+	"cli.who.managedUnavailable":  "  (database unavailable: %v; showing only the local-process section)",
+	"cli.who.headObserved":        "Other local agent processes (%d)",
+	"cli.who.observedRow":         "  %s  pid=%d ppid=%d exe=%s source=%s certainty=%s started %s",
+	"cli.who.observedEmpty":       "  (no local agent processes found)",
+	"cli.who.observedUnavailable": "  (process enumeration unavailable: %v)",
+	"cli.who.unknown":             "unknown",
+	"cli.who.note":                "This command looks at local processes, not conversation members; it reads no command lines, environment variables or other CLIs' config files; the two sections are not joined by PID (.cmd shims report cmd.exe's PID).",
+	"cli.who.usage": `Usage: council who [flags]
+
+Print two read-only local sections without taking council.lock, so it works while the TUI or serve -rw is running:
+  1. Members managed by Council: in-flight turns from the database
+  2. Other local agent processes: claude / codex / grok / agy (requires local_agent = "observe" in the config)
+This command looks at local processes, not conversation members (that is /who inside council).
+certainty=exact is only for processes under a known CLI install directory; missing or unknown paths are probable,
+and same-named claude.exe of desktop clients (Claude Desktop etc.) is not reported.
+It reads no command lines, environment variables or other CLIs' config files; with local_agent = "off" (the default) it enumerates nothing.
+
+flags:
+  -json                print JSON (local_agent / managed / observed / notice)
+  -config <path>       config file path, same meaning as the global -config
+  -lang zh|en|auto     output language, default auto
+`,
 	// ---- command-detail output (this slice) ----
 
 	"cli.add.comment":            "council /add appended: %s model %s (%s)",

@@ -348,8 +348,8 @@ func TestProtocol_工具列表(t *testing.T) {
 	if err := json.Unmarshal(responses[0].Result, &result); err != nil {
 		t.Fatalf("解 tools/list result 失败: %v", err)
 	}
-	if len(result.Tools) != 3 {
-		t.Fatalf("应当有 3 个工具，实际 %d", len(result.Tools))
+	if len(result.Tools) != 4 {
+		t.Fatalf("应当有 4 个工具，实际 %d", len(result.Tools))
 	}
 	byName := make(map[string]map[string]any, len(result.Tools))
 	for _, tool := range result.Tools {
@@ -358,7 +358,7 @@ func TestProtocol_工具列表(t *testing.T) {
 		}
 		byName[tool.Name] = tool.InputSchema
 	}
-	for _, name := range []string{"council_ask", "council_models", "council_round"} {
+	for _, name := range []string{"council_ask", "council_models", "council_round", "council_who"} {
 		if _, ok := byName[name]; !ok {
 			t.Fatalf("tools/list 缺少 %s（实际: %v）", name, keysOf(byName))
 		}
@@ -395,6 +395,14 @@ func TestProtocol_工具列表(t *testing.T) {
 	modelsSchema := byName["council_models"]
 	if props := schemaProperties(t, modelsSchema); len(props) != 0 {
 		t.Errorf("council_models 不应有参数，实际 %v", keysOf(anyMap(props)))
+	}
+
+	whoSchema := byName["council_who"]
+	if props := schemaProperties(t, whoSchema); len(props) != 0 {
+		t.Errorf("council_who 不应有参数，实际 %v", keysOf(anyMap(props)))
+	}
+	if whoSchema["additionalProperties"] != false {
+		t.Errorf("council_who 的 additionalProperties = %v，期望 false", whoSchema["additionalProperties"])
 	}
 }
 
@@ -912,4 +920,32 @@ func waitForFile(t *testing.T, path string, limit time.Duration) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("等不到 provider 启动（计数文件 %s 没有内容）", path)
+}
+
+// TestCouncilWho_走正式装配的默认关闭 覆盖第四个工具在真实 app.Run 装配下
+// 的默认行为：配置里没有 local_agent，council_who 只回一句「未开启」，
+// 不枚举进程、不打开任何额外东西。识别逻辑与 observe 输出由同包的 who_test.go
+// 用注入的假枚举器钉住（那里才能确定性断言行内容）。
+func TestCouncilWho_默认关闭只回说明(t *testing.T) {
+	cfgPath, _ := writeMCPConfig(t, false)
+
+	stdout, stderr, err := runServerWithLines(t, cfgPath, toolCallLine(1, "council_who", `{}`))
+	if err != nil {
+		t.Fatalf("app.Run 返回错误: %v\nstderr:\n%s", err, stderr)
+	}
+	responses := parseResponses(t, stdout)
+	if len(responses) != 1 {
+		t.Fatalf("应当有 1 条响应，实际 %d: %s", len(responses), stdout)
+	}
+	result := decodeToolResult(t, responseByID(t, responses, 1))
+	if result.IsError {
+		t.Fatalf("默认关闭不是错误，实际 isError: %s", onlyText(t, result))
+	}
+	text := onlyText(t, result)
+	if !strings.Contains(text, "未开启") {
+		t.Errorf("默认关闭时应当说明未开启，实际:\n%s", text)
+	}
+	if strings.Contains(text, "pid=") {
+		t.Errorf("默认关闭时不该出现进程行，实际:\n%s", text)
+	}
 }

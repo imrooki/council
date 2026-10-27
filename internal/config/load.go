@@ -195,6 +195,15 @@ func applyDefaults(cfg *Config) {
 	if cfg.Language == "" {
 		cfg.Language = LanguageAuto
 	}
+	// local_agent 与 language 同一条归一化纪律：只折大小写与空白，
+	// 合法性留给 Validate（写错一个字母不该被默认值悄悄吃掉）。
+	// 但空串要落成 off 而不是留空：这个键的缺省语义就是「关」，
+	// 让 Load 交出的配置里没有第三种表示，读取方（council who / MCP）
+	// 只需要比较 LevelOf(cfg.LocalAgent)。
+	cfg.LocalAgent = strings.ToLower(strings.TrimSpace(cfg.LocalAgent))
+	if cfg.LocalAgent == "" {
+		cfg.LocalAgent = LocalAgentOff
+	}
 	for id, agent := range cfg.Agents {
 		if agent.Permissions == "" {
 			agent.Permissions = PermissionRead

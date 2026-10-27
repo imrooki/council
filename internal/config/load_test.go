@@ -75,6 +75,8 @@ func TestLoadValidFile(t *testing.T) {
 		// 字段而红。
 		StoreThought: true,
 		Language:     "auto",
+		// 这份测试配置没有写 local_agent，Load 按「缺省 = 关」填成 off。
+		LocalAgent: LocalAgentOff,
 		Providers: map[string]ProviderConfig{
 			"claude": {Command: "claude"},
 			"grok":   {Command: `C:\tools\grok.exe`},

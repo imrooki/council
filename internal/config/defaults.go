@@ -9,6 +9,9 @@ func Default() *Config {
 		// 注释），Default() 不经过 Load 的预置逻辑，必须在这里显式写 true。
 		StoreThought: true,
 		Language:     LanguageAuto,
+		// 本机 agent 观察默认关闭（S-01）：Home 里也把这句话写死，不靠
+		// 「空串恰好等于 off」这条隐含约定。
+		LocalAgent: LocalAgentOff,
 		Providers: map[string]ProviderConfig{
 			"claude": {Command: "claude"},
 		},
@@ -65,6 +68,11 @@ func DefaultTOML() string {
 # language: 界面语言，zh / en / auto。默认 auto：依次看环境变量 COUNCIL_LANG、
 # 本键、系统区域；都不是英文/中文时回落到中文。
 # language = 'auto'
+#
+# local_agent: 本机 agent 观察（可选模块）。off（默认）或 observe。
+# off 时一次进程都不枚举、不起后台任务；observe 之后 council who 与 MCP 的
+# council_who 才会只读地列出本机 claude / codex / grok / agy 进程。
+# local_agent = 'off'
 #
 # [providers.<id>]: council 去哪找这家工具。id 是 claude、grok、agy、codex 之一，
 # command 写可执行文件的绝对路径，或 PATH 上的名字。

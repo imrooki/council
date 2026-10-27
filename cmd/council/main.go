@@ -66,6 +66,12 @@ func run(args []string) int {
 	if len(args) > 0 && args[0] == "mcp" {
 		return runMCP(args[1:])
 	}
+	// who 同理，而且它必须在全局 FlagSet 之前：-json 与 -lang 在 who 这条
+	// 路上有自己的含义；它也不进 REPL、不读交互式输入，只打两段本机事实
+	// 就返回。默认行为（council 不带参数 / -no-tui / foo）一个字节都不经过。
+	if len(args) > 0 && args[0] == "who" {
+		return runWho(args[1:])
+	}
 
 	// 语言要在建 FlagSet 之前定：-h 在 Parse 里就返回 ErrHelp，那时再按解析
 	// 结果选说明文字已经晚了。-lang 的值与 -config 的值先按字面预扫一遍，

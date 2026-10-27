@@ -1,0 +1,388 @@
+// who.go 是 `council who` 的进程边界与输出层。
+//
+// 这个子命令存在的理由：它是**唯一一个可以在别的 council 正在跑的时候
+// 安全执行**的本机视图 —— 不拿 council.lock，只以只读模式打开库
+// （internal/store.OpenReadOnly），拿不到库也照样把本机进程那一段打出来。
+//
+// 开启（observe）时输出始终是两段：
+//  1. Council 管理的成员：从库里读在飞的 turn（只读打开；失败只影响这一段）；
+//  2. 本机其他 agent 进程：来自 internal/localagent（local_agent = observe
+//     才会枚举；off 时一个字都不扫，只打印一句怎么开启）。
+//
+// 与 TUI 的 /who 不是一回事：/who 列的是当前会话的成员，本命令看的是
+// 本机进程。帮助文案与输出末尾都点明这一点，避免同名误导。
+//
+// L1 **不做** managed ↔ observed 的合并。`cmd.Start()` 起 .cmd 垫片时
+// 返回的是 cmd.exe 的 PID，不是真正干活的进程；靠 PID 直接对会把观察到的
+// 进程误标成 Council 管理的成员。两段是并列事实：managed 行来自库里的
+// 在飞记录（没有 PID），observed 行的 certainty 只回答「这个进程有多确定
+// 是那家 CLI」。合并规则等 L2 有了进程树 / 启动时间窗口再做。
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"time"
+
+	"council/internal/config"
+	"council/internal/i18n"
+	"council/internal/localagent"
+	"council/internal/store"
+)
+
+// whoScanTimeout 是两段读取共用的上限。
+//
+// 有上限的理由与看板的 busy_timeout 一致：council who 可能在 TUI 正提交
+// 一轮时运行，SQLite 会等锁；等到一个明确的错误再打印「库不可用」，
+// 比让终端看起来卡死好。进程枚举本身通常在几十毫秒内结束。
+const whoScanTimeout = 10 * time.Second
+
+// whoDeps 收拢 who 的两条外部依赖，测试可以注入假枚举器与假库打开函数：
+//   - Enumerate：localagent.Enumerate（Windows 上走 Toolhelp32）；
+//   - OpenReadOnly：store.OpenReadOnly（不拿锁的只读句柄）。
+//
+// 为什么不在 runWho 里直接调那两个函数：off 路径要能被测试证明「一次枚举、
+// 一次开库都没有发生」。注入一个会 panic 的实现比字符串断言更硬。
+type whoDeps struct {
+	Enumerate    localagent.Enumerator
+	OpenReadOnly func(context.Context, string) (*store.Store, error)
+}
+
+// whoManagedRow 是 JSON 里「Council 管理的成员」的一行。
+//
+// Phase 用 conversation.InflightPhase 的字符串（begun / spawned / returned），
+// 与库里的值一字不改：这是排查在飞对账时最需要的一个字段。
+type whoManagedRow struct {
+	ConversationID string `json:"conversation_id"`
+	AgentID        string `json:"agent_id"`
+	TurnID         string `json:"turn_id"`
+	Provider       string `json:"provider"`
+	Phase          string `json:"phase"`
+	StartedAt      string `json:"started_at"`
+	WorkDir        string `json:"work_dir"`
+	Source         string `json:"source"`
+}
+
+// whoObservedRow 是 JSON 里「本机其他 agent 进程」的一行。
+//
+// StartedAt 拿不到时是空串：JSON 里不编一个 1601 年或 1970 年的时间。
+// ExePath 是 exact/probable 判定的依据；拿不到时为空串。
+// Certainty 只描述「这个进程有多确定是那家 CLI」，不表示它归 Council 管。
+// L1 不做 managed ↔ observed 的合并：cmd.Start() 起 .cmd 垫片时拿到的是
+// cmd.exe 的 PID，靠 PID 对不上真正干活的进程；把观察到的进程标成 managed
+// 是误报（见 localagent.SourceManaged 的注释）。
+type whoObservedRow struct {
+	Kind      string `json:"kind"`
+	PID       int    `json:"pid"`
+	PPID      int    `json:"ppid"`
+	ExeName   string `json:"exe_name"`
+	ExePath   string `json:"exe_path"`
+	StartedAt string `json:"started_at"`
+	Source    string `json:"source"`
+	Certainty string `json:"certainty"`
+}
+
+// whoReport 是 -json 的完整形状。
+//
+// 两段数组永远存在（off 时是空数组而不是 null）：调用方不必为「没有这一段」
+// 写第二条判空路径。错误与提示是可选字段，不出现时就是没有。
+type whoReport struct {
+	LocalAgent    string           `json:"local_agent"`
+	Managed       []whoManagedRow  `json:"managed"`
+	Observed      []whoObservedRow `json:"observed"`
+	ManagedError  string           `json:"managed_error,omitempty"`
+	ObservedError string           `json:"observed_error,omitempty"`
+	Notice        string           `json:"notice,omitempty"`
+}
+
+// runWho 是 `council who` 的进程边界：生产依赖写死在这里，输出走标准流。
+func runWho(args []string) int {
+	return runWhoWith(args, whoDeps{
+		Enumerate:    localagent.Enumerate,
+		OpenReadOnly: store.OpenReadOnly,
+	}, os.Stdout, os.Stderr)
+}
+
+// runWhoWith 是可测试的那一半：deps 与两个输出流都由调用方注入。
+// 退出码约定与其它子命令一致：用法错误 2，配置/写输出失败 1，其余 0。
+func runWhoWith(args []string, deps whoDeps, out, errOut io.Writer) int {
+	// 语言要在建 FlagSet 之前定：-h 在 Parse 里就返回 ErrHelp，那时再按
+	// 解析结果选说明文字已经晚了（与 ask / serve / mcp 同一套写法）。
+	lang := applyLanguageFlag(prescanFlag(args, "lang"), prescanFlag(args, "config"))
+	text := whoTextFunc(lang)
+
+	fs := flag.NewFlagSet("council who", flag.ContinueOnError)
+	// flag 包自己的输出丢掉：帮助与解析错误都由下面那一份 usage 统一打印。
+	fs.SetOutput(io.Discard)
+	configPath := fs.String("config", "", text("cli.who.flag.config",
+		"配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml"))
+	langFlag := fs.String("lang", "auto", text("cli.who.flag.lang",
+		"输出语言：zh / en / auto（默认 auto：依次看 COUNCIL_LANG、配置里的 language、系统区域）"))
+	asJSON := fs.Bool("json", false, text("cli.who.flag.json",
+		"按 JSON 输出（local_agent / managed / observed / notice）"))
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprint(errOut, whoUsageLang(lang))
+			return exitOK
+		}
+		fmt.Fprintf(errOut, "council who: %v\n", err)
+		fmt.Fprint(errOut, whoUsageLang(lang))
+		return exitUsage
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprint(errOut, text("cli.who.error.positional",
+			"council who 不接受位置参数，多出来的是: %v\n", fs.Args()))
+		fmt.Fprint(errOut, whoUsageLang(lang))
+		return exitUsage
+	}
+
+	// -lang 的正式结果要在读配置之前落地，输出语言与配置里的 language
+	// 走同一次解析（与 serve / mcp 一致）。
+	lang = applyLanguageFlag(*langFlag, *configPath)
+	text = whoTextFunc(lang)
+
+	level, dataDir, err := loadWhoConfig(*configPath)
+	if err != nil {
+		// 配置坏掉时不再猜开关状态：宁可退 1，也不把「配置写坏了」显示成
+		// 「本机没有 agent」。缺配置文件是另一条路（出厂状态 = off），
+		// 见 loadWhoConfig。
+		fmt.Fprint(errOut, text("cli.who.configBroken", "council who: 配置文件有问题: %v\n", err))
+		return exitConfigFailed
+	}
+
+	// off：不枚举进程、不开库、不读任何东西，只说明怎么开启，退出 0。
+	// 这是 S-01 在 CLI 上的落点；测试用一个会 panic 的枚举器证明它没被调用。
+	if level != localagent.LevelObserve {
+		notice := text("cli.who.off", `本机 agent 观察未开启（config 里 local_agent = "observe" 可开启）`)
+		if *asJSON {
+			return writeWhoJSON(out, errOut, whoReport{
+				LocalAgent: string(localagent.LevelOff),
+				Managed:    []whoManagedRow{},
+				Observed:   []whoObservedRow{},
+				Notice:     notice,
+			})
+		}
+		fmt.Fprintln(out, notice)
+		return exitOK
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), whoScanTimeout)
+	defer cancel()
+
+	managed, managedErr := readManagedTurns(ctx, deps.OpenReadOnly, dataDir)
+	agents, observedErr := localagent.Scan(level, deps.Enumerate)
+
+	report := whoReport{
+		LocalAgent: string(level),
+		Managed:    managed,
+		Observed:   observedRows(agents),
+	}
+	if managedErr != nil {
+		report.ManagedError = managedErr.Error()
+	}
+	if observedErr != nil {
+		report.ObservedError = observedErr.Error()
+	}
+
+	if *asJSON {
+		return writeWhoJSON(out, errOut, report)
+	}
+	writeWhoText(out, text, managed, managedErr, agents, observedErr)
+	return exitOK
+}
+
+// whoTextFunc 绑定一种语言的 TF，只在 runWhoWith 里换两次（解析前后）。
+func whoTextFunc(lang i18n.Lang) func(key, fallback string, args ...any) string {
+	return func(key, fallback string, args ...any) string {
+		return i18n.TF(lang, key, fallback, args...)
+	}
+}
+
+// loadWhoConfig 只读地求两样东西：local_agent 的层级与 data_dir。
+//
+// 配置文件一份都不存在时返回 off：那是出厂状态，与显式写 off 等价，
+// 不该报错（`council who` 在没跑过 council 的机器上也应当能用）。
+// 配置存在但读不出来（语法错误、未知键、非法 local_agent）时返回错误，
+// 由调用方退 1 —— 猜一个层级会让关闭状态变得不可验证。
+func loadWhoConfig(configPath string) (localagent.Level, string, error) {
+	layers, err := config.ResolveConfigLayers(configPath)
+	if err != nil {
+		return localagent.LevelOff, "", err
+	}
+	if len(layers) == 0 {
+		return localagent.LevelOff, "", nil
+	}
+	if _, statErr := os.Stat(layers[0].Path); statErr != nil {
+		if errors.Is(statErr, fs.ErrNotExist) {
+			return localagent.LevelOff, "", nil
+		}
+		return localagent.LevelOff, "", statErr
+	}
+
+	merged, err := config.LoadMerged(layers)
+	if err != nil {
+		return localagent.LevelOff, "", err
+	}
+	dataDir, err := config.ResolveDataDir(merged.Config.DataDir)
+	if err != nil {
+		return localagent.LevelOff, "", err
+	}
+	return localagent.LevelOf(merged.Config.LocalAgent), dataDir, nil
+}
+
+// readManagedTurns 以只读方式打开库并列出在飞的 turn。
+//
+// 失败不是致命的：返回空表与错误，调用方在「Council 管理的成员」那一段
+// 打印「库不可用」，本机进程那一段照常显示（这正是本命令存在的意义：
+// serve -rw 拿着写锁时它也能用）。
+func readManagedTurns(ctx context.Context, open func(context.Context, string) (*store.Store, error), dataDir string) ([]whoManagedRow, error) {
+	if open == nil {
+		return []whoManagedRow{}, errors.New("只读打开库的入口未注入")
+	}
+	if dataDir == "" {
+		return []whoManagedRow{}, errors.New("数据目录未知")
+	}
+	st, err := open(ctx, dataDir)
+	if err != nil {
+		return []whoManagedRow{}, err
+	}
+	defer func() {
+		// 只读句柄关不上不影响已经读到的结果，也不改退出码。
+		_ = st.Close()
+	}()
+
+	turns, err := st.AllInflight(ctx)
+	if err != nil {
+		return []whoManagedRow{}, err
+	}
+	rows := make([]whoManagedRow, 0, len(turns))
+	for _, turn := range turns {
+		rows = append(rows, whoManagedRow{
+			ConversationID: turn.ConvID,
+			AgentID:        turn.AgentID,
+			TurnID:         turn.TurnID,
+			Provider:       turn.Provider,
+			Phase:          string(turn.Phase),
+			StartedAt:      formatWhoTime(turn.StartedAt),
+			WorkDir:        turn.WorkDir,
+			Source:         string(localagent.SourceManaged),
+		})
+	}
+	return rows, nil
+}
+
+// observedRows 把 localagent 的结果映射成 JSON 行。StartAt 为空的字符串
+// 表示系统没给启动时间，与 localagent.Agent 的零值一一对应。
+func observedRows(agents []localagent.Agent) []whoObservedRow {
+	rows := make([]whoObservedRow, 0, len(agents))
+	for _, agent := range agents {
+		rows = append(rows, whoObservedRow{
+			Kind:      string(agent.Kind),
+			PID:       agent.PID,
+			PPID:      agent.PPID,
+			ExeName:   agent.ExeName,
+			ExePath:   agent.ExePath,
+			StartedAt: formatWhoTime(agent.StartedAt),
+			Source:    string(agent.Source),
+			Certainty: string(agent.Certainty),
+		})
+	}
+	return rows
+}
+
+// formatWhoTime 统一输出 UTC 的 RFC3339；零值给空串（「拿不到」），
+// 不给一个会被误读成事实的时间。
+func formatWhoTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+// whoTimeText 给纯文本用：拿不到时显示「未知」而不是空字段。
+func whoTimeText(t time.Time, unknown string) string {
+	if t.IsZero() {
+		return unknown
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+// writeWhoText 按两段打印。两段的标题永远出现（observe 模式下），
+// 这样用户一眼能区分「这一段没有内容」与「这一段没跑」。
+func writeWhoText(out io.Writer, text func(key, fallback string, args ...any) string,
+	managed []whoManagedRow, managedErr error, agents []localagent.Agent, observedErr error) {
+	unknown := text("cli.who.unknown", "未知")
+
+	fmt.Fprintln(out, text("cli.who.headManaged", "Council 管理的成员（%d）", len(managed)))
+	switch {
+	case managedErr != nil:
+		fmt.Fprintln(out, text("cli.who.managedUnavailable", "  （库不可用：%v；只显示本机进程部分）", managedErr))
+	case len(managed) == 0:
+		fmt.Fprintln(out, text("cli.who.managedEmpty", "  （没有在飞的成员）"))
+	default:
+		for _, row := range managed {
+			started := row.StartedAt
+			if started == "" {
+				started = unknown
+			}
+			fmt.Fprintln(out, text("cli.who.managedRow",
+				"  会话 %s / 成员 %s / turn %s / phase %s / 起于 %s",
+				row.ConversationID, row.AgentID, row.TurnID, row.Phase, started))
+		}
+	}
+
+	fmt.Fprintln(out, text("cli.who.headObserved", "本机其他 agent 进程（%d）", len(agents)))
+	switch {
+	case observedErr != nil:
+		fmt.Fprintln(out, text("cli.who.observedUnavailable", "  （进程枚举不可用：%v）", observedErr))
+	case len(agents) == 0:
+		fmt.Fprintln(out, text("cli.who.observedEmpty", "  （没有发现本机 agent 进程）"))
+	default:
+		for _, agent := range agents {
+			fmt.Fprintln(out, text("cli.who.observedRow",
+				"  %s  pid=%d ppid=%d exe=%s source=%s certainty=%s 起于 %s",
+				agent.Kind, agent.PID, agent.PPID, agent.ExeName, agent.Source,
+				agent.Certainty, whoTimeText(agent.StartedAt, unknown)))
+		}
+	}
+
+	fmt.Fprintln(out, text("cli.who.note",
+		"本命令看的是本机进程，不是会话成员；不读取命令行、环境变量或其它 CLI 的配置；两段不做 PID 合并（.cmd 垫片拿到的是 cmd.exe 的 PID）。"))
+}
+
+// writeWhoJSON 输出一行 JSON（与 council commands -json 同体例：不缩进，
+// 不转义 HTML 尖括号，便于人核对字段）。
+func writeWhoJSON(out, errOut io.Writer, report whoReport) int {
+	enc := json.NewEncoder(out)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(report); err != nil {
+		fmt.Fprintf(errOut, "council who: %v\n", err)
+		return exitConfigFailed
+	}
+	return exitOK
+}
+
+// whoUsageLang 是 -h 与用法错误共用的那一段。
+func whoUsageLang(lang i18n.Lang) string {
+	return i18n.TF(lang, "cli.who.usage", `用法: council who [flags]
+
+只读列出两段本机事实，不拿 council.lock，可以在 TUI 或 serve -rw 开着的时候跑：
+  1. Council 管理的成员：库里正在飞的 turn
+  2. 本机其他 agent 进程：claude / codex / grok / agy（需要 config 里 local_agent = "observe"）
+本命令看的是本机进程，不是会话成员（那是在 council 里敲 /who）。
+certainty=exact 只给落在已知 CLI 安装目录里的进程；路径拿不到或不在安装目录里的标 probable，
+桌面客户端（Claude Desktop 等）的同名 claude.exe 不报。
+不读取命令行、环境变量或其它 CLI 的配置；local_agent = "off"（默认）时一次进程都不枚举。
+
+flags:
+  -json                按 JSON 输出（local_agent / managed / observed / notice）
+  -config <path>       配置文件路径，与全局 -config 含义相同
+  -lang zh|en|auto     输出语言，默认 auto
+`)
+}
