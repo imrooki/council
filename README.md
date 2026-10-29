@@ -96,12 +96,21 @@ local_agent = "off"          # 默认值：一次进程都不枚举、不起后�
 
 ## 桌面版
 
-`desktop/` 是 Electron 外壳：关窗口进托盘，托盘里可彻底退出。
+`desktop/` 是 Electron 外壳。窗口里显示的是看板页面，但外壳本身不是「省掉开浏览器」那层薄包装 —— 它负责的是这个多进程系统的启动与收尾：
+
+- **先连后起**：启动时探测 `http://127.0.0.1:8765/api/health`，已经有看板在跑就直接挂上去；没有再拉起 `council serve -rw`。一个 `data_dir` 只允许一个写进程，第二次双击不该撞 `council.lock`。
+- **端口不写死**：8765 被占用时传 `-addr 127.0.0.1:0` 让系统分配，再从子进程输出的 `council serve: <url>` 里读回真实地址。
+- **只关自己拉起的那个**：退出时只结束由它 spawn 的 `serve`（attach 到别人的进程就绝不去杀）。Windows 上先 `kill()`，2 秒不退再 `taskkill /T` 连子进程树。
+- **起不来要能查**：失败对话框里带着子进程输出尾部、实际命令、工作目录与端口；启动决策（attach / spawn、端口、健康探测）写进用户数据目录下的日志。
+- **关窗口不退服务**：窗口隐藏进托盘，托盘菜单里可以「在浏览器打开」或真正退出 —— `serve` 一停，正在跑的议会就断了。
+- **portable 适配**：NSIS 自解压目录会被上一个实例清理，所以 exe 定位按 `PORTABLE_EXECUTABLE_DIR` 找并带重试。
+
+它仍然只有网页做界面（窗口内没有原生控件），也没有自动更新与代码签名。
 
 ```powershell
 cd desktop
 npm install
-npm run dist        # 产出 dist/Council-0.1.0-portable.exe
+npm run dist        # 产出 dist/Council-Setup-<版本>.exe 与 portable
 ```
 
 ## 当前状态
