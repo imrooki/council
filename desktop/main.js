@@ -1244,6 +1244,7 @@ async function start() {
   }
 
   if (primaryProbe.ok) {
+    if (!(await attachVersionMatches(primaryProbe.health, PRIMARY_BASE_URL))) return;
     await loadWorkbench(PRIMARY_BASE_URL, {
       kind: 'attach',
       source: 'primary',
@@ -1260,6 +1261,7 @@ async function start() {
     setLoadingStatus('正在启动工作台…');
     const configuredProbe = await probeHealth(CONFIGURED_BASE_URL);
     if (configuredProbe.ok) {
+      if (!(await attachVersionMatches(configuredProbe.health, CONFIGURED_BASE_URL))) return;
       await loadWorkbench(CONFIGURED_BASE_URL, {
         kind: 'attach',
         source: 'COUNCIL_URL',
@@ -1322,6 +1324,42 @@ async function start() {
     }
     await failStartup(error);
   }
+}
+
+// attachVersionMatches 判断「我要挂上去的那个看板」和我是同一次构建。
+//
+// 不同版就直接结束启动并说清原因，原因很硬：写锁在那个旧进程手里，新版
+// 既不能覆盖它的界面，也不能再起一个 serve。让用户看到旧界面却不告诉他，
+// 比停下来更糟 —— 他会以为装的新版没生效。
+async function attachVersionMatches(health, url) {
+  const remote = health && typeof health.version === 'string' ? health.version.trim() : '';
+  if (!remote) {
+    logEvent(`attached workbench has no version (url=${url}); proceeding`);
+    return true;
+  }
+  const local = await engineVersion();
+  if (versionsMatch(remote, local)) {
+    logEvent(`attached workbench version ok: ${remote}`);
+    return true;
+  }
+
+  logEvent(`attached workbench version mismatch: remote=${remote} local=${local} url=${url}`);
+  quitting = true;
+  await stopOwnedChild();
+  try {
+    destroyTray();
+  } catch {
+    /* 托盘还没建好时忽略。 */
+  }
+  dialog.showErrorBox(
+    'Council 已经在运行（旧版本）',
+    `这台机器上已经有一个旧版本的 Council 在运行：\n  ${remote}\n`
+    + `当前版本是 ${local.split('+')[0]}。\n\n`
+    + '请先在那边（托盘菜单 → 彻底退出，或关掉那个终端窗口）退出，再重新打开 Council。\n'
+    + '写锁在旧进程手里，新版本没法覆盖它，也不会去动它。',
+  );
+  app.quit();
+  return false;
 }
 
 // ---- 首次运行：设置向导 ----
@@ -1554,6 +1592,7 @@ function sanitizeSetupPayload(payload) {
 // 单独一份纯函数才能用 node --test 钉住那些反例。
 
 const { PROTOCOL, incomingDeepLink, conversationIDFromDeepLink } = require('./lib/deeplink');
+const { versionsMatch } = require('./lib/version');
 
 let pendingDeepLink = '';
 
