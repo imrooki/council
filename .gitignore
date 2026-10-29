@@ -23,4 +23,5 @@ Thumbs.db
 
 # Council runtime data lives outside the repo (see the private notes repository),
 # so there is nothing to ignore for it here.
-desktop/*.log
+desktop/*.log# go-winres 生成的 Windows 版本资源（构建时临时生成，用完即删）
+cmd/council/rsrc*.syso

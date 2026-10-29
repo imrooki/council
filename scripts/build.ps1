@@ -40,8 +40,29 @@ try {
     # -trimpath 不是可选优化：不加它，Go 会把本机的绝对源码路径（含用户名）
     # 写进二进制，而这个仓库是公开的、安装包要发到 release 上。加了之后路径
     # 统一变成 council/interna/... 这样的模块相对形式，构建也能复现。
-    go build -trimpath -ldflags "-X main.version=$version" -o $Out ./cmd/council
-    if ($LASTEXITCODE -ne 0) { throw "go build 失败（exit $LASTEXITCODE）" }
+    #
+    # Windows 版本资源：Go 二进制默认没有 VERSIONINFO，右键属性 → 详细信息是
+    # 一片空白（安装包里的 Electron 外壳有，内嵌的引擎没有，看起来像两个东西）。
+    # 这里用 go-winres 生成 rsrc.syso 再构建，构建完就删掉 —— 留着一个旧 .syso
+    # 会让之后任何一次裸 go build 静默嵌入过期的版本号。
+    $syso = Join-Path $root 'cmd\council\rsrc.syso'
+    $numeric = ($base -split '[^0-9.]')[0]
+    try {
+        go run github.com/tc-hib/go-winres@v0.3.3 simply `
+            --out 'cmd/council/rsrc.syso' --no-suffix --arch amd64 --manifest cli `
+            --icon 'desktop/assets/icon.ico' `
+            --product-name 'Council' `
+            --file-description "Council 命令行（$version）" `
+            --product-version $numeric --file-version $numeric `
+            --copyright 'MIT License' `
+            --original-filename 'council.exe'
+        if ($LASTEXITCODE -ne 0) { throw "生成版本资源失败（exit $LASTEXITCODE）" }
+
+        go build -trimpath -ldflags "-X main.version=$version" -o $Out ./cmd/council
+        if ($LASTEXITCODE -ne 0) { throw "go build 失败（exit $LASTEXITCODE）" }
+    } finally {
+        if (Test-Path $syso) { Remove-Item $syso -Force }
+    }
 
     & $Out --version
 } finally {
