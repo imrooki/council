@@ -39,4 +39,19 @@ function conversationIDFromDeepLink(raw) {
   return id;
 }
 
-module.exports = { PROTOCOL, incomingDeepLink, conversationIDFromDeepLink };
+// shouldHandleDeepLink 去重：同一条深链在极短时间里可能被投递多次。
+//
+// 原因在单实例锁的重试：拿不到锁时每次重试都会触发一次 second-instance，
+// 于是同一个 argv 被处理三次 —— 真机上日志里就是三条一模一样的
+// 「deep link switched url=…」（页面被重新加载三次）。
+//
+// state 由调用方持有：{ raw: string, at: number }。
+function shouldHandleDeepLink(state, raw, now, windowMs = 3000) {
+  if (!raw) return false;
+  if (!state || typeof state !== 'object') return true;
+  if (state.raw !== raw) return true;
+  if (!Number.isFinite(state.at)) return true;
+  return now - state.at > windowMs;
+}
+
+module.exports = { PROTOCOL, incomingDeepLink, conversationIDFromDeepLink, shouldHandleDeepLink };

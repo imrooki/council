@@ -7,7 +7,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { incomingDeepLink, conversationIDFromDeepLink } = require('../lib/deeplink');
+const { incomingDeepLink, conversationIDFromDeepLink, shouldHandleDeepLink } = require('../lib/deeplink');
 
 test('incomingDeepLink 从 argv 里挑出 council://', () => {
   assert.equal(
@@ -50,4 +50,16 @@ test('conversationIDFromDeepLink 拒绝一切别的形状', () => {
   for (const raw of rejected) {
     assert.equal(conversationIDFromDeepLink(raw), '', `应当拒绝: ${raw}`);
   }
+});
+
+test('shouldHandleDeepLink 去掉单实例重试带来的重复投递', () => {
+  const state = { raw: '', at: 0 };
+  const raw = 'council://conversation/abc';
+  assert.equal(shouldHandleDeepLink(state, raw, 1000), true, '第一次要处理');
+  state.raw = raw;
+  state.at = 1000;
+  assert.equal(shouldHandleDeepLink(state, raw, 1500), false, '1.5 秒内的同一条要丢掉');
+  assert.equal(shouldHandleDeepLink(state, raw, 4500), true, '超过 3 秒再投递算新的一次');
+  assert.equal(shouldHandleDeepLink(state, 'council://conversation/def', 4600), true, '换了目标当然要处理');
+  assert.equal(shouldHandleDeepLink(state, '', 4700), false, '空串不处理');
 });

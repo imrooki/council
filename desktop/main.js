@@ -1591,13 +1591,27 @@ function sanitizeSetupPayload(payload) {
 // 解析放在 lib/deeplink.js：那是安全边界（结果会被拼进窗口地址），
 // 单独一份纯函数才能用 node --test 钉住那些反例。
 
-const { PROTOCOL, incomingDeepLink, conversationIDFromDeepLink } = require('./lib/deeplink');
+const {
+  PROTOCOL,
+  incomingDeepLink,
+  conversationIDFromDeepLink,
+  shouldHandleDeepLink,
+} = require('./lib/deeplink');
 const { versionsMatch } = require('./lib/version');
 
 let pendingDeepLink = '';
+// 单实例锁的重试会让同一个 argv 触发多次 second-instance，这里按原文去重。
+const deepLinkState = { raw: '', at: 0 };
 
 // openDeepLink 把深链落到窗口上：没加载完就记下来，加载完直接切会话。
 async function openDeepLink(raw) {
+  const now = Date.now();
+  if (!shouldHandleDeepLink(deepLinkState, raw, now)) {
+    logEvent(`deep link ignored as duplicate: ${raw}`);
+    return;
+  }
+  deepLinkState.raw = raw;
+  deepLinkState.at = now;
   const id = conversationIDFromDeepLink(raw);
   logEvent(`deep link raw=${raw} conversation=${id || '(ignored)'}`);
   if (!id) return;
