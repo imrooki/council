@@ -113,6 +113,24 @@ npm install
 npm run dist        # 产出 dist/Council-Setup-<版本>.exe 与 portable
 ```
 
+### 发版
+
+桌面版自带自动更新（`electron-updater` 读 release 里的 `latest.yml`）。发一版要做三件事，少一件用户就收不到更新：
+
+```powershell
+# 1. 改 desktop/package.json 的 version，并在仓库根跑一次构建（版本串带 git 哈希）
+powershell -NoProfile -File scripts\build.ps1
+
+# 2. 打安装包：electron-builder 会一并产出 dist\latest.yml
+cd desktop
+$env:COUNCIL_EXE = "$env:USERPROFILE\bin\council.exe"; npm run dist
+
+# 3. 建 release，把 latest.yml 一起传上去（它里面的 sha512 与那个安装包一一对应）
+gh release create v<版本> dist\Council-Setup-<版本>.exe dist\Council-<版本>-portable.exe dist\latest.yml
+```
+
+已经装着的旧版会在启动后静默检查、后台下载，然后问一次「立即重启」。
+
 ## 当前状态
 
 - 只在 Windows 上实测过；Linux/macOS 有代码分支但没人跑过。

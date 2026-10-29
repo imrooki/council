@@ -14,6 +14,16 @@ const os = require('node:os');
 const path = require('node:path');
 const { URL } = require('node:url');
 
+// 自动更新只对「装好的 app」有意义：开发态（npm start）没有 app-update.yml，
+// 也没有可替换的安装目录，直接跳过。
+let autoUpdater = null;
+try {
+  ({ autoUpdater } = require('electron-updater'));
+} catch (error) {
+  // 依赖缺失不该让应用起不来：没有更新能力远好于打不开窗口。
+  console.warn('[council-desktop] electron-updater unavailable:', error && error.message);
+}
+
 const APP_TITLE = 'Council';
 const DEFAULT_PRIMARY_PORT = 8765;
 const PRIMARY_PORT = resolvePrimaryPort();
@@ -49,6 +59,7 @@ let spawnedInfo = null;
 let startupFinished = false;
 let startupStarted = false;
 let startupFailed = false;
+let updaterStarted = false;
 let quitting = false;
 let quitInProgress = false;
 let tray = null;
@@ -126,11 +137,19 @@ function childLogBlock(maxChars = DIALOG_TAIL_CHARS) {
 }
 
 // 启动决策写进用户数据目录，打包后没有控制台也能查 attach / 自启。
+const LOG_FILE_NAME = 'desktop.log';
+
+// logFilePath 是诊断日志的绝对路径。它只在两处出现：logEvent 与托盘里的
+// 「打开诊断日志」—— 用户不需要知道 app 把日志放在哪，只需要能点开它。
+function logFilePath() {
+  return path.join(app.getPath('userData'), LOG_FILE_NAME);
+}
+
 function logEvent(message) {
   try {
     const dir = app.getPath('userData');
     fs.mkdirSync(dir, { recursive: true });
-    fs.appendFileSync(path.join(dir, 'desktop.log'), `${new Date().toISOString()} ${message}\n`, 'utf8');
+    fs.appendFileSync(logFilePath(), `${new Date().toISOString()} ${message}\n`, 'utf8');
   } catch {
     /* 日志失败不能影响启动。 */
   }
@@ -420,42 +439,46 @@ function targetLabel(url) {
   }
 }
 
+// startupErrorFromExit 把「子进程没起来」翻译成用户能行动的一句话。
+//
+// 细节（端口、命令行、cwd、health 探测结果）不进对话框：它们是诊断信息，
+// 由 failStartup 统一写进日志。对话框只回答「怎么办」——会不会有人真的
+// 去读「127.0.0.1:8765 已被占用」然后自己解决？我们的用户不会。
 function startupErrorFromExit(exitInfo, lastReason, url) {
   const code = exitInfo.code === null ? `信号 ${exitInfo.signal}` : `退出码 ${exitInfo.code}`;
   const stderr = councilStderrTail;
   const portInUse = /address already in use|Only one usage of each socket address|bind:\s|监听 .* 失败|listen tcp/i.test(stderr);
   const lockBusy = /council\.lock|另一个 council|已经在运行|无法获取.*锁|database is locked/i.test(stderr);
-  const command = spawnedInfo
-    ? `\n\n命令：${spawnedInfo.exe} ${spawnedInfo.args.join(' ')}`
-      + `\n工作目录：${spawnedInfo.cwd}`
-    : '';
+
+  // 诊断细节单独记日志：这里写全，对话框里就不用写。
+  logEvent(`startup failure code=${code} target=${targetLabel(url)} lastReason=${lastReason || '无响应'}`);
+  if (spawnedInfo) {
+    logEvent(`startup failure command="${spawnedInfo.exe}" ${spawnedInfo.args.join(' ')} cwd="${spawnedInfo.cwd}"`);
+  }
+  if (councilStderrTail) {
+    logEvent(`startup failure stderr_begin\n${councilStderrTail}\nstartup failure stderr_end`);
+  }
 
   if (portInUse) {
     return new StartupFailure(
-      'Council 启动失败：端口被占用',
-      `无法在 ${targetLabel(url)} 上启动 council serve。\n\n`
-      + '可能是别的程序占用了这个端口，或另一个 council 已经在运行。\n'
-      + `子进程 ${code}，最后一次 health 探测：${lastReason || '无响应'}`
-      + command,
+      'Council 启动失败',
+      'Council 需要的本地端口被别的程序占着。\n\n'
+      + '先关掉占用它的程序（常见的是一个还在跑的 council 或另一个开发服务器），再重新打开 Council。',
     );
   }
 
   if (lockBusy) {
     return new StartupFailure(
-      'Council 启动失败：数据目录被占用',
-      '另一个 council 进程正在使用同一个数据目录（council.lock）。\n\n'
-      + '先关掉那个 council 或终端里的 council，再打开桌面版。\n'
-      + `子进程 ${code}，最后一次 health 探测：${lastReason || '无响应'}`
-      + command,
+      'Council 启动失败：另一个 Council 正在运行',
+      '已经有一个 council 在用同一份数据目录。\n\n'
+      + '先关掉终端里的 council（或托盘里的旧窗口），再重新打开。',
     );
   }
 
   return new StartupFailure(
     'Council 启动失败',
-    `council serve 在就绪前退出（${code}）。\n\n`
-    + `目标：${targetLabel(url)}\n`
-    + `最后一次 health 探测：${lastReason || '无响应'}`
-    + command,
+    '本地服务没能启动。\n\n'
+    + '重新打开 Council 通常就好了；如果反复出现，托盘菜单 → 诊断 → 打开诊断日志，把那一份发给我们。',
   );
 }
 
@@ -633,16 +656,14 @@ function windowIconPath() {
   return candidates.find((candidate) => fs.existsSync(candidate));
 }
 
+// modeSuffix 只标「这份窗口连的是谁」，不标地址。
+//
+// 旧版本会把 host（127.0.0.1:8765）拼进标题与托盘 tip。那是实现细节：
+// 用户不该知道内部有个本地 HTTP 服务，更不该被引导去浏览器里打开它。
+// 真需要地址排查时，诊断日志里仍然有完整 url（每次 loadWorkbench 都记一行）。
 function modeSuffix() {
   if (!connectionMode) return '';
-  const label = connectionMode.kind === 'attach' ? '已连接' : '自启';
-  let host = '';
-  try {
-    host = new URL(connectionMode.url).host;
-  } catch {
-    host = '';
-  }
-  return host ? ` · ${label} ${host}` : ` · ${label}`;
+  return connectionMode.kind === 'attach' ? ' · 已连接' : ' · 自启';
 }
 
 function appTitleText() {
@@ -679,16 +700,37 @@ function refreshTrayMenu() {
       label: '打开 Council',
       click: () => showMainWindow(),
     },
+    // 「在浏览器中打开」不在第一层：桌面版是主界面，用户不该被引导去开浏览器。
+    // 它仍然有用（分享给同事、排查渲染问题），所以收进「诊断」子菜单而不是删掉。
     {
-      label: '在浏览器中打开',
-      enabled: Boolean(target),
-      click: () => {
-        if (!target) return;
-        logEvent(`tray open in browser url=${target}`);
-        shell.openExternal(target).catch((error) => {
-          logEvent(`tray open in browser failed: ${error.message}`);
-        });
-      },
+      label: '诊断',
+      submenu: [
+        {
+          label: '在浏览器中打开',
+          enabled: Boolean(target),
+          click: () => {
+            if (!target) return;
+            logEvent(`tray open in browser url=${target}`);
+            shell.openExternal(target).catch((error) => {
+              logEvent(`tray open in browser failed: ${error.message}`);
+            });
+          },
+        },
+        {
+          label: '检查更新…',
+          click: () => {
+            checkForUpdatesManually().catch((error) => {
+              logEvent(`updater: tray check failed ${error && error.message ? error.message : String(error)}`);
+            });
+          },
+        },
+        {
+          label: '打开诊断日志',
+          click: () => {
+            openDiagnosticsLog();
+          },
+        },
+      ],
     },
     { type: 'separator' },
     {
@@ -702,6 +744,27 @@ function refreshTrayMenu() {
     },
   ]);
   tray.setContextMenu(menu);
+}
+
+// openDiagnosticsLog 用系统默认方式打开这个 app 的日志文件。
+//
+// 为什么要有它：桌面版不再把端口、命令行塞进错误对话框（那属于诊断），
+// 但「出问题要能查」这条不能丢 —— 入口就从「错误框里堆细节」换成「一个能点开的日志」。
+function openDiagnosticsLog() {
+  try {
+    // 先写一行：文件一定存在，用户点开一个空目录会以为坏了。
+    logEvent('diagnostics log opened from tray');
+    const logPath = logFilePath();
+    if (!fs.existsSync(logPath)) {
+      logEvent(`diagnostics log missing at ${logPath}`);
+      return;
+    }
+    shell.openPath(logPath).then((error) => {
+      if (error) logEvent(`open diagnostics log failed: ${error}`);
+    });
+  } catch (error) {
+    logEvent(`open diagnostics log threw: ${error && error.message ? error.message : String(error)}`);
+  }
 }
 
 function createTray() {
@@ -890,10 +953,13 @@ function createWindow() {
 
   contents.on('did-fail-load', (_event, errorCode, errorDescription, failedUrl, isMainFrame) => {
     if (!isMainFrame || errorCode === -3 || startupFailed || quitting || !startupFinished) return;
+    // 只给用户一句能行动的话；地址与错误码是诊断信息，进日志。
+    logEvent(`did-fail-load url=${failedUrl} code=${errorCode} desc=${errorDescription}`);
     dialog.showErrorBox(
-      '工作台加载失败',
-      `无法加载 ${failedUrl}\n\n${errorDescription}（${errorCode}）\n\n`
-      + 'council serve 可能已经退出。关闭窗口后重新打开 Council。',
+      '工作台没有响应',
+      'Council 背后的本地服务可能已经退出。\n\n'
+      + '请用托盘菜单里的「彻底退出」结束 Council，然后重新打开它。\n'
+      + '如果反复出现，托盘菜单 → 诊断 → 打开诊断日志，把那一份发给我们。',
     );
   });
 
@@ -908,7 +974,7 @@ function createWindow() {
   // 首次启动先画加载页；窗口若被托盘重建，则直接回到已知的 baseUrl。
   const initialUrl = (startupFinished && baseUrl)
     ? baseUrl
-    : loadingDataUrl(`正在检查 ${PRIMARY_PORT} 端口…`);
+    : loadingDataUrl('正在启动工作台…');
   mainWindow.loadURL(initialUrl).catch(() => {});
 }
 
@@ -965,20 +1031,29 @@ function stopOwnedChild() {
   });
 }
 
+// failStartup 是「应用起不来」时用户看到的唯一一屏。
+//
+// 分工要清楚：对话框只回答「怎么办」，诊断细节（子进程输出、命令、cwd、
+// 探测过的地址）全部进日志 —— 以前这些东西都堆在消息里，用户看到的是端口号
+// 和命令行，而不是一句能行动的话。
 async function failStartup(error) {
   if (startupFailed || quitting) return;
   startupFailed = true;
 
   const title = error && error.title ? error.title : 'Council 启动失败';
   let message = error && error.message ? error.message : String(error);
-  const childLog = childLogBlock();
-  if (childLog) {
-    message += `\n\n--- council 子进程输出（末尾） ---\n${childLog}`;
-  }
-  message += `\n\n主探测地址：${PRIMARY_BASE_URL}`;
-  if (baseUrl) message += `\n当前地址：${baseUrl}`;
 
-  logEvent(`failure title="${title}" message="${message.slice(0, 800).replace(/\n/g, ' | ')}"`);
+  // 诊断细节写日志（不截断，全量留给排查）。
+  logEvent(`failure title="${title}"`);
+  logEvent(`failure message=${message.replace(/\n/g, ' | ')}`);
+  logEvent(`failure primary_url=${PRIMARY_BASE_URL} current_url=${baseUrl || '(none)'}`);
+  const childLog = childLogBlock(1 << 20);
+  if (childLog) {
+    logEvent(`failure child_output_begin\n${childLog}\nfailure child_output_end`);
+  }
+
+  message += `\n\n诊断日志：${logFilePath()}`;
+  message += '\n（托盘菜单 → 诊断 → 打开诊断日志，可看到完整原因）';
 
   await stopOwnedChild();
   dialog.showErrorBox(title, message);
@@ -1004,11 +1079,17 @@ async function loadWorkbench(url, mode, health) {
     if (health && health.writable === false) {
       logEvent('attached workbench is read-only');
     }
+    // 窗口已经起来了才谈更新：更新永远不是启动的前提。
+    if (!updaterStarted) {
+      updaterStarted = true;
+      setupAutoUpdater();
+    }
   } catch (error) {
     if (error && error.code === 'ERR_ABORTED') return;
     throw new StartupFailure(
       '工作台加载失败',
-      `无法加载 ${url}\n\n${error.message}`,
+      '界面没有加载成功。\n\n'
+      + '重新打开 Council 通常就好了；如果反复出现，托盘菜单 → 诊断 → 打开诊断日志。',
     );
   }
 }
@@ -1039,7 +1120,7 @@ async function start() {
   // 1. 永远先看默认端口 8765。用户桌面上已经有一个 serve -rw -app 时，
   //    这里直接 attach，不会再拉一个 council 去抢同一个 data_dir。
   //    冷启动/对方刚开库时单次探测可能误判，所以最多试三次（每次 1.5 秒）。
-  setLoadingStatus(`正在检查 ${PRIMARY_BASE_URL} …`);
+  setLoadingStatus('正在启动工作台…');
   let primaryProbe = { ok: false, reason: '无响应' };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     primaryProbe = await probeHealth(PRIMARY_BASE_URL);
@@ -1061,7 +1142,7 @@ async function start() {
 
   // 2. COUNCIL_URL 只作为额外的 attach 目标，不再决定自启端口。
   if (CONFIGURED_BASE_URL && CONFIGURED_BASE_URL !== PRIMARY_BASE_URL) {
-    setLoadingStatus(`正在检查 ${CONFIGURED_BASE_URL} …`);
+    setLoadingStatus('正在启动工作台…');
     const configuredProbe = await probeHealth(CONFIGURED_BASE_URL);
     if (configuredProbe.ok) {
       await loadWorkbench(CONFIGURED_BASE_URL, {
@@ -1077,7 +1158,7 @@ async function start() {
   if (quitting) return;
 
   // 3. 8765 是空闲的就用它；有人监听但不是工作台，就退到系统分配的空闲端口。
-  setLoadingStatus('正在确认端口…');
+  setLoadingStatus('正在启动工作台…');
   const target = await selectSpawnTarget();
   if (target.attach) {
     await loadWorkbench(target.url, {
@@ -1090,9 +1171,8 @@ async function start() {
 
   if (quitting) return;
   const port = target.port;
-  setLoadingStatus(port === 0
-    ? '正在选择空闲端口并启动 council serve -rw …'
-    : `正在启动 council serve -rw（${port}）…`);
+  // 端口不进加载文案：这是用户不需要知道的实现细节（日志里有）。
+  setLoadingStatus('正在启动工作台…');
 
   let spawned;
   try {
@@ -1126,6 +1206,156 @@ async function start() {
         + `\n工作目录：${spawnedInfo.cwd}`;
     }
     await failStartup(error);
+  }
+}
+
+// ---- 自动更新 ----
+//
+// 「DSH 那种」和「网页快捷方式」最实际的一条差别就在这里：发版之后用户
+// 不需要知道有新版，也不需要自己来下载。electron-updater 读 release 里的
+// latest.yml（electron-builder 配了 build.publish 后自动生成）。
+//
+// 三条自我约束：
+//   - 只在装好的 app 上启用：开发态没有 app-update.yml，检查只会报错；
+//   - 包在后台下，装不装由用户点「立即重启」；重启前先把自己拉起的 serve
+//     收掉，否则那个进程会变成孤儿；
+//   - 任何更新失败都只写日志，绝不让它挡住应用启动。
+
+const UPDATE_CHECK_DELAY_MS = 8000;
+
+function updatesSupported() {
+  return Boolean(autoUpdater) && app.isPackaged;
+}
+
+function updaterLogger() {
+  return {
+    info: (m) => logEvent(`updater info: ${m}`),
+    warn: (m) => logEvent(`updater warn: ${m}`),
+    error: (m) => logEvent(`updater error: ${m}`),
+    debug: (m) => logEvent(`updater debug: ${m}`),
+  };
+}
+
+// setupAutoUpdater 接上事件、延迟做一次静默检查。只在窗口起来之后调用：
+// 更新永远不是启动的前提。
+function setupAutoUpdater() {
+  if (!updatesSupported()) {
+    logEvent(`auto update disabled (packaged=${app.isPackaged} updater=${Boolean(autoUpdater)})`);
+    return;
+  }
+
+  autoUpdater.logger = updaterLogger();
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  autoUpdater.on('checking-for-update', () => logEvent('updater: checking for update'));
+  autoUpdater.on('update-available', (info) => {
+    logEvent(`updater: ${info && info.version} available, downloading in background`);
+  });
+  autoUpdater.on('update-not-available', () => logEvent('updater: already up to date'));
+  autoUpdater.on('download-progress', (progress) => {
+    logEvent(`updater: download ${Math.round(progress.percent || 0)}%`);
+  });
+  autoUpdater.on('error', (error) => {
+    logEvent(`updater: error ${error && error.message ? error.message : String(error)}`);
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    logEvent(`updater: ${info && info.version} downloaded, waiting for user`);
+    promptRestartForUpdate(info).catch((error) => {
+      logEvent(`updater: restart prompt failed ${error && error.message ? error.message : String(error)}`);
+    });
+  });
+
+  const timer = setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((error) => {
+      logEvent(`updater: initial check failed ${error && error.message ? error.message : String(error)}`);
+    });
+  }, UPDATE_CHECK_DELAY_MS);
+  if (typeof timer.unref === 'function') timer.unref();
+}
+
+// promptRestartForUpdate 问一次「现在重启还是稍后」。
+async function promptRestartForUpdate(info) {
+  if (quitting) return;
+  const version = info && info.version ? info.version : '新版本';
+  const { response } = await dialog.showMessageBox(mainWindow || undefined, {
+    type: 'info',
+    title: 'Council 已就绪更新',
+    message: `Council ${version} 已经下载好了。`,
+    detail: '现在重启会关闭当前窗口并更新；正在跑的议会会被中断。',
+    buttons: ['立即重启', '稍后'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  });
+  if (response !== 0) {
+    logEvent('updater: user postponed restart');
+    return;
+  }
+  await restartForUpdate();
+}
+
+// restartForUpdate 停掉自己拉起的 serve 再交给 updater。
+// 顺序不能反：quitAndInstall 会直接退出进程，留下的子进程没人收。
+async function restartForUpdate() {
+  quitting = true;
+  try {
+    await stopOwnedChild();
+  } catch (error) {
+    logEvent(`updater: stop child before install failed ${error && error.message ? error.message : String(error)}`);
+  }
+  logEvent('updater: quitting to install');
+  autoUpdater.quitAndInstall(false, true);
+}
+
+// checkForUpdatesManually 是托盘「检查更新」的实现：有结果都要给用户一句话，
+// 不能像后台检查那样只写日志。
+async function checkForUpdatesManually() {
+  if (!updatesSupported()) {
+    await dialog.showMessageBox(mainWindow || undefined, {
+      type: 'info',
+      title: '检查更新',
+      message: '这个版本不支持自动更新。',
+      detail: '开发态（npm start）或安装包里缺少更新组件时不会检查更新。',
+      buttons: ['好'],
+      noLink: true,
+    });
+    return;
+  }
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    const current = app.getVersion();
+    const version = result && result.updateInfo ? result.updateInfo.version : current;
+    if (version === current) {
+      await dialog.showMessageBox(mainWindow || undefined, {
+        type: 'info',
+        title: '检查更新',
+        message: '已经是最新版本。',
+        detail: `当前版本 ${current}。`,
+        buttons: ['好'],
+        noLink: true,
+      });
+      return;
+    }
+    // 有新版时后台已经在下载，update-downloaded 会再弹一次「立即重启」。
+    await dialog.showMessageBox(mainWindow || undefined, {
+      type: 'info',
+      title: '发现新版本',
+      message: `Council ${version} 正在后台下载。`,
+      detail: '下载完成后会提示你重启。',
+      buttons: ['好'],
+      noLink: true,
+    });
+  } catch (error) {
+    logEvent(`updater: manual check failed ${error && error.message ? error.message : String(error)}`);
+    await dialog.showMessageBox(mainWindow || undefined, {
+      type: 'error',
+      title: '检查更新失败',
+      message: '暂时连不上更新服务器。',
+      detail: '稍后再试。托盘菜单 → 诊断 → 打开诊断日志可看到具体原因。',
+      buttons: ['好'],
+      noLink: true,
+    });
   }
 }
 

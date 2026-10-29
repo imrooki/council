@@ -1,7 +1,7 @@
 {
   "name": "council-desktop",
   "productName": "Council",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Council 工作台的原生桌面外壳",
   "main": "main.js",
   "private": true,
@@ -61,6 +61,16 @@
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
       "artifactName": "Council-Setup-${version}.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "imrooki",
+        "repo": "council"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }
