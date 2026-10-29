@@ -892,7 +892,7 @@ func TestGui6IndexSettingsMarkup(t *testing.T) {
 		// 设置接口与写盘动作。provider 与 agent 共用同一段提交逻辑：
 		// 端点由 sectionPath 推出来（providers / agents），删除再接 /delete。
 		`api('/api/settings')`,
-		`const sectionPath = isProvider ? 'providers' : 'agents'`,
+		`const sectionPath = isTeam ? 'teams' : (isProvider ? 'providers' : 'agents')`,
 		`'/api/settings/' + sectionPath`,
 		`'/api/settings/' + sectionPath + '/' + encodeURIComponent(preview.id) + '/delete'`,
 		`await postJSON(url, isDelete ? {} : preview.payload)`,

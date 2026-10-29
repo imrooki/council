@@ -1907,7 +1907,19 @@
   .settings-status-dot.is-ok { background: var(--ok); }
   .settings-status-dot.is-unknown { background: transparent; box-shadow: inset 0 0 0 1px var(--muted-2); }
   /* provider 表单里的多行输入（args / env）：跨两列，等宽字体，方便按行核对。 */
-  .settings-field.settings-field-wide { grid-column: 1 / -1; }
+  /* .settings-field 本身是「标签左、控件右」的 flex 行；多行控件要占满整行，
+     所以改成上下排。 */
+  .settings-field.settings-field-wide {
+    display: block;
+  }
+  .settings-field.settings-field-wide > label {
+    display: block;
+    margin-bottom: 6px;
+  }
+  .settings-field.settings-field-wide textarea,
+  .settings-field.settings-field-wide .settings-checkbox-list {
+    width: 100%;
+  }
   .settings-field textarea {
     width: 100%;
     min-height: 62px;
@@ -1922,6 +1934,38 @@
     resize: vertical;
   }
   .settings-field textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* 团队表单里的成员勾选：多列排，行高一致，名单长时可滚动。 */
+  .settings-checkbox-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 6px 14px;
+    max-height: 168px;
+    overflow: auto;
+    padding: 2px;
+  }
+  /* 选择器要压过 .settings-field label 的 width:210px（那条给的是「标签左、
+     控件右」的单行表单，放到这里会把每个勾选框撑成 210 宽）。 */
+  .settings-checkbox-list .settings-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: auto;
+    min-width: 0;
+    font-size: 12px;
+    line-height: 18px;
+    white-space: nowrap;
+  }
+  .settings-checkbox-list .settings-checkbox input {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+  }
+  .settings-checkbox-list .settings-checkbox span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .settings-badge {
     display: inline-block;
     padding: 0 6px;
@@ -2552,9 +2596,12 @@
                 <li class="settings-row">
                   <div class="settings-row-main">
                     <div class="settings-row-label" data-i18n="ui.settings.dataDir">数据目录</div>
-                    <div class="settings-row-hint" data-i18n="ui.settings.dataDirHint">会话、账本与 spool 所在的本地目录。</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.dataDirHint">会话、账本与 spool 所在的目录；改完重启生效，旧库不会自动搬过去。</div>
                   </div>
-                  <span id="settings-data-dir" class="settings-row-value mono"></span>
+                  <span class="settings-row-value-group">
+                    <input id="settings-data-dir" class="settings-input mono" type="text" spellcheck="false">
+                    <button id="settings-data-dir-save" class="btn-small" type="button" data-i18n="ui.settings.save">保存</button>
+                  </span>
                 </li>
                 <li class="settings-row">
                   <div class="settings-row-main">
@@ -2592,9 +2639,9 @@
                 <li class="settings-row">
                   <div class="settings-row-main">
                     <div class="settings-row-label" data-i18n="ui.settings.summaryAgent">汇总成员</div>
-                    <div class="settings-row-hint" data-i18n="ui.settings.summaryHint">配置里的 summary.agent。</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.summaryHint">多轮回复后由它出一段总结，只给你看；只能选只读成员。</div>
                   </div>
-                  <span id="settings-summary-agent" class="settings-row-value mono"></span>
+                  <select id="settings-summary-agent" class="settings-select" autocomplete="off"></select>
                 </li>
               </ul>
             </section>
@@ -2656,9 +2703,10 @@
             <section class="settings-group" aria-labelledby="settings-teams-title">
               <div class="settings-group-head">
                 <div>
-                  <h3 id="settings-teams-title" class="settings-group-title" data-i18n="ui.settings.teamsTitle">teams（只读）</h3>
-                  <p class="settings-group-desc" data-i18n="ui.settings.teamsDesc">团队只在配置里定义，设置页不提供改写入口。</p>
+                  <h3 id="settings-teams-title" class="settings-group-title" data-i18n="ui.settings.teamsTitle">teams</h3>
+                  <p class="settings-group-desc" data-i18n="ui.settings.teamsDesc">把成员编成一组，供团队模式使用；成员名单改动会写回配置文件。</p>
                 </div>
+                <button id="settings-team-add" class="btn-small primary" type="button" data-i18n="ui.settings.addTeam">+ 新增团队</button>
               </div>
               <ul id="settings-teams" class="settings-rows"></ul>
               <p id="settings-teams-empty" class="settings-empty" hidden data-i18n="ui.settings.teamsEmpty">还没有 team</p>
@@ -2878,6 +2926,39 @@
             </section>
           </section>
         </div>
+      </div>
+    </div>
+  </div>
+  <!-- 团队表单：id、display_name、成员勾选。与 agent / provider 同一条路。 -->
+  <div id="settings-team-overlay" class="settings-overlay" role="dialog" aria-modal="true"
+       aria-labelledby="settings-team-title" hidden>
+    <div class="confirm-card settings-form-card">
+      <h2 id="settings-team-title" data-i18n="ui.settings.teamFormAddTitle">新增团队</h2>
+      <div class="settings-form-grid">
+        <div class="settings-field">
+          <label for="settings-team-id">id
+            <span class="settings-field-hint" data-i18n="ui.settings.teamFormIDHint">团队在配置里的名字</span>
+          </label>
+          <input id="settings-team-id" type="text" autocomplete="off" spellcheck="false" placeholder="review">
+        </div>
+        <div class="settings-field">
+          <label for="settings-team-name">display_name
+            <span class="settings-field-hint" data-i18n="ui.settings.teamFormNameHint">留空时用 id 显示</span>
+          </label>
+          <input id="settings-team-name" type="text" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="settings-field settings-field-wide">
+          <label>members
+            <span class="settings-field-hint" data-i18n="ui.settings.teamFormMembersHint">勾选属于这个团队的成员</span>
+          </label>
+          <div id="settings-team-members" class="settings-checkbox-list"></div>
+        </div>
+      </div>
+      <p id="settings-team-hint" class="settings-form-hint"></p>
+      <p id="settings-team-error" class="confirm-error" hidden></p>
+      <div class="confirm-actions">
+        <button id="settings-team-cancel" class="btn-small" type="button" data-i18n="ui.common.cancel">取消</button>
+        <button id="settings-team-save" class="btn-small primary" type="button" data-i18n="ui.settings.formPreviewSave">预览并保存</button>
       </div>
     </div>
   </div>
@@ -3485,6 +3566,17 @@
   const settingsProviderCancel = document.getElementById('settings-provider-cancel');
   const settingsProviderSave = document.getElementById('settings-provider-save');
   const settingsProviderAdd = document.getElementById('settings-provider-add');
+  const settingsTeamOverlay = document.getElementById('settings-team-overlay');
+  const settingsTeamTitle = document.getElementById('settings-team-title');
+  const settingsTeamID = document.getElementById('settings-team-id');
+  const settingsTeamName = document.getElementById('settings-team-name');
+  const settingsTeamMembers = document.getElementById('settings-team-members');
+  const settingsTeamHint = document.getElementById('settings-team-hint');
+  const settingsTeamError = document.getElementById('settings-team-error');
+  const settingsTeamCancel = document.getElementById('settings-team-cancel');
+  const settingsTeamSave = document.getElementById('settings-team-save');
+  const settingsTeamAdd = document.getElementById('settings-team-add');
+  const settingsDataDirSave = document.getElementById('settings-data-dir-save');
   const settingsPreview = document.getElementById('settings-preview');
   const settingsPreviewTitle = document.getElementById('settings-preview-title');
   const settingsPreviewTarget = document.getElementById('settings-preview-target');
@@ -8136,11 +8228,56 @@
         ? names.join(t('ui.common.listSeparator', '、'))
         : t('ui.settings.noMembers', '（没有成员）');
       main.append(tag, members);
+      const right = document.createElement('div');
+      right.className = 'settings-row-value-group';
       const label = document.createElement('span');
       label.className = 'settings-row-value layer-state';
       label.textContent = team.display_name || t('ui.settings.noDisplayName', '（没有 display_name）');
-      item.append(main, label);
+      const actions = document.createElement('span');
+      actions.className = 'settings-row-actions';
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'btn-small';
+      edit.textContent = t('ui.settings.edit', '编辑');
+      edit.addEventListener('click', () => openTeamForm(team.id));
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn-small danger';
+      remove.textContent = t('ui.settings.delete', '删除');
+      remove.addEventListener('click', () => openTeamDelete(team.id));
+      actions.append(edit, remove);
+      right.append(label, actions);
+      item.append(main, right);
       settingsTeams.appendChild(item);
+    }
+  }
+
+  // renderSummaryOptions 画「汇总成员」下拉：空选项 + 每个只读成员。
+  // 非只读成员不列出来——Validate 会拒绝，列出来只会让用户白点一次。
+  function renderSummaryOptions(settings) {
+    const wanted = (settings && settings.summary_agent) || '';
+    const current = settingsSummaryAgent.value;
+    const agents = settings && Array.isArray(settings.agents) ? settings.agents : [];
+    const options = [{ value: '', label: t('ui.settings.summaryNone', '不汇总') }];
+    for (const agent of agents) {
+      if (agent.permissions && agent.permissions !== 'read') continue;
+      options.push({ value: agent.id, label: agent.id });
+    }
+    // 选中值没变就不重画：重画会打断用户正在展开的下拉。
+    const signature = options.map((o) => o.value).join(',') + '|' + wanted;
+    if (settingsSummaryAgent.dataset.signature === signature) return;
+    settingsSummaryAgent.dataset.signature = signature;
+    settingsSummaryAgent.replaceChildren();
+    for (const option of options) {
+      const el = document.createElement('option');
+      el.value = option.value;
+      el.textContent = option.label;
+      settingsSummaryAgent.appendChild(el);
+    }
+    settingsSummaryAgent.value = wanted;
+    if (current && current !== wanted && settingsSummaryAgent.value === wanted) {
+      // 用户刚选的值还没被服务端确认时，保留他的选择。
+      settingsSummaryAgent.value = wanted;
     }
   }
 
@@ -8148,9 +8285,13 @@
     const settings = state.settings || {};
     const health = state.settingsHealth;
     const notConfigured = t('ui.common.notConfigured', '（未配置）');
-    settingsSummaryAgent.textContent = settings.summary_agent || notConfigured;
-    settingsDataDir.textContent = settings.data_dir || notConfigured;
-    settingsDataDir.title = settings.data_dir || '';
+    renderSummaryOptions(settings);
+    // 数据目录是输入框：只在用户没有正在编辑它的时候覆盖，否则每 3 秒一次
+    // 的设置刷新会把写到一半的路径抹掉。
+    if (document.activeElement !== settingsDataDir) {
+      settingsDataDir.value = settings.data_dir || '';
+      settingsDataDir.title = settings.data_dir || '';
+    }
     settingsConfigPath.textContent = settings.config_path || t('ui.common.unknownPath', '（未知）');
     settingsConfigPath.title = settings.config_path || '';
     settingsSchemaVersion.textContent = settingsSchemaText(health);
@@ -8431,6 +8572,161 @@
     }
     state.settingsPreview = { kind: 'provider-delete', id, payload: {}, changes: [], busy: false };
     openSettingsPreview();
+  }
+
+  // teamByID / openTeamForm / previewTeamSave / openTeamDelete：团队 CRUD。
+  // 与 agent / provider 同一条路——表单 -> 预览 -> 写盘。
+  function teamByID(id) {
+    const teams = state.settings && Array.isArray(state.settings.teams) ? state.settings.teams : [];
+    return teams.find((team) => team.id === id) || null;
+  }
+
+  function openTeamForm(id) {
+    const team = id ? teamByID(id) : null;
+    if (id && !team) {
+      showToast(t('ui.settings.teamMissing', '这个团队不在最新配置里，请重新打开设置'));
+      return;
+    }
+    state.settingsTeam = { editing: Boolean(team) };
+    settingsTeamTitle.textContent = team
+      ? t('ui.settings.teamFormEditTitle', '编辑团队 · {id}', { id: team.id })
+      : t('ui.settings.teamFormAddTitle', '新增团队');
+    settingsTeamID.value = team ? team.id : '';
+    settingsTeamID.disabled = Boolean(team);
+    settingsTeamName.value = team ? (team.display_name || '') : '';
+    settingsTeamHint.textContent = t('ui.settings.teamFormHint',
+      '保存前会先显示目标路径与成员名单的新旧对比，写盘前自动备份原文。');
+    settingsTeamError.hidden = true;
+    settingsTeamError.textContent = '';
+    renderTeamMemberPicker(team ? (team.members || []) : []);
+    settingsTeamOverlay.hidden = false;
+    (team ? settingsTeamName : settingsTeamID).focus();
+  }
+
+  // renderTeamMemberPicker 画成员勾选框：selected 里的先勾上。
+  function renderTeamMemberPicker(selected) {
+    settingsTeamMembers.replaceChildren();
+    const agents = state.settings && Array.isArray(state.settings.agents) ? state.settings.agents : [];
+    if (agents.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'settings-empty';
+      empty.textContent = t('ui.settings.teamNoAgents', '配置里还没有成员：先在「成员」页加一个。');
+      settingsTeamMembers.appendChild(empty);
+      return;
+    }
+    const chosen = new Set(selected);
+    for (const agent of agents) {
+      const label = document.createElement('label');
+      label.className = 'settings-checkbox';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.value = agent.id;
+      box.checked = chosen.has(agent.id);
+      const text = document.createElement('span');
+      text.textContent = agent.id;
+      label.append(box, text);
+      settingsTeamMembers.appendChild(label);
+    }
+  }
+
+  function closeTeamForm() {
+    settingsTeamOverlay.hidden = true;
+    state.settingsTeam = null;
+  }
+
+  function previewTeamSave() {
+    const form = state.settingsTeam;
+    if (!form) return;
+    const id = settingsTeamID.value.trim();
+    const name = settingsTeamName.value.trim();
+    const members = [...settingsTeamMembers.querySelectorAll('input[type="checkbox"]:checked')]
+      .map((box) => box.value);
+    const fail = (text, focus) => {
+      settingsTeamError.textContent = text;
+      settingsTeamError.hidden = false;
+      if (focus) focus.focus();
+    };
+    if (id === '') return fail(t('ui.settings.teamIDRequired', 'id 不能为空'), settingsTeamID);
+    if (members.length === 0) {
+      return fail(t('ui.settings.teamMembersRequired', '至少要勾一个成员'), null);
+    }
+    const current = form.editing ? teamByID(id) : null;
+    if (form.editing && !current) {
+      return fail(t('ui.settings.teamMissing', '这个团队不在最新配置里，请重新打开设置'), null);
+    }
+    state.settingsPreview = {
+      kind: 'team-save',
+      id,
+      editing: form.editing,
+      payload: { team_id: id, display_name: name, members },
+      changes: [
+        {
+          field: 'display_name',
+          old: current ? String(current.display_name || '') : t('ui.settings.diffNewValue', '（新增）'),
+          new: name,
+        },
+        {
+          field: 'members',
+          old: current ? (current.members || []).join(' ') : t('ui.settings.diffNewValue', '（新增）'),
+          new: members.join(' '),
+        },
+      ],
+      busy: false,
+    };
+    settingsTeamOverlay.hidden = true;
+    openSettingsPreview();
+  }
+
+  function openTeamDelete(id) {
+    const team = teamByID(id);
+    if (!team) {
+      showToast(t('ui.settings.teamMissing', '这个团队不在最新配置里，请重新打开设置'));
+      return;
+    }
+    state.settingsPreview = { kind: 'team-delete', id, payload: {}, changes: [], busy: false };
+    openSettingsPreview();
+  }
+
+  // saveSettingsSummary 直接保存下拉的选择：它只有一个值，用不着预览。
+  async function saveSettingsSummary(agentID) {
+    if (!state.writable) return;
+    settingsSummaryAgent.disabled = true;
+    try {
+      const result = await postJSON('/api/settings/summary', { agent: agentID });
+      state.settingsResult = (result && result.note) || t('ui.settings.summarySaved', '汇总成员已保存');
+      setSettingsResult(state.settingsResult);
+      await loadSettings();
+      showToast(agentID
+        ? t('ui.settings.summarySavedTo', '汇总成员：{id}', { id: agentID })
+        : t('ui.settings.summaryCleared', '已关闭汇总'));
+    } catch (err) {
+      setSettingsError(err.message);
+      if (state.settings) renderSummaryOptions(state.settings);
+    } finally {
+      settingsSummaryAgent.disabled = false;
+    }
+  }
+
+  // saveSettingsDataDir 保存数据目录。它是顶层键，改完要重启才生效。
+  async function saveSettingsDataDir(value) {
+    if (!state.writable) return;
+    const dir = String(value || '').trim();
+    if (dir === '') {
+      setSettingsError(t('ui.settings.dataDirRequired', '数据目录不能为空'));
+      return;
+    }
+    settingsDataDirSave.disabled = true;
+    try {
+      const result = await postJSON('/api/settings/data-dir', { data_dir: dir });
+      state.settingsResult = (result && result.note) || t('ui.settings.dataDirSaved', '数据目录已保存');
+      setSettingsResult(state.settingsResult);
+      await loadSettings();
+      showToast(t('ui.settings.dataDirSavedToast', '数据目录已保存，重启后生效'));
+    } catch (err) {
+      setSettingsError(err.message);
+    } finally {
+      settingsDataDirSave.disabled = false;
+    }
   }
 
   // LOCAL_LEVEL_LABELS / LOCAL_LEVEL_DESCS 只做「档位 -> 文案 key」的映射。
@@ -9061,20 +9357,29 @@
     return kind === 'provider-save' || kind === 'provider-delete';
   }
 
+  function isTeamPreview(kind) {
+    return kind === 'team-save' || kind === 'team-delete';
+  }
+
   function openSettingsPreview() {
     const preview = state.settingsPreview;
     if (!preview) return;
     const target = (state.settings && state.settings.write_target) || t('ui.common.unknownPath', '（未知路径）');
-    const isDelete = preview.kind === 'delete' || preview.kind === 'provider-delete';
+    const isDelete = preview.kind === 'delete' || preview.kind === 'provider-delete' || preview.kind === 'team-delete';
     const isProvider = isProviderPreview(preview.kind);
-    const section = isProvider ? 'providers' : 'agents';
+    const isTeam = isTeamPreview(preview.kind);
+    const section = isTeam ? 'teams' : (isProvider ? 'providers' : 'agents');
     settingsPreviewTitle.textContent = isDelete
-      ? (isProvider
-        ? t('ui.settings.previewProviderDeleteTitle', '确认删除提供方')
-        : t('ui.settings.previewDeleteTitle', '确认删除 agent'))
-      : (isProvider
-        ? t('ui.settings.previewProviderWriteTitle', '确认写入提供方')
-        : t('ui.settings.previewWriteTitle', '确认写入配置'));
+      ? (isTeam
+        ? t('ui.settings.previewTeamDeleteTitle', '确认删除团队')
+        : isProvider
+          ? t('ui.settings.previewProviderDeleteTitle', '确认删除提供方')
+          : t('ui.settings.previewDeleteTitle', '确认删除 agent'))
+      : (isTeam
+        ? t('ui.settings.previewTeamWriteTitle', '确认写入团队')
+        : isProvider
+          ? t('ui.settings.previewProviderWriteTitle', '确认写入提供方')
+          : t('ui.settings.previewWriteTitle', '确认写入配置'));
     settingsPreviewTarget.textContent = isDelete
       ? t('ui.settings.previewDeleteTarget',
         '将从 {path} 删除 [{section}.{id}] 这一段；文件里的其它段、注释与行尾保持原样。',
@@ -9093,7 +9398,9 @@
     // 已经跑着的 Runner 不会因为文件变了就换，一律按「需要重启」说。
     const verdict = isProvider
       ? { reloaded: false, resetSessions: false, reasons: [t('ui.settings.previewProviderRestart', 'provider 的改动要重启 serve 后生效')] }
-      : settingsPreviewVerdict(preview);
+      : isTeam
+        ? { reloaded: false, resetSessions: false, reasons: [t('ui.settings.previewTeamRestart', '团队的改动要重启 serve 后生效')] }
+        : settingsPreviewVerdict(preview);
     if (verdict.reloaded) {
       settingsPreviewReload.textContent = verdict.resetSessions
         ? t('ui.settings.previewReset', '保存后立即生效；该成员的 provider 会话会被重置，之前的上下文不再续接。')
@@ -9160,6 +9467,9 @@
     } else if (preview.kind === 'provider-save' && state.settingsProvider && !force) {
       settingsProviderOverlay.hidden = false;
       settingsProviderSave.focus();
+    } else if (preview.kind === 'team-save' && state.settingsTeam && !force) {
+      settingsTeamOverlay.hidden = false;
+      settingsTeamSave.focus();
     }
   }
 
@@ -9172,8 +9482,9 @@
     settingsPreviewError.hidden = true;
     settingsPreviewError.textContent = '';
     const isProvider = isProviderPreview(preview.kind);
-    const isDelete = preview.kind === 'delete' || preview.kind === 'provider-delete';
-    const sectionPath = isProvider ? 'providers' : 'agents';
+    const isTeam = isTeamPreview(preview.kind);
+    const isDelete = preview.kind === 'delete' || preview.kind === 'provider-delete' || preview.kind === 'team-delete';
+    const sectionPath = isTeam ? 'teams' : (isProvider ? 'providers' : 'agents');
     const url = isDelete
       ? '/api/settings/' + sectionPath + '/' + encodeURIComponent(preview.id) + '/delete'
       : '/api/settings/' + sectionPath;
@@ -9230,10 +9541,12 @@
       state.settingsPreview = null;
       state.settingsForm = null;
       state.settingsProvider = null;
+      state.settingsTeam = null;
       settingsPreview.hidden = true;
       settingsPreviewReload.hidden = true;
       settingsFormOverlay.hidden = true;
       settingsProviderOverlay.hidden = true;
+      settingsTeamOverlay.hidden = true;
       settingsResult.className = 'settings-result '
         + (result && result.reloaded
           ? (sessionsReset > 0 ? 'is-reset' : 'is-hot')
@@ -9243,13 +9556,17 @@
       // 工作台的成员列表也要立刻反映新配置：/api/options 读的是同一份
       // 展示配置，只重画设置面板会让两处显示不一致。
       await loadOptions();
-      showToast(isProvider
+      showToast(isTeam
         ? (isDelete
-          ? t('ui.settings.deletedProvider', '已删除提供方 {id}', { id: preview.id })
-          : t('ui.settings.savedProvider', '已保存提供方 {id}', { id: preview.id }))
-        : (isDelete
-          ? t('ui.settings.deletedAgent', '已删除 agent {id}', { id: preview.id })
-          : t('ui.settings.savedAgent', '已保存 agent {id}', { id: preview.id })));
+          ? t('ui.settings.deletedTeam', '已删除团队 {id}', { id: preview.id })
+          : t('ui.settings.savedTeam', '已保存团队 {id}', { id: preview.id }))
+        : isProvider
+          ? (isDelete
+            ? t('ui.settings.deletedProvider', '已删除提供方 {id}', { id: preview.id })
+            : t('ui.settings.savedProvider', '已保存提供方 {id}', { id: preview.id }))
+          : (isDelete
+            ? t('ui.settings.deletedAgent', '已删除 agent {id}', { id: preview.id })
+            : t('ui.settings.savedAgent', '已保存 agent {id}', { id: preview.id })));
     } catch (err) {
       if (state.settingsPreview !== preview) return;
       preview.busy = false;
@@ -9272,8 +9589,13 @@
   settingsLanguage.addEventListener('change', () => saveSettingsLanguage(settingsLanguage.value));
   settingsAgentAdd.addEventListener('click', () => openAgentForm(''));
   settingsProviderAdd.addEventListener('click', () => openProviderForm(''));
+  settingsTeamAdd.addEventListener('click', () => openTeamForm(''));
   settingsProviderCancel.addEventListener('click', closeProviderForm);
   settingsProviderSave.addEventListener('click', previewProviderSave);
+  settingsTeamCancel.addEventListener('click', closeTeamForm);
+  settingsTeamSave.addEventListener('click', previewTeamSave);
+  settingsSummaryAgent.addEventListener('change', () => saveSettingsSummary(settingsSummaryAgent.value));
+  settingsDataDirSave.addEventListener('click', () => saveSettingsDataDir(settingsDataDir.value));
   settingsFormCancel.addEventListener('click', closeAgentForm);
   settingsFormSave.addEventListener('click', previewAgentSave);
   settingsPreviewCancel.addEventListener('click', () => closeSettingsPreview(false));
@@ -9298,6 +9620,11 @@
     if (!settingsProviderOverlay.hidden) {
       event.preventDefault();
       closeProviderForm();
+      return;
+    }
+    if (!settingsTeamOverlay.hidden) {
+      event.preventDefault();
+      closeTeamForm();
       return;
     }
     if (!settingsOverlay.hidden) {

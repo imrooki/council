@@ -829,6 +829,11 @@ func (s *Server) handleSettingsAgentPath(w http.ResponseWriter, r *http.Request)
 	s.handleSettingsDeletePath(w, r, "/api/settings/agents/", s.handleSettingsAgentDelete)
 }
 
+// handleSettingsTeamPath 处理 /api/settings/teams/{id}/delete。
+func (s *Server) handleSettingsTeamPath(w http.ResponseWriter, r *http.Request) {
+	s.handleSettingsDeletePath(w, r, "/api/settings/teams/", s.handleSettingsTeamDelete)
+}
+
 // handleSettingsProviderPath 处理 /api/settings/providers/{id}/delete。
 func (s *Server) handleSettingsProviderPath(w http.ResponseWriter, r *http.Request) {
 	s.handleSettingsDeletePath(w, r, "/api/settings/providers/", s.handleSettingsProviderDelete)

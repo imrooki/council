@@ -180,6 +180,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/settings/agents/", s.handleSettingsAgentPath)
 	mux.HandleFunc("/api/settings/providers", s.handleSettingsProviderSave)
 	mux.HandleFunc("/api/settings/providers/", s.handleSettingsProviderPath)
+	mux.HandleFunc("/api/settings/summary", s.handleSettingsSummarySave)
+	mux.HandleFunc("/api/settings/teams", s.handleSettingsTeamSave)
+	mux.HandleFunc("/api/settings/teams/", s.handleSettingsTeamPath)
+	mux.HandleFunc("/api/settings/data-dir", s.handleSettingsDataDirSave)
 	// 工作区（纯分组，GUI 第 9 片）：/api/workspaces 是 GET 列表 + POST 新建，
 	// /api/workspaces/{id}/rename 与 /{id}/delete 是写端点。GET 列表在只读模式下
 	// 同样可用（分组是库里既有的事实）；三个写端点的只读 405 在 handler 内部，
