@@ -285,6 +285,44 @@ func TestGui6bProviderArgsAndEnv(t *testing.T) {
 	}
 }
 
+func TestGui6bProviderModels(t *testing.T) {
+	env := newGui6Env(t)
+	code, _, raw := providerSave(t, env, map[string]any{
+		"provider_id": "cpa",
+		"command":     "cpa-cli",
+		"models":      []string{"cpa-large", "  ", "cpa-small", "cpa-large"},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("保存带模型的 provider = %d；body=%s", code, raw)
+	}
+	after := gui6Read(t, env.projectConfig)
+	if !strings.Contains(after, `models = ['cpa-large', 'cpa-small']`) {
+		t.Errorf("models 没写进配置（空白与重复应被去掉）:\n%s", after)
+	}
+	settings := gui6Settings(t, env)
+	var got *settingsProviderJSON
+	for i := range settings.Providers {
+		if settings.Providers[i].ID == "cpa" {
+			p := settings.Providers[i]
+			got = &p
+		}
+	}
+	if got == nil || len(got.Models) != 2 || got.Models[0] != "cpa-large" {
+		t.Fatalf("设置响应里的 models = %+v", got)
+	}
+
+	// 清空之后这一行要从文件里消失。
+	if code, _, raw := providerSave(t, env, map[string]any{
+		"provider_id": "cpa",
+		"command":     "cpa-cli",
+		"models":      []string{},
+	}); code != http.StatusOK {
+		t.Fatalf("清空模型 = %d；body=%s", code, raw)
+	}
+	if strings.Contains(gui6Read(t, env.projectConfig), "models =") {
+		t.Errorf("清空后 models 行还在")
+	}
+}
 func TestGui6bProviderEnvValidation(t *testing.T) {
 	env := newGui6Env(t)
 	before := gui6Read(t, env.projectConfig)

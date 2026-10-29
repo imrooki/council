@@ -149,6 +149,11 @@ type ProviderConfig struct {
 	Command string   `toml:"command"`
 	Args    []string `toml:"args"`
 	Env     []string `toml:"env"`
+	// Models 是这个 provider 可用的模型名（用户自己填的一行一个）。它不做
+	// 任何校验之外的解释：只是一个下拉候选，让「加成员」时不用背模型 id。
+	// 已知的几家 CLI 仍然可以从命令行识别（/api/models），这里填的是
+	// 识别不到、或者不想去探测的那几家。
+	Models []string `toml:"models"`
 }
 
 // MaxProviderArgs / MaxProviderEnv / MaxProviderEntryBytes 是不让一行配置
@@ -157,6 +162,7 @@ type ProviderConfig struct {
 // 不一样，且没有任何一层会报出来）。
 const (
 	MaxProviderArgs       = 32
+	MaxProviderModels     = 64
 	MaxProviderEnv        = 32
 	MaxProviderEntryBytes = 1024
 )

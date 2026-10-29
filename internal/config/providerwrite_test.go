@@ -110,6 +110,19 @@ env = ['OLD=1']
 	}
 }
 
+func TestWriteProviderSectionWritesModels(t *testing.T) {
+	layers := writeProviderFixture(t, providerFixtureBase)
+	if _, err := WriteProviderSection(layers, "cpa", ProviderConfig{
+		Command: "cpa-cli",
+		Models:  []string{"cpa-large", "cpa-small"},
+	}); err != nil {
+		t.Fatalf("写 provider: %v", err)
+	}
+	text := readFile(t, layers[0].Path)
+	if !strings.Contains(text, `models = ['cpa-large', 'cpa-small']`) {
+		t.Errorf("models 没写进段里:\n%s", text)
+	}
+}
 func TestProviderValidationRejectsBadArgsAndEnv(t *testing.T) {
 	cfg := Default()
 	cfg.Providers["p"] = ProviderConfig{Command: "x", Env: []string{"NOVALUE"}}

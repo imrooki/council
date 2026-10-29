@@ -16,7 +16,7 @@ var ErrProviderSectionMissing = errors.New("settings: provider section not found
 
 // providerSectionKeys 是 provider 段里设置页会改的键。顺序固定，理由同
 // agentSectionKeys：同一份配置改两次不该出现不同字节。
-var providerSectionKeys = []string{"command", "args", "env"}
+var providerSectionKeys = []string{"command", "args", "env", "models"}
 
 // WriteProviderSection 把 [providers.<id>] 写进 layers[0]：已有这一段就
 // 原地改 command，没有就在文件末尾追加一段。
@@ -226,6 +226,11 @@ func providerKeyValue(provider ProviderConfig, key string) (value string, keep b
 			return "", false
 		}
 		return tomlStringArray(provider.Env), true
+	case "models":
+		if len(provider.Models) == 0 {
+			return "", false
+		}
+		return tomlStringArray(provider.Models), true
 	}
 	return "", false
 }

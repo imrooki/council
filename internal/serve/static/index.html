@@ -2996,6 +2996,13 @@
           <textarea id="settings-provider-env" rows="3" spellcheck="false"
                     placeholder="DEEPSEEK_API_KEY=...&#10;HTTPS_PROXY=http://127.0.0.1:7890" data-i18n-placeholder="ui.settings.providerFormEnvPlaceholder"></textarea>
         </div>
+        <div class="settings-field settings-field-wide">
+          <label for="settings-provider-models">models
+            <span class="settings-field-hint" data-i18n="ui.settings.providerFormModelsHint">一行一个模型名，成员表单里就能直接选</span>
+          </label>
+          <textarea id="settings-provider-models" rows="3" spellcheck="false"
+                    placeholder="deepseek-chat&#10;deepseek-reasoner" data-i18n-placeholder="ui.settings.providerFormModelsPlaceholder"></textarea>
+        </div>
       </div>
       <p id="settings-provider-hint" class="settings-form-hint"></p>
       <p id="settings-provider-error" class="confirm-error" hidden></p>
@@ -3034,7 +3041,8 @@
           <label for="settings-form-model">model
             <span class="settings-field-hint" data-i18n="ui.settings.formModelHint">必填</span>
           </label>
-          <input id="settings-form-model" type="text" autocomplete="off" spellcheck="false">
+          <input id="settings-form-model" type="text" autocomplete="off" spellcheck="false" list="settings-form-model-options">
+        <datalist id="settings-form-model-options"></datalist>
         </div>
         <div class="settings-field">
           <label for="settings-form-effort">effort
@@ -3548,6 +3556,7 @@
   const settingsFormDisplay = document.getElementById('settings-form-display');
   const settingsFormProvider = document.getElementById('settings-form-provider');
   const settingsFormModel = document.getElementById('settings-form-model');
+  const settingsFormModelOptions = document.getElementById('settings-form-model-options');
   const settingsFormEffort = document.getElementById('settings-form-effort');
   const settingsFormPermissions = document.getElementById('settings-form-permissions');
   const settingsFormMode = document.getElementById('settings-form-mode');
@@ -3561,6 +3570,7 @@
   const settingsProviderCommand = document.getElementById('settings-provider-command');
   const settingsProviderArgs = document.getElementById('settings-provider-args');
   const settingsProviderEnv = document.getElementById('settings-provider-env');
+  const settingsProviderModels = document.getElementById('settings-provider-models');
   const settingsProviderHint = document.getElementById('settings-provider-hint');
   const settingsProviderError = document.getElementById('settings-provider-error');
   const settingsProviderCancel = document.getElementById('settings-provider-cancel');
@@ -8433,7 +8443,10 @@
       }
       const hint = document.createElement('div');
       hint.className = 'settings-row-hint';
-      hint.textContent = t('ui.settings.providerCommand', 'provider.command');
+      hint.textContent = t('ui.settings.providerCommand', 'provider.command')
+        + ((provider.models && provider.models.length > 0)
+          ? ' · ' + t('ui.settings.providerModels', '{count} 个模型', { count: provider.models.length })
+          : '');
       main.append(label, hint);
 
       const right = document.createElement('div');
@@ -8499,6 +8512,7 @@
     settingsProviderCommand.value = provider ? (provider.command || '') : '';
     settingsProviderArgs.value = provider ? (provider.args || []).join('\n') : '';
     settingsProviderEnv.value = provider ? (provider.env || []).join('\n') : '';
+    settingsProviderModels.value = provider ? (provider.models || []).join('\n') : '';
     settingsProviderHint.textContent = t('ui.settings.providerFormHint',
       '保存前会先显示「将写入 <路径>」与新旧对比，写盘前自动备份原文。');
     settingsProviderError.hidden = true;
@@ -8520,6 +8534,7 @@
     const splitLines = (raw) => raw.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '');
     const args = splitLines(settingsProviderArgs.value);
     const env = splitLines(settingsProviderEnv.value);
+    const models = splitLines(settingsProviderModels.value);
     const fail = (text, focus) => {
       settingsProviderError.textContent = text;
       settingsProviderError.hidden = false;
@@ -8535,7 +8550,7 @@
       kind: 'provider-save',
       id,
       editing: form.editing,
-      payload: { provider_id: id, command, args, env },
+      payload: { provider_id: id, command, args, env, models },
       changes: [
         {
           field: 'command',
@@ -8551,6 +8566,11 @@
           field: 'env',
           old: current ? (current.env || []).join(' ') : t('ui.settings.diffNewValue', '（新增）'),
           new: env.join(' '),
+        },
+        {
+          field: 'models',
+          old: current ? (current.models || []).join(' ') : t('ui.settings.diffNewValue', '（新增）'),
+          new: models.join(' '),
         },
       ],
       busy: false,
@@ -9232,6 +9252,27 @@
       settingsFormProvider.appendChild(option);
     }
     settingsFormProvider.value = selected || (providers[0] ? providers[0].id : '');
+    renderModelOptions(settingsFormProvider.value);
+  }
+
+  // renderModelOptions 把当前 provider 声明的模型灌进 datalist：成员表单的
+  // model 栏于是既能下拉选，也能自己敲一个清单之外的 id。
+  //
+  // 候选只来自配置里 [providers.<id>] models（用户自己填的）。不去跑
+  // /api/models：那是识别本机 CLI，慢且会起进程，而这里只是画候选列表。
+  function renderModelOptions(providerID) {
+    if (!settingsFormModelOptions) return;
+    settingsFormModelOptions.replaceChildren();
+    const providers = state.settings && Array.isArray(state.settings.providers)
+      ? state.settings.providers
+      : [];
+    const provider = providers.find((p) => p.id === providerID);
+    const models = provider && Array.isArray(provider.models) ? provider.models : [];
+    for (const model of models) {
+      const option = document.createElement('option');
+      option.value = model;
+      settingsFormModelOptions.appendChild(option);
+    }
   }
 
   function openAgentForm(agentID) {
@@ -9598,6 +9639,8 @@
   settingsDataDirSave.addEventListener('click', () => saveSettingsDataDir(settingsDataDir.value));
   settingsFormCancel.addEventListener('click', closeAgentForm);
   settingsFormSave.addEventListener('click', previewAgentSave);
+  // 换 provider 就把 model 的候选换掉：不清空用户已经输入的值，只换下拉建议。
+  settingsFormProvider.addEventListener('change', () => renderModelOptions(settingsFormProvider.value));
   settingsPreviewCancel.addEventListener('click', () => closeSettingsPreview(false));
   settingsPreviewConfirm.addEventListener('click', commitSettingsPreview);
   settingsPreview.addEventListener('click', (event) => {

@@ -70,6 +70,8 @@ type settingsProviderJSON struct {
 	// 生成的 argv 之后，env 覆盖进子进程环境。两者都进身份指纹。
 	Args []string `json:"args,omitempty"`
 	Env  []string `json:"env,omitempty"`
+	// Models 是这个 provider 的模型候选（用户填的），成员表单拿它做下拉。
+	Models []string `json:"models,omitempty"`
 	// Exists 表示 command 指向的东西在这台机器上找得到（绝对路径 stat，
 	// 否则走 PATH 查找）。它只是给界面画一个状态点，不参与任何校验：
 	// 命令放在别处、或由别的启动脚本注入，都是合法的配置。
@@ -175,6 +177,7 @@ type settingsProviderRequest struct {
 	Command    string   `json:"command"`
 	Args       []string `json:"args"`
 	Env        []string `json:"env"`
+	Models     []string `json:"models"`
 }
 
 // settingsWriteResponse 是保存 / 删除成功的响应。
@@ -390,6 +393,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 				Command:  provider.Command,
 				Args:     provider.Args,
 				Env:      provider.Env,
+				Models:   provider.Models,
 				Exists:   commandResolves(provider.Command),
 				Writable: writableProviders[id],
 				Agents:   agentsUsingProvider(cfg.Agents, id),
@@ -902,6 +906,11 @@ func (s *Server) handleSettingsProviderSave(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	models, modelErr := cleanProviderModels(req.Models)
+	if modelErr != "" {
+		writeError(w, http.StatusBadRequest, modelErr)
+		return
+	}
 	args, argErr := cleanProviderArgs(req.Args)
 	if argErr != "" {
 		writeError(w, http.StatusBadRequest, argErr)
@@ -917,6 +926,7 @@ func (s *Server) handleSettingsProviderSave(w http.ResponseWriter, r *http.Reque
 		Command: command,
 		Args:    args,
 		Env:     env,
+		Models:  models,
 	})
 	if err != nil {
 		s.writeSettingsError(w, err)
@@ -959,6 +969,31 @@ func cleanProviderArgs(raw []string) ([]string, string) {
 		if len(arg) > config.MaxProviderEntryBytes {
 			return nil, fmt.Sprintf("单个参数超过 %d 字节", config.MaxProviderEntryBytes)
 		}
+	}
+	return out, ""
+}
+
+// cleanProviderModels 去掉空行、去重，保持用户填写的顺序（模型顺序有意义：
+// 第一条常是默认模型）。数量与长度上限与 args / env 同一套。
+func cleanProviderModels(raw []string) ([]string, string) {
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]bool, len(raw))
+	for _, model := range raw {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		if seen[model] {
+			continue
+		}
+		seen[model] = true
+		if len(model) > config.MaxProviderEntryBytes {
+			return nil, fmt.Sprintf("模型名 %q 超过 %d 字节", model, config.MaxProviderEntryBytes)
+		}
+		out = append(out, model)
+	}
+	if len(out) > config.MaxProviderModels {
+		return nil, fmt.Sprintf("模型最多 %d 个，现在有 %d 个", config.MaxProviderModels, len(out))
 	}
 	return out, ""
 }

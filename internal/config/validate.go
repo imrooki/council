@@ -75,6 +75,19 @@ func (c *Config) Validate() error {
 					"is %d bytes, exceeds the %d-byte limit", len(arg), MaxProviderEntryBytes))
 			}
 		}
+		if len(pc.Models) > MaxProviderModels {
+			add("providers."+id+".models", fmt.Sprintf("has %d entries, exceeds the %d-entry limit", len(pc.Models), MaxProviderModels))
+		}
+		for i, model := range pc.Models {
+			path := fmt.Sprintf("providers.%s.models[%d]", id, i)
+			if strings.TrimSpace(model) == "" {
+				add(path, "must not be empty")
+				continue
+			}
+			if len(model) > MaxProviderEntryBytes {
+				add(path, fmt.Sprintf("is %d bytes, exceeds the %d-byte limit", len(model), MaxProviderEntryBytes))
+			}
+		}
 		if len(pc.Env) > MaxProviderEnv {
 			add("providers."+id+".env", fmt.Sprintf("has %d entries, exceeds the %d-entry limit", len(pc.Env), MaxProviderEnv))
 		}
