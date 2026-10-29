@@ -597,10 +597,10 @@ func TestRulesReportStaysWholeGenerationUnderConcurrentSetConfig(t *testing.T) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(30 * time.Second):
+	case <-time.After(concurrencyWatchdogBudget()):
 		buf := make([]byte, 1<<20)
 		n := runtime.Stack(buf, true)
-		t.Fatalf("30s 内没有跑完，疑似死锁。全部 goroutine 现场：\n%s", buf[:n])
+		t.Fatalf("%v 内没有跑完，疑似死锁。全部 goroutine 现场：\n%s", concurrencyWatchdogBudget(), buf[:n])
 	}
 
 	flipElapsed := time.Since(flipStart)
@@ -786,9 +786,30 @@ func TestNoDeadlockUnderMixedConcurrentOperations(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(30 * time.Second):
+	case <-time.After(concurrencyWatchdogBudget()):
 		buf := make([]byte, 1<<20)
 		n := runtime.Stack(buf, true)
-		t.Fatalf("30s 内没有跑完，疑似死锁。全部 goroutine 现场：\n%s", buf[:n])
+		t.Fatalf("%v 内没有跑完，疑似死锁。全部 goroutine 现场：\n%s", concurrencyWatchdogBudget(), buf[:n])
+	}
+}
+
+// concurrencyWatchdogBudget 是这两个并发用例「疑似死锁」看门狗的时限。
+//
+// 为什么不是固定的 30 秒：这两条用例的负载随 CPU 争用变化很大 —— 24 核开发机
+// 上 7.8 秒跑完，GitHub 的 2 vCPU runner 上 30 秒不够，于是在 CI 上稳定报
+// 「疑似死锁」而本地永远过（release workflow 第一次 dry run 就撞上了）。
+//
+// 看门狗要抓的是「真的卡死」，不是「这台机器慢」。所以按核数放大：
+// 单核 4 倍、双核 3 倍、四核 2 倍，四核以上维持 30 秒。
+func concurrencyWatchdogBudget() time.Duration {
+	switch n := runtime.NumCPU(); {
+	case n <= 1:
+		return 120 * time.Second
+	case n == 2:
+		return 90 * time.Second
+	case n <= 4:
+		return 60 * time.Second
+	default:
+		return 30 * time.Second
 	}
 }
