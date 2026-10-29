@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Council 只读看板</title>
+<title>Council 只读模式</title>
 <!-- 没有 favicon 时 Chromium 会给窗口和任务栏一个默认的地球图标，-app 窗口下尤其显眼。
      这里用内联 SVG：黑底圆角方块 + 白色圆点，与顶栏品牌标记同一套形；
      用 data URI 而不是加一个路由，少一个端点、也少一次请求。 -->
@@ -2100,7 +2100,7 @@
         <path d="M5.5 2.5v11" fill="none" stroke="currentColor" stroke-width="1.4"/>
       </svg>
     </button>
-    <div class="brand">Council <small data-i18n="ui.app.readonlyDashboard">只读看板</small></div>
+    <div class="brand">Council <small data-i18n="ui.app.readonlyDashboard">只读模式</small></div>
     <div id="status" class="status" hidden></div>
     <button id="toggle-inspector" type="button" title="收起/展开「成员与费用」" aria-label="收起或展开成员与费用" data-i18n-title="ui.topbar.collapseInspector" data-i18n-aria-label="ui.topbar.collapseInspectorAria">
       <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -2420,7 +2420,7 @@
       <nav class="settings-nav" aria-label="设置分类" data-i18n-aria-label="ui.settings.navAria">
         <div class="settings-nav-head">
           <h2 id="settings-title" class="settings-nav-title" data-i18n="ui.settings.title">设置</h2>
-          <p class="settings-nav-kicker" data-i18n="ui.settings.kicker">Council 本地看板</p>
+          <p class="settings-nav-kicker" data-i18n="ui.settings.kicker">Council 工作台</p>
         </div>
         <div class="settings-nav-list">
           <button type="button" class="settings-nav-item" data-settings-section="general"
@@ -2570,7 +2570,7 @@
           <section class="settings-page" data-settings-page="members" hidden
                    aria-labelledby="settings-members-title">
             <h2 id="settings-members-title" class="settings-page-title" data-i18n="ui.settings.navMembers">成员</h2>
-            <p class="settings-page-intro" data-i18n="ui.settings.membersIntro">agents 来自配置合并结果；新增、编辑、删除都会写回目标文件，并在写盘前自动备份。</p>
+            <p class="settings-page-intro" data-i18n="ui.settings.membersIntro">成员就是参与议会的几个模型。新增、编辑、删除都会写回配置文件，改动之前会自动备份。</p>
             <section class="settings-group" aria-labelledby="settings-agents-title">
               <div class="settings-group-head">
                 <div>
@@ -2630,7 +2630,7 @@
           <section class="settings-page" data-settings-page="providers" hidden
                    aria-labelledby="settings-providers-title">
             <h2 id="settings-providers-title" class="settings-page-title" data-i18n="ui.settings.navProviders">提供方</h2>
-            <p class="settings-page-intro" data-i18n="ui.settings.providersIntro">providers 来自启动时读入的配置，只读展示。成员运行时仍由各自的 command 启动。</p>
+            <p class="settings-page-intro" data-i18n="ui.settings.providersIntro">这里列出各家命令行工具启动模型用的命令，只读展示；成员运行时仍由各自的命令启动。</p>
             <section class="settings-group" aria-labelledby="settings-providers-list-title">
               <div class="settings-group-head">
                 <div>
@@ -2646,7 +2646,7 @@
           <section class="settings-page" data-settings-page="local" hidden
                    aria-labelledby="settings-local-title">
             <h2 id="settings-local-title" class="settings-page-title" data-i18n="ui.settings.navLocal">本机 agent</h2>
-            <p class="settings-page-intro" data-i18n="ui.settings.localIntro">可选模块，默认关闭。这里只改配置里的 local_agent 层级：本页不扫描进程、不申请租约，也不控制任何外部进程。</p>
+            <p class="settings-page-intro" data-i18n="ui.settings.localIntro">可选模块，默认关闭。这一页只写配置：不扫描进程、不申请租约，也不控制任何外部进程。</p>
             <section class="settings-group" aria-labelledby="settings-local-status-title">
               <div class="settings-group-head">
                 <div>
@@ -2782,40 +2782,40 @@
           <section class="settings-page" data-settings-page="about" hidden
                    aria-labelledby="settings-about-title">
             <h2 id="settings-about-title" class="settings-page-title" data-i18n="ui.settings.navAbout">关于</h2>
-            <p class="settings-page-intro" data-i18n="ui.settings.aboutIntro">Council 的版本与构建信息来自 /api/health，不在前端写死。</p>
+            <p class="settings-page-intro" data-i18n="ui.settings.aboutIntro">本机多模型议会：把同一个问题同时交给几个已经登录的命令行模型，会话与费用都留在这台电脑上。</p>
             <section class="settings-group" aria-labelledby="settings-build-title">
               <div class="settings-group-head">
                 <div>
-                  <h3 id="settings-build-title" class="settings-group-title" data-i18n="ui.settings.buildTitle">构建</h3>
-                  <p class="settings-group-desc" data-i18n="ui.settings.buildDesc">界面与后端同源；构建号带 git 短哈希，dirty 表示工作区有未提交改动。</p>
+                  <h3 id="settings-build-title" class="settings-group-title" data-i18n="ui.settings.buildTitle">版本信息</h3>
+                  <p class="settings-group-desc" data-i18n="ui.settings.buildDesc">这一版来自哪段源码、以什么方式在跑。</p>
                 </div>
               </div>
               <ul class="settings-rows">
                 <li class="settings-row">
                   <div class="settings-row-main">
                     <div class="settings-row-label" data-i18n="ui.settings.version">版本</div>
-                    <div class="settings-row-hint" data-i18n="ui.settings.versionHint">VERSION 文件里的基础版本。</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.versionHint">发布版本号。</div>
                   </div>
                   <span id="settings-about-version" class="settings-row-value mono"></span>
                 </li>
                 <li class="settings-row">
                   <div class="settings-row-main">
                     <div class="settings-row-label" data-i18n="ui.settings.build">构建号</div>
-                    <div class="settings-row-hint" data-i18n="ui.settings.buildHint">构建时的 git 提交短哈希。</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.buildHint">对应的源码提交，可以用来反查这一版包含哪些改动；末尾带 .dirty 表示本机还有未提交的改动。</div>
                   </div>
                   <span id="settings-about-build" class="settings-row-value mono"></span>
                 </li>
                 <li class="settings-row">
                   <div class="settings-row-main">
                     <div class="settings-row-label" data-i18n="ui.settings.mode">运行模式</div>
-                    <div class="settings-row-hint" data-i18n="ui.settings.modeHint">设置接口只在写模式下存在。</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.modeHint">只读只能查看；可写模式才能发起议会、修改设置。</div>
                   </div>
                   <span id="settings-about-mode" class="settings-row-value"></span>
                 </li>
                 <li class="settings-row">
                   <div class="settings-row-main">
-                    <div class="settings-row-label" data-i18n="ui.settings.dbSchema">数据库 schema</div>
-                    <div class="settings-row-hint" data-i18n="ui.settings.dbSchemaHint">与「通用」里显示的是同一份事实。</div>
+                    <div class="settings-row-label" data-i18n="ui.settings.dbSchema">数据结构版本</div>
+                    <div class="settings-row-hint" data-i18n="ui.settings.dbSchemaHint">会话与消息的表结构。程序与数据不一致时会提示你升级。</div>
                   </div>
                   <span id="settings-about-schema" class="settings-row-value mono"></span>
                 </li>
@@ -2997,7 +2997,7 @@
   function refreshDocumentTitle() {
     document.title = state.writable
       ? t('ui.app.titleWrite', 'Council 写模式')
-      : t('ui.app.titleReadonly', 'Council 只读看板');
+      : t('ui.app.titleReadonly', 'Council 只读模式');
   }
 
   async function loadI18n() {
@@ -8556,8 +8556,8 @@
     settingsAboutVersion.textContent = parts.version;
     settingsAboutBuild.textContent = parts.build;
     settingsAboutMode.textContent = state.writable
-      ? t('ui.settings.aboutWriteMode', '写模式 · council serve -rw')
-      : t('ui.settings.aboutReadonly', '只读');
+      ? t('ui.settings.aboutWriteMode', '可写 · 能发起议会')
+      : t('ui.settings.aboutReadonly', '只读 · 只能查看');
     settingsAboutSchema.textContent = settingsSchemaText(health);
   }
 
