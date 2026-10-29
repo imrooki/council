@@ -13,6 +13,7 @@
     "test": "node --test test/*.test.js",
     "prepare:council": "node scripts/prepare-council.js",
     "dist": "node scripts/prepare-council.js && electron-builder --win",
+    "dist:ci": "node scripts/prepare-council.js && electron-builder --win --publish never",
     "dist:dir": "node scripts/prepare-council.js && electron-builder --win --dir"
   },
   "devDependencies": {

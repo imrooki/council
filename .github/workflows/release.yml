@@ -100,7 +100,10 @@ jobs:
         working-directory: desktop
         env:
           COUNCIL_EXE: ${{ github.workspace }}\council.exe
-        run: npm run dist
+        # dist:ci 与本地 dist 的唯一区别是 --publish never：CI 里（CI=true）
+        # electron-builder 看到 build.publish 会自己试着往 GitHub 传，而发布
+        # 由下面那一步用 gh 负责。latest.yml 仍然会生成 —— 那正是要的产物。
+        run: npm run dist:ci
 
       - name: 生成校验和
         id: assets
