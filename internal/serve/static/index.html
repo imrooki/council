@@ -9168,6 +9168,24 @@
   // 已归档的会话会被默认列表排除，若照旧自动改选，用户刚归档完正在看的
   // 内容就会被换成另一场会话。只有「本来就没有选中」（首次加载）才自动选
   // 当前视图的第一条；用户点过「改为新建」之后同样不选。
+  // takeDeepLinkConversation 从地址栏取 ?conversation=<id>，取完立刻从地址栏抹掉。
+  //
+  // 谁在用：桌面版的 council:// 深链（desktop/main.js 把 council://conversation/<id>
+  // 翻成 <工作台地址>?conversation=<id>）。只在打开页面时读一次：留着这个参数，
+  // 之后每次刷新都会把用户拽回同一个会话，而那时他可能已经切走了。
+  function takeDeepLinkConversation() {
+    try {
+      const url = new URL(window.location.href);
+      const id = url.searchParams.get('conversation');
+      if (!id) return '';
+      url.searchParams.delete('conversation');
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+      return id;
+    } catch {
+      return '';
+    }
+  }
+
   async function refreshConversations() {
     try {
       const [lists] = await Promise.all([
@@ -9178,6 +9196,15 @@
       if (lists.active.length === 0 && lists.archived.length === 0) {
         resetToEmptyLibrary();
         return;
+      }
+      // 深链优先：地址里点名了哪个会话就去哪个，不管列表顺序。
+      const wanted = takeDeepLinkConversation();
+      if (wanted) {
+        const known = lists.active.concat(lists.archived).some((c) => c.id === wanted);
+        if (known) {
+          await selectConversation(wanted);
+          return;
+        }
       }
       const shown = viewConversations();
       if (!state.currentId && !state.newTarget && shown.length > 0) {

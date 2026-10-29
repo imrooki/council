@@ -81,6 +81,11 @@ func run(args []string) int {
 	if len(args) > 0 && args[0] == "release" {
 		return runRelease(args[1:])
 	}
+	// init 必须走到全局 FlagSet 之前：它要能在**没有任何配置文件**的机器上跑
+	// （那正是它的用途），而全局解析路径会把缺配置当错误。
+	if len(args) > 0 && args[0] == "init" {
+		return runInit(args[1:])
+	}
 
 	// 语言要在建 FlagSet 之前定：-h 在 Parse 里就返回 ErrHelp，那时再按解析
 	// 结果选说明文字已经晚了。-lang 的值与 -config 的值先按字面预扫一遍，

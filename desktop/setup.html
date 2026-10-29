@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>设置 Council</title>
+<style>
+  :root {
+    --bg: #0b0c0e;
+    --surface: #16181c;
+    --surface-2: #1d2025;
+    --line: #2a2e35;
+    --ink: #e6e8ea;
+    --muted: #9aa0a6;
+    --accent: #5b9cf8;
+    --warn: #e0a33e;
+    --ok: #4fbf7a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.6 "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+  header { padding: 28px 36px 8px; }
+  h1 { margin: 0 0 6px; font-size: 22px; font-weight: 600; }
+  .lede { margin: 0; color: var(--muted); }
+  main { flex: 1; overflow: auto; padding: 12px 36px 0; }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    margin: 0 0 12px;
+  }
+  .card.picked { border-color: var(--accent); }
+  .row { display: flex; align-items: flex-start; gap: 12px; }
+  .row + .row { margin-top: 10px; }
+  .grow { flex: 1; min-width: 0; }
+  .name { font-weight: 600; }
+  .path {
+    color: var(--muted);
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip {
+    font-size: 12px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .chip.ok { color: var(--ok); border-color: #2c5a41; }
+  .chip.warn { color: var(--warn); border-color: #5a4a2c; }
+  .field { display: flex; align-items: center; gap: 8px; }
+  label.inline { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  select, input[type="text"] {
+    background: var(--surface-2);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font: inherit;
+    font-size: 13px;
+  }
+  input[type="text"] { width: 150px; }
+  select { min-width: 220px; max-width: 340px; }
+  input[type="checkbox"] { width: 16px; height: 16px; margin-top: 3px; }
+  footer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 36px 22px;
+    border-top: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .status { flex: 1; color: var(--muted); min-height: 20px; }
+  .status.error { color: #f2827f; }
+  button {
+    font: inherit;
+    border-radius: 8px;
+    padding: 8px 18px;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #06121f; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .empty { color: var(--muted); padding: 20px 0; }
+  .hint { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+  code { font-family: ui-monospace, Consolas, monospace; color: var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <h1>设置 Council</h1>
+  <p class="lede">Council 调用你机器上已经装好、已经登录的命令行模型。选几个，起个名字，就可以开始了。</p>
+</header>
+<main>
+  <div id="list"><p class="empty">正在检查本机装了哪些命令行工具……</p></div>
+  <p class="hint">
+    没有全部找到也没关系：装一个就能用。登录状态查不出来时，先在终端里登录那个工具，
+    再回到这里点「重新检查」。这里不会读取你的密钥，也不会替你去登录。
+  </p>
+</main>
+<footer>
+  <span id="status" class="status"></span>
+  <button id="retry" type="button">重新检查</button>
+  <button id="apply" class="primary" type="button" disabled>开始使用</button>
+</footer>
+<script>
+  'use strict';
+
+  const list = document.getElementById('list');
+  const statusEl = document.getElementById('status');
+  const applyButton = document.getElementById('apply');
+  const retryButton = document.getElementById('retry');
+
+  let report = null;
+  // picked: provider id -> { agentID, model }
+  const picked = new Map();
+
+  function setStatus(text, isError) {
+    statusEl.textContent = text || '';
+    statusEl.classList.toggle('error', Boolean(isError));
+  }
+
+  // agentIDFor 给一个可用的初始成员 id：provider 名 + 后缀，避免和保留名冲突。
+  function agentIDFor(providerId) {
+    const base = { claude: 'reviewer', codex: 'critic', grok: 'second', agy: 'helper' }[providerId];
+    return base || (providerId + '-agent');
+  }
+
+  function loginChip(provider) {
+    const chip = document.createElement('span');
+    if (!provider.found) {
+      chip.className = 'chip';
+      chip.textContent = '没找到';
+      return chip;
+    }
+    if (provider.error) {
+      chip.className = 'chip warn';
+      chip.textContent = '识别失败';
+      return chip;
+    }
+    if (provider.login === 'yes' || provider.login === 'api_key') {
+      chip.className = 'chip ok';
+      chip.textContent = provider.login_text || '已登录';
+      return chip;
+    }
+    chip.className = 'chip warn';
+    chip.textContent = provider.login_text || '登录状态未知';
+    return chip;
+  }
+
+  function render() {
+    list.replaceChildren();
+    if (!report) return;
+    const found = report.providers.filter((p) => p.found);
+    if (found.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'empty';
+      empty.textContent = '一个都没找到。先装一个（claude / codex / grok / agy）并在终端里登录，再回来点「重新检查」。';
+      list.appendChild(empty);
+      return;
+    }
+
+    for (const provider of report.providers) {
+      const card = document.createElement('div');
+      card.className = 'card' + (picked.has(provider.id) ? ' picked' : '');
+
+      const row = document.createElement('div');
+      row.className = 'row';
+
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = picked.has(provider.id);
+      box.disabled = !provider.found || provider.models.length === 0;
+      box.setAttribute('aria-label', '使用 ' + provider.id);
+
+      const main = document.createElement('div');
+      main.className = 'grow';
+
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = provider.id;
+      const path = document.createElement('div');
+      path.className = 'path';
+      path.textContent = provider.path || '(没有安装)';
+      main.appendChild(name);
+      main.appendChild(path);
+
+      const chips = document.createElement('div');
+      chips.className = 'chips';
+      chips.appendChild(loginChip(provider));
+      if (provider.models.length > 0) {
+        const chip = document.createElement('span');
+        chip.className = 'chip';
+        chip.textContent = provider.models.length + ' 个模型';
+        chips.appendChild(chip);
+      }
+      if (provider.error) {
+        const chip = document.createElement('span');
+        chip.className = 'chip warn';
+        chip.textContent = provider.error;
+        chips.appendChild(chip);
+      }
+      main.appendChild(chips);
+
+      row.appendChild(box);
+      row.appendChild(main);
+      card.appendChild(row);
+
+      if (provider.found && provider.models.length > 0) {
+        const fields = document.createElement('div');
+        fields.className = 'row';
+
+        const modelLabel = document.createElement('label');
+        modelLabel.className = 'inline';
+        modelLabel.textContent = '模型';
+        const modelSelect = document.createElement('select');
+        for (const model of provider.models) {
+          const option = document.createElement('option');
+          option.value = model.id;
+          option.textContent = model.custom ? model.name + '（自定义）' : model.name;
+          modelSelect.appendChild(option);
+        }
+        modelSelect.disabled = !picked.has(provider.id);
+
+        const nameLabel = document.createElement('label');
+        nameLabel.className = 'inline';
+        nameLabel.textContent = '成员名';
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.value = (picked.get(provider.id) || {}).agentID || agentIDFor(provider.id);
+        nameInput.disabled = !picked.has(provider.id);
+
+        const sync = () => {
+          const current = picked.get(provider.id);
+          if (current) {
+            current.model = modelSelect.value;
+            const typed = nameInput.value.trim();
+            current.agentID = typed || agentIDFor(provider.id);
+          }
+          applyButton.disabled = picked.size === 0;
+        };
+        modelSelect.addEventListener('change', sync);
+        nameInput.addEventListener('input', sync);
+
+        const spacer = document.createElement('span');
+        spacer.className = 'grow';
+        fields.appendChild(spacer);
+        fields.appendChild(modelLabel);
+        fields.appendChild(modelSelect);
+        fields.appendChild(nameLabel);
+        fields.appendChild(nameInput);
+        card.appendChild(fields);
+        card._sync = sync;
+        card._modelSelect = modelSelect;
+        card._nameInput = nameInput;
+      }
+
+      box.addEventListener('change', () => {
+        const on = box.checked;
+        card.classList.toggle('picked', on);
+        if (card._modelSelect) {
+          card._modelSelect.disabled = !on;
+          card._nameInput.disabled = !on;
+        }
+        if (on) {
+          picked.set(provider.id, {
+            agentID: (card._nameInput ? card._nameInput.value.trim() : '') || agentIDFor(provider.id),
+            model: card._modelSelect ? card._modelSelect.value : '',
+          });
+        } else {
+          picked.delete(provider.id);
+        }
+        if (card._sync) card._sync();
+        applyButton.disabled = picked.size === 0;
+      });
+
+      list.appendChild(card);
+    }
+    applyButton.disabled = picked.size === 0;
+  }
+
+  function busy(on, text) {
+    applyButton.disabled = on || picked.size === 0;
+    retryButton.disabled = on;
+    setStatus(text);
+  }
+
+  async function detect() {
+    busy(true, '正在检查……');
+    try {
+      const result = await window.councilSetup.detect();
+      report = result;
+      // 默认勾上「已就绪且已有模型」的前两家，用户不改也能直接开始。
+      const ready = report.providers.filter((p) => p.found && p.models.length > 0);
+      picked.clear();
+      for (const provider of ready.slice(0, 2)) {
+        picked.set(provider.id, { agentID: agentIDFor(provider.id), model: provider.models[0].id });
+      }
+      if (ready.length === 0) {
+        setStatus('没有可以用的命令行工具。装一个并登录，再点「重新检查」。', true);
+      } else {
+        setStatus('找到 ' + ready.length + ' 家可以用的工具。选好后点「开始使用」。');
+      }
+    } catch (error) {
+      report = null;
+      setStatus('检查失败：' + (error && error.message ? error.message : String(error)), true);
+    }
+    busy(false, statusEl.textContent);
+    render();
+  }
+
+  async function apply() {
+    if (picked.size === 0) return;
+    busy(true, '正在写入配置……');
+    const providers = [];
+    for (const [id, choice] of picked) {
+      providers.push({ id, agents: [{ id: choice.agentID, model: choice.model }] });
+    }
+    try {
+      await window.councilSetup.apply({ providers });
+      setStatus('配置已写好，正在打开工作台……');
+      // 主进程会在 apply 成功后自己关掉这个窗口并继续启动。
+    } catch (error) {
+      busy(false, '写入失败：' + (error && error.message ? error.message : String(error)));
+    }
+  }
+
+  applyButton.addEventListener('click', () => apply());
+  retryButton.addEventListener('click', () => detect());
+
+  detect();
+</script>
+</body>
+</html>

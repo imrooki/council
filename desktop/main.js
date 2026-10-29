@@ -4,7 +4,7 @@
 // 所有业务仍然在 Go 的 HTTP 服务里，Electron 这边不读库、不跑议会，
 // 也不替用户登录任何东西。
 
-const { app, BrowserWindow, Menu, Tray, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, screen, shell } = require('electron');
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -732,6 +732,14 @@ function refreshTrayMenu() {
         },
       ],
     },
+    {
+      label: '关于 Council',
+      click: () => {
+        showAbout().catch((error) => {
+          logEvent(`about dialog failed: ${error && error.message ? error.message : String(error)}`);
+        });
+      },
+    },
     { type: 'separator' },
     {
       label: '彻底退出',
@@ -861,10 +869,68 @@ function applyModeMarker() {
   mainWindow.webContents.executeJavaScript(script, true).catch(() => {});
 }
 
+// ---- 窗口位置与大小 ----
+//
+// 应用该记住自己上次在哪、多大。存 userData 下的一个 JSON；恢复时只接受
+// 「至少有一部分落在当前某个显示器里」的坐标 —— 拔掉外接屏之后，用户不该
+// 得到一个开在屏幕外面、点不到的窗口。
+
+const WINDOW_STATE_FILE = 'window-state.json';
+
+function windowStatePath() {
+  return path.join(app.getPath('userData'), WINDOW_STATE_FILE);
+}
+
+function loadWindowState() {
+  try {
+    const raw = fs.readFileSync(windowStatePath(), 'utf8');
+    const parsed = JSON.parse(raw);
+    const bounds = parsed && parsed.bounds;
+    if (!bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return null;
+    if (bounds.width < 800 || bounds.height < 600) return null;
+    const visible = screen.getAllDisplays().some((display) => {
+      const area = display.workArea;
+      return bounds.x < area.x + area.width - 80
+        && bounds.x + bounds.width > area.x + 80
+        && bounds.y < area.y + area.height - 80
+        && bounds.y + bounds.height > area.y + 40;
+    });
+    if (!visible) {
+      logEvent(`window state ignored: bounds off-screen ${JSON.stringify(bounds)}`);
+      return null;
+    }
+    return {
+      x: Math.round(bounds.x),
+      y: Math.round(bounds.y),
+      width: Math.round(bounds.width),
+      height: Math.round(bounds.height),
+      maximized: Boolean(parsed.maximized),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    const maximized = mainWindow.isMaximized();
+    // 最大化时 getBounds 是全屏尺寸；用 normalBounds 记住「还原后」的大小，
+    // 否则用户点还原会得到一块和屏幕一样大的窗口。
+    const bounds = maximized ? mainWindow.getNormalBounds() : mainWindow.getBounds();
+    const payload = { bounds, maximized };
+    fs.mkdirSync(path.dirname(windowStatePath()), { recursive: true });
+    fs.writeFileSync(windowStatePath(), JSON.stringify(payload), 'utf8');
+  } catch (error) {
+    logEvent(`persist window state failed: ${error && error.message ? error.message : String(error)}`);
+  }
+}
+
 function createWindow() {
+  const saved = loadWindowState();
   const options = {
-    width: 1440,
-    height: 900,
+    width: saved ? saved.width : 1440,
+    height: saved ? saved.height : 900,
     minWidth: 980,
     show: false,
     title: APP_TITLE,
@@ -882,12 +948,39 @@ function createWindow() {
       backgroundThrottling: true,
     },
   };
+  if (saved) {
+    options.x = saved.x;
+    options.y = saved.y;
+  }
   const icon = windowIconPath();
   if (icon) options.icon = icon;
 
   mainWindow = new BrowserWindow(options);
   mainWindow.setMenuBarVisibility(false);
   pageTitle = APP_TITLE;
+  if (saved && saved.maximized) mainWindow.maximize();
+
+  // 移动与缩放比较频繁：合并成一次写盘，窗口拖拽时不会每像素写一次文件。
+  let stateTimer = null;
+  const scheduleStateSave = () => {
+    if (stateTimer) clearTimeout(stateTimer);
+    stateTimer = setTimeout(() => {
+      stateTimer = null;
+      saveWindowState();
+    }, 500);
+    if (typeof stateTimer.unref === 'function') stateTimer.unref();
+  };
+  mainWindow.on('resize', scheduleStateSave);
+  mainWindow.on('move', scheduleStateSave);
+  mainWindow.on('maximize', scheduleStateSave);
+  mainWindow.on('unmaximize', scheduleStateSave);
+  mainWindow.on('close', () => {
+    if (stateTimer) {
+      clearTimeout(stateTimer);
+      stateTimer = null;
+    }
+    saveWindowState();
+  });
 
   mainWindow.once('ready-to-show', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1084,6 +1177,12 @@ async function loadWorkbench(url, mode, health) {
       updaterStarted = true;
       setupAutoUpdater();
     }
+    // 冷启动时带的深链：等工作台加载完再切，此时它才认识会话列表。
+    if (pendingDeepLink) {
+      const id = pendingDeepLink;
+      pendingDeepLink = '';
+      await switchToConversation(id);
+    }
   } catch (error) {
     if (error && error.code === 'ERR_ABORTED') return;
     throw new StartupFailure(
@@ -1101,6 +1200,22 @@ async function start() {
   startupStarted = true;
   // 托盘先建好：窗口从 ready-to-show 出现之前，× 就已经有地方可去。
   createTray();
+
+  // 第一次运行：还没有配置文件时，先走设置向导，再开工作台。
+  // 这一步必须在 createWindow 之前、任何 spawn 之前 —— 没有配置时
+  // council serve -rw 会直接退出，用户看到的就是一个错误对话框。
+  if (needsFirstRunSetup()) {
+    const ok = await runSetupWizard();
+    if (!ok) {
+      logEvent('setup wizard closed without writing a config; quitting');
+      quitting = true;
+      destroyTray();
+      app.quit();
+      return;
+    }
+    logEvent(`setup wizard wrote config=${configFilePath()}`);
+  }
+
   createWindow();
 
   logEvent(
@@ -1207,6 +1322,321 @@ async function start() {
     }
     await failStartup(error);
   }
+}
+
+// ---- 首次运行：设置向导 ----
+//
+// 为什么需要它：干净机器上第一次双击时，`serve -rw` 会因为找不到配置文件
+// 直接退出 —— 用户看到的是错误对话框，而不是一个应用。桌面版在这里先接手：
+// 用 `council init --json` 问「本机装了哪些 CLI」，让用户勾选并起名，再用
+// `council init --apply` 写成配置，然后才启动服务。
+//
+// 配置路径与 Go 侧同一条规则：COUNCIL_CONFIG 环境变量优先，否则
+// ~/.council/config.toml（这里没有 -config flag，桌面版不暴露它）。
+
+const SETUP_MIN_WIDTH = 720;
+const SETUP_MIN_HEIGHT = 620;
+
+let setupWindow = null;
+let setupResolve = null;
+
+function configFilePath() {
+  const fromEnv = (process.env.COUNCIL_CONFIG || '').trim();
+  if (fromEnv) return path.resolve(fromEnv);
+  return path.join(os.homedir(), '.council', 'config.toml');
+}
+
+// needsFirstRunSetup 判断这次启动要不要先走向导：只看配置文件在不在。
+// 配置存在但内容坏了不走向导 —— 那是另一类问题（有东西可修，不该被覆盖）。
+function needsFirstRunSetup() {
+  return !fs.existsSync(configFilePath());
+}
+
+// runCouncilCollect 跑一次 council 子命令并收集输出。stdin 传字符串时写进去。
+//
+// 用 spawn 而不是 spawnSync：识别四家 CLI 可能要十几秒，同步调用会卡住
+// 整个主进程（窗口就拖不动了）。
+function runCouncilCollect(args, stdinText, timeoutMs = 60000) {
+  return new Promise((resolve, reject) => {
+    let exe;
+    try {
+      exe = resolveCouncilExeSync();
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    const child = spawn(exe, args, {
+      detached: false,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: resolveCouncilCwd(),
+    });
+    const stdout = [];
+    const stderr = [];
+    let settled = false;
+    const finish = (fn, payload) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(payload);
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* 已经退出时忽略。 */
+      }
+      finish(reject, new Error(`council ${args.join(' ')} 超时（${Math.round(timeoutMs / 1000)} 秒）`));
+    }, timeoutMs);
+
+    child.stdout.on('data', (chunk) => stdout.push(chunk));
+    child.stderr.on('data', (chunk) => stderr.push(chunk));
+    child.on('error', (error) => finish(reject, error));
+    child.on('exit', (code) => {
+      finish(resolve, {
+        code,
+        stdout: Buffer.concat(stdout).toString('utf8'),
+        stderr: Buffer.concat(stderr).toString('utf8'),
+      });
+    });
+    if (typeof stdinText === 'string') {
+      try {
+        child.stdin.end(stdinText);
+      } catch {
+        /* 子进程提前退出时忽略。 */
+      }
+    } else {
+      child.stdin.end();
+    }
+  });
+}
+
+// resolveCouncilExeSync 是同步版的 exe 定位：向导阶段还没有窗口可以报错，
+// 找不到就直接把原因抛给调用方（会显示在向导的状态行里）。
+function resolveCouncilExeSync() {
+  const candidates = [];
+  if (app.isPackaged) {
+    candidates.push(path.join(process.resourcesPath, 'council.exe'));
+  }
+  if (process.env.PORTABLE_EXECUTABLE_DIR) {
+    candidates.push(path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'council.exe'));
+    candidates.push(path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'resources', 'council.exe'));
+  }
+  candidates.push(DEFAULT_COUNCIL_EXE);
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate;
+  }
+  throw new Error(`找不到 council.exe（试过：${candidates.filter(Boolean).join('、')}）`);
+}
+
+// runSetupWizard 打开向导窗口，直到它写出配置（true）或被关掉（false）。
+function runSetupWizard() {
+  return new Promise((resolve) => {
+    setupResolve = resolve;
+
+    setupWindow = new BrowserWindow({
+      width: 860,
+      height: 720,
+      minWidth: SETUP_MIN_WIDTH,
+      minHeight: SETUP_MIN_HEIGHT,
+      show: false,
+      title: APP_TITLE,
+      backgroundColor: '#0b0c0e',
+      autoHideMenuBar: true,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        spellcheck: false,
+      },
+    });
+    const icon = windowIconPath();
+    if (icon) setupWindow.setIcon(icon);
+    setupWindow.setMenuBarVisibility(false);
+    setupWindow.once('ready-to-show', () => {
+      if (setupWindow && !setupWindow.isDestroyed()) {
+        setupWindow.show();
+        setupWindow.focus();
+      }
+    });
+    setupWindow.on('closed', () => {
+      setupWindow = null;
+      finishSetup(false);
+    });
+    setupWindow.loadFile(path.join(__dirname, 'setup.html')).catch((error) => {
+      logEvent(`setup wizard load failed: ${error && error.message ? error.message : String(error)}`);
+      finishSetup(false);
+    });
+  });
+}
+
+// finishSetup 把向导的结果交回 start()；只认第一次。
+function finishSetup(ok) {
+  const resolve = setupResolve;
+  setupResolve = null;
+  if (setupWindow && !setupWindow.isDestroyed()) {
+    const win = setupWindow;
+    setupWindow = null;
+    try {
+      win.close();
+    } catch {
+      /* 已经关掉时忽略。 */
+    }
+  }
+  if (resolve) resolve(ok);
+}
+
+// registerSetupIPC 只在主进程注册一次：工作台页面没有这两个通道。
+function registerSetupIPC() {
+  ipcMain.handle('setup:detect', async () => {
+    const result = await runCouncilCollect(['init', '--config', configFilePath(), '--json'], null, 90000);
+    if (result.code !== 0) {
+      throw new Error((result.stderr || result.stdout || `council init 退出码 ${result.code}`).trim());
+    }
+    try {
+      return JSON.parse(result.stdout.trim().split(/\r?\n/).pop());
+    } catch (error) {
+      throw new Error(`council init 的输出不是 JSON：${String(error.message || error)}`);
+    }
+  });
+
+  ipcMain.handle('setup:apply', async (_event, payload) => {
+    const request = sanitizeSetupPayload(payload);
+    const result = await runCouncilCollect(
+      ['init', '--config', configFilePath(), '--apply', '-', '--json'],
+      JSON.stringify(request),
+      60000,
+    );
+    if (result.code !== 0) {
+      throw new Error((result.stderr || result.stdout || `council init 退出码 ${result.code}`).trim());
+    }
+    logEvent(`setup wizard applied providers=${request.providers.map((p) => p.id).join(',')}`);
+    // 配置写好了：关掉向导并让启动流程继续。
+    setTimeout(() => finishSetup(true), 150);
+    return { ok: true };
+  });
+}
+
+// sanitizeSetupPayload 只放行向导需要的那几个字段。
+//
+// 这不是防外敌（渲染进程也是我们自己的代码），而是防「向导改错一行就把
+// 奇怪的字段写进用户配置」：通道只认 id / agents[id, model]。
+function sanitizeSetupPayload(payload) {
+  const providers = [];
+  const list = payload && Array.isArray(payload.providers) ? payload.providers : [];
+  for (const item of list) {
+    if (!item || typeof item.id !== 'string') continue;
+    const agents = [];
+    for (const agent of Array.isArray(item.agents) ? item.agents : []) {
+      if (!agent || typeof agent.id !== 'string' || typeof agent.model !== 'string') continue;
+      agents.push({ id: agent.id, model: agent.model });
+    }
+    if (agents.length === 0) continue;
+    providers.push({ id: item.id, agents });
+  }
+  if (providers.length === 0) {
+    throw new Error('没有选中任何工具');
+  }
+  return { providers };
+}
+
+// ---- 深链 council:// 与「关于」 ----
+//
+// 深链只做一件事：council://conversation/<id> 打开（或聚焦已有）窗口并切到
+// 那个会话。工作台本来就认 ?conversation=<id>（index.html 的
+// takeDeepLinkConversation），所以这里只负责把 URL 翻译过去。
+//
+// 为什么值得有：会话是有地址的资源 —— 能把一个会话发给自己、放进任务栏
+// 快捷方式、从脚本里点开，这是「应用」和「一个窗口里的网页」的差别之一。
+//
+// 解析放在 lib/deeplink.js：那是安全边界（结果会被拼进窗口地址），
+// 单独一份纯函数才能用 node --test 钉住那些反例。
+
+const { PROTOCOL, incomingDeepLink, conversationIDFromDeepLink } = require('./lib/deeplink');
+
+let pendingDeepLink = '';
+
+// openDeepLink 把深链落到窗口上：没加载完就记下来，加载完直接切会话。
+async function openDeepLink(raw) {
+  const id = conversationIDFromDeepLink(raw);
+  logEvent(`deep link raw=${raw} conversation=${id || '(ignored)'}`);
+  if (!id) return;
+  showMainWindow();
+  if (!startupFinished || !baseUrl) {
+    pendingDeepLink = id;
+    return;
+  }
+  await switchToConversation(id);
+}
+
+// switchToConversation 让工作台切到某个会话：跳一次带参数的地址即可，
+// 前端在 boot 时读它（与深链同一条路），不需要任何注入脚本。
+async function switchToConversation(id) {
+  if (!mainWindow || mainWindow.isDestroyed() || !baseUrl) return;
+  const target = `${baseUrl.replace(/\/$/, '')}/?conversation=${encodeURIComponent(id)}`;
+  try {
+    await mainWindow.loadURL(target);
+    logEvent(`deep link switched url=${target}`);
+  } catch (error) {
+    logEvent(`deep link switch failed: ${error && error.message ? error.message : String(error)}`);
+  }
+}
+
+// registerProtocol 让 Windows 把 council:// 交给这个 exe。
+// 开发态（npm start）不注册：注册表里指向 electron.exe 是错的。
+function registerProtocol() {
+  if (!app.isPackaged) {
+    logEvent('protocol registration skipped (dev build)');
+    return;
+  }
+  try {
+    if (app.setAsDefaultProtocolClient(PROTOCOL)) {
+      logEvent(`protocol registered ${PROTOCOL}://`);
+    } else {
+      logEvent(`protocol registration refused for ${PROTOCOL}://`);
+    }
+  } catch (error) {
+    logEvent(`protocol registration failed: ${error && error.message ? error.message : String(error)}`);
+  }
+}
+
+// engineVersion 问一次 council --version 并缓存：About 对话框与日志都要用。
+let engineVersionCache = null;
+
+async function engineVersion() {
+  if (engineVersionCache) return engineVersionCache;
+  try {
+    const result = await runCouncilCollect(['--version'], null, 15000);
+    if (result.code === 0) {
+      engineVersionCache = result.stdout.trim();
+      return engineVersionCache;
+    }
+  } catch (error) {
+    logEvent(`engine version probe failed: ${error && error.message ? error.message : String(error)}`);
+  }
+  engineVersionCache = '(未知)';
+  return engineVersionCache;
+}
+
+// showAbout 是「关于 Council」：版本、引擎、配置文件、诊断日志。
+async function showAbout() {
+  const engine = await engineVersion();
+  await dialog.showMessageBox(mainWindow || undefined, {
+    type: 'info',
+    title: '关于 Council',
+    message: `Council ${app.getVersion()}`,
+    detail: [
+      `引擎：${engine}`,
+      `配置文件：${configFilePath()}`,
+      `诊断日志：${logFilePath()}`,
+      '',
+      'Council 调用你机器上已经装好、已经登录的命令行模型；它不替你登录任何服务，'
+      + '会话与费用都记在本机。',
+    ].join('\n'),
+    buttons: ['好'],
+    noLink: true,
+  });
 }
 
 // ---- 自动更新 ----
@@ -1392,14 +1822,37 @@ async function boot() {
 
   // 已有实例在托盘时再次双击 exe：把它的窗口唤出来，新实例自己退出。
   // 拿锁重试会连续触发这个事件，日志按 1.5 秒合并，避免一次双击写十几行。
-  app.on('second-instance', () => {
+  //
+  // 深链也走这里：Windows 上 council:// 会以「新进程 + 一个 argv」的形式到达，
+  // 新进程拿不到单实例锁就退出，URL 由这个回调交给已经在跑的那个实例。
+  app.on('second-instance', (_event, argv) => {
     const now = Date.now();
     if (now - lastSecondInstanceLogAt > 1500) {
       lastSecondInstanceLogAt = now;
       logEvent('second instance launched; focusing existing window');
     }
+    const deepLink = incomingDeepLink(argv);
+    if (deepLink) {
+      openDeepLink(deepLink).catch((error) => {
+        logEvent(`deep link failed: ${error && error.message ? error.message : String(error)}`);
+      });
+      return;
+    }
     focusWindow();
   });
+
+  // 设置向导的两个 IPC 通道：只在这里注册一次。工作台页面（非 setup.html）
+  // 根本拿不到 window.councilSetup，也没有别的通道可调。
+  registerSetupIPC();
+
+  // 第一个实例：深链就在自己的 argv 里（双击一个 council:// 快捷方式时）。
+  // 记下来，等窗口加载完再切 —— 那时工作台才认识会话列表。
+  const bootDeepLink = incomingDeepLink(process.argv);
+  if (bootDeepLink) {
+    logEvent(`deep link on cold start: ${bootDeepLink}`);
+    pendingDeepLink = conversationIDFromDeepLink(bootDeepLink);
+  }
+  registerProtocol();
 
   app.whenReady().then(start).catch((error) => {
     failStartup(error).catch(() => app.exit(1));

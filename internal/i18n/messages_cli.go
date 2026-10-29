@@ -195,6 +195,47 @@ Flags:
 	"cli.serve.err.addrBadPort":     "地址 %q 的端口 %q 不合法，必须是 0 到 65535 的整数",
 	"cli.serve.err.addrNotLoopback": "只允许绑定回环地址（127.0.0.0/8、::1、localhost），%q 不是回环地址",
 
+	// ---- council init（首次运行 / 桌面版设置向导） ----
+	"cli.init.flag.config":           "配置文件路径（默认 ~/.council/config.toml）；与全局 -config 含义相同",
+	"cli.init.flag.lang":             "输出语言：zh / en / auto（默认 auto）",
+	"cli.init.flag.json":             "按 JSON 输出检测结果（给桌面向导与脚本用），不写任何文件",
+	"cli.init.flag.apply":            "从文件读 JSON 并写配置（用 - 表示 stdin）；配置文件已存在时拒绝",
+	"cli.init.error.positional":      "council init 不接受位置参数，多出来的是: %v\n",
+	"cli.init.error.layers":          "无法确定配置文件位置: %v\n",
+	"cli.init.error.write":           "写输出失败: %v\n",
+	"cli.init.error.exists":          "配置文件已存在，不覆盖：%s（要改它请用 council serve -rw 的设置页，或自己编辑）",
+	"cli.init.error.read":            "读输入失败: %v",
+	"cli.init.error.json":            "输入不是合法 JSON: %v",
+	"cli.init.error.unknownProvider": "没有检测到这个 provider（或它没装）：%s",
+	"cli.init.error.duplicateAgent":  "成员 id 重复：%s",
+	"cli.init.error.noProvider":      "至少要选一个 provider",
+	"cli.init.error.invalid":         "生成的配置没有通过校验: %v",
+	"cli.init.error.writeFile":       "写不进配置文件 %s: %v",
+	"cli.init.head":                  "本机 CLI 检测（不会写任何文件）：\n",
+	"cli.init.notFound":              "没找到",
+	"cli.init.probeFailed":           "识别失败：%v",
+	"cli.init.modelCount":            "识别到 %d 个模型",
+	"cli.init.configPath":            "配置文件：%s（%s）",
+	"cli.init.configExists":          "已存在，不会被覆盖",
+	"cli.init.noneFound":             "一个都没找到。至少装一个（claude / codex / grok / agy）并在终端里登录，再回来。\n",
+	"cli.init.written":               "已生成配置文件：%s\n  provider：%s\n  成员：%s\n接下来：council serve -rw 打开看板，或直接 council 进终端界面。\n",
+	"cli.init.usage": `用法: council init [flags]
+
+检测本机装了哪几家 CLI（claude / codex / grok / agy）、能不能列出模型、登录状态如何；
+默认只打印，不写任何文件。桌面版的首次运行向导就是靠它拿到这份结果的。
+
+  council init --json              给程序看的检测结果（不写文件）
+  council init --apply <file|->    按 JSON 写配置（配置文件已存在时拒绝）
+
+退出码: 0 成功；1 环境/写盘失败；2 用法错误。
+
+flags:
+  -json                按 JSON 输出检测结果
+  -apply <file|->      读入勾选结果并写配置；- 表示 stdin
+  -config <path>       配置文件路径，默认 ~/.council/config.toml
+  -lang zh|en|auto     输出语言，默认 auto
+`,
+
 	// ---- council who ----
 	"cli.who.flag.json":           "按 JSON 输出（local_agent / managed / observed / leases / notice）",
 	"cli.who.flag.config":         "配置文件路径，优先于环境变量 COUNCIL_CONFIG 与默认的 ~/.council/config.toml",
@@ -527,6 +568,48 @@ Flags:
 	"cli.serve.err.addrNoPort":      "address %q has no port",
 	"cli.serve.err.addrBadPort":     "address %q has an invalid port %q; it must be an integer from 0 to 65535",
 	"cli.serve.err.addrNotLoopback": "only loopback addresses are allowed (127.0.0.0/8, ::1, localhost); %q is not one",
+
+	// ---- council init (first run / desktop setup wizard) ----
+	"cli.init.flag.config":           "Config file path (default ~/.council/config.toml); same meaning as the global -config",
+	"cli.init.flag.lang":             "Output language: zh / en / auto (auto by default)",
+	"cli.init.flag.json":             "Print the detection result as JSON (for the desktop wizard and scripts); writes no file",
+	"cli.init.flag.apply":            "Read JSON from a file and write the config (use - for stdin); refuses when the config already exists",
+	"cli.init.error.positional":      "council init takes no positional arguments; extra: %v\n",
+	"cli.init.error.layers":          "cannot resolve the config file location: %v\n",
+	"cli.init.error.write":           "cannot write the output: %v\n",
+	"cli.init.error.exists":          "the config file already exists, refusing to overwrite: %s (edit it in the settings page of council serve -rw, or by hand)",
+	"cli.init.error.read":            "cannot read the input: %v",
+	"cli.init.error.json":            "the input is not valid JSON: %v",
+	"cli.init.error.unknownProvider": "that provider was not detected (or is not installed): %s",
+	"cli.init.error.duplicateAgent":  "duplicate agent id: %s",
+	"cli.init.error.noProvider":      "pick at least one provider",
+	"cli.init.error.invalid":         "the generated config did not validate: %v",
+	"cli.init.error.writeFile":       "cannot write the config file %s: %v",
+	"cli.init.head":                  "Local CLI detection (writes no file):\n",
+	"cli.init.notFound":              "not found",
+	"cli.init.probeFailed":           "detection failed: %v",
+	"cli.init.modelCount":            "%d models detected",
+	"cli.init.configPath":            "config file: %s (%s)",
+	"cli.init.configExists":          "already exists, will not be overwritten",
+	"cli.init.noneFound":             "Nothing found. Install at least one (claude / codex / grok / agy), log in from a terminal, then come back.\n",
+	"cli.init.written":               "wrote the config file: %s\n  providers: %s\n  agents: %s\nNext: council serve -rw for the dashboard, or just council for the terminal UI.\n",
+	"cli.init.usage": `Usage: council init [flags]
+
+Detect which local CLIs are installed (claude / codex / grok / agy), whether they can list models,
+and their login state. By default it only prints; it writes no file. The desktop first-run wizard
+uses --json to get exactly this result.
+
+  council init --json              machine-readable result (writes no file)
+  council init --apply <file|->    write the config from JSON; refuses when the config already exists
+
+Exit codes: 0 ok; 1 environment/write failure; 2 usage error.
+
+flags:
+  -json                print the detection result as JSON
+  -apply <file|->      read the selection and write the config; - means stdin
+  -config <path>       config file path, default ~/.council/config.toml
+  -lang zh|en|auto     output language, auto by default
+`,
 
 	// ---- council who ----
 	"cli.who.flag.json":           "Print JSON (local_agent / managed / observed / notice)",

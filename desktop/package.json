@@ -1,7 +1,7 @@
 {
   "name": "council-desktop",
   "productName": "Council",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Council 工作台的原生桌面外壳",
   "main": "main.js",
   "private": true,
@@ -10,6 +10,7 @@
   "scripts": {
     "postinstall": "install-electron",
     "start": "electron .",
+    "test": "node --test test/*.test.js",
     "prepare:council": "node scripts/prepare-council.js",
     "dist": "node scripts/prepare-council.js && electron-builder --win",
     "dist:dir": "node scripts/prepare-council.js && electron-builder --win --dir"
@@ -29,6 +30,8 @@
     "files": [
       "main.js",
       "preload.js",
+      "setup.html",
+      "lib/**/*",
       "package.json"
     ],
     "extraResources": [
