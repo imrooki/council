@@ -39,3 +39,10 @@ test('versionsMatch 在没有哈希时退回 base 版本', () => {
   assert.equal(versionsMatch('', '0.3.0+git.c18b83d'), true);
   assert.equal(versionsMatch('0.3.0+git.c18b83d', ''), true);
 });
+
+test('真实的健康检查串与引擎版本串互认', () => {
+  // /api/health 给的是 0.3.0+git.e1b0fb4；引擎侧我们已经剥掉了「council 」。
+  assert.equal(versionsMatch('0.3.0+git.e1b0fb4', '0.3.0+git.e1b0fb4'), true);
+  // 留着程序名前缀就会永远不等 —— 这条防止回退到那种写法。
+  assert.equal(versionsMatch('0.3.0+git.e1b0fb4', 'council 0.3.0+git.e1b0fb4'), false);
+});

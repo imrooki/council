@@ -1640,7 +1640,11 @@ function registerProtocol() {
   }
 }
 
-// engineVersion 问一次 council --version 并缓存：About 对话框与日志都要用。
+// engineVersion 问一次 council --version 并缓存：About 对话框与版本比对都要用。
+//
+// 只留版本号本身：`council --version` 的输出是「council 0.3.0+git.abc」，
+// 带着程序名。原样拿去比对会永远不等（对面 /api/health 给的是纯版本号），
+// 于是用户会被自己的新版挡在门外。
 let engineVersionCache = null;
 
 async function engineVersion() {
@@ -1648,8 +1652,12 @@ async function engineVersion() {
   try {
     const result = await runCouncilCollect(['--version'], null, 15000);
     if (result.code === 0) {
-      engineVersionCache = result.stdout.trim();
-      return engineVersionCache;
+      const tokens = result.stdout.trim().split(/\s+/).filter(Boolean);
+      const token = tokens.length > 0 ? tokens[tokens.length - 1] : '';
+      if (token) {
+        engineVersionCache = token;
+        return engineVersionCache;
+      }
     }
   } catch (error) {
     logEvent(`engine version probe failed: ${error && error.message ? error.message : String(error)}`);
@@ -1666,7 +1674,7 @@ async function showAbout() {
     title: '关于 Council',
     message: `Council ${app.getVersion()}`,
     detail: [
-      `引擎：${engine}`,
+      `引擎：council ${engine}`,
       `配置文件：${configFilePath()}`,
       `诊断日志：${logFilePath()}`,
       '',
