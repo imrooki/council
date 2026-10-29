@@ -1,0 +1,172 @@
+name: release
+
+# tag（v*）推上来就发一版；也可以手动触发，用 dry_run 只验证流水线不发布。
+#
+# 发出去的东西固定是五个：安装包、便携版、CLI、latest.yml、SHA256SUMS.txt。
+# latest.yml 必须与安装包同一次构建 —— 它的 sha512 与那个 exe 一一对应，
+# 少了或对不上，已经装着的用户就收不到更新。
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的 tag（留空则用 VERSION 文件，例如 v0.3.1）'
+        required: false
+        default: ''
+      dry_run:
+        description: '只构建、不发布（验证流水线用）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      # 有证书就签，没有就跳过（electron-builder 会打一行 signing is skipped）。
+      # 这两个 secret 为空时，构建行为与本地完全一致。
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+    steps:
+      - name: 取源码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: 解析并校验版本
+        id: meta
+        shell: pwsh
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if (-not $version) { throw 'VERSION 文件是空的' }
+          $tag = $env:INPUT_TAG
+          if (-not $tag) {
+            $tag = $env:REF_NAME
+            if ($tag -notmatch '^v\d') { $tag = "v$version" }
+          }
+          if ($tag -ne "v$version") {
+            throw "tag $tag 与 VERSION ($version) 不一致：先把 VERSION 与 desktop/package.json 改到同一版"
+          }
+          $desktopVersion = (Get-Content desktop/package.json -Raw | ConvertFrom-Json).version
+          if ($desktopVersion -ne $version) {
+            throw "desktop/package.json 版本 $desktopVersion 与 VERSION ($version) 不一致"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "build $tag (version $version)"
+
+      - name: 静态检查与测试
+        run: |
+          go vet ./...
+          go test ./... -count=1
+
+      - name: 构建 CLI
+        shell: pwsh
+        run: |
+          powershell -NoProfile -File scripts/build.ps1 -Out "$env:GITHUB_WORKSPACE\council.exe"
+          if ($LASTEXITCODE -ne 0) { throw "构建 CLI 失败（exit $LASTEXITCODE）" }
+          & "$env:GITHUB_WORKSPACE\council.exe" --version
+
+      - name: 装桌面依赖
+        working-directory: desktop
+        run: npm ci
+
+      - name: 打安装包
+        working-directory: desktop
+        env:
+          COUNCIL_EXE: ${{ github.workspace }}\council.exe
+        run: npm run dist
+
+      - name: 生成校验和
+        id: assets
+        shell: pwsh
+        run: |
+          $version = "${{ steps.meta.outputs.version }}"
+          $files = @(
+            "desktop\dist\Council-Setup-$version.exe",
+            "desktop\dist\Council-$version-portable.exe",
+            "desktop\dist\latest.yml",
+            "council.exe"
+          )
+          foreach ($file in $files) {
+            if (-not (Test-Path $file)) { throw "缺少产物：$file" }
+          }
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+            "$hash  $(Split-Path $file -Leaf)"
+          }
+          # 不写 BOM：这份文件是要给 `sha256sum -c` 之类工具看的。
+          [System.IO.File]::WriteAllLines(
+            (Join-Path $env:GITHUB_WORKSPACE 'SHA256SUMS.txt'),
+            [string[]]$lines
+          )
+          Get-Content SHA256SUMS.txt
+
+      - name: 上传构建产物（dry run 也留证）
+        uses: actions/upload-artifact@v4
+        with:
+          name: council-${{ steps.meta.outputs.version }}
+          path: |
+            desktop/dist/Council-Setup-*.exe
+            desktop/dist/Council-*-portable.exe
+            desktop/dist/latest.yml
+            council.exe
+            SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: 发布
+        if: ${{ inputs.dry_run != true }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $version = "${{ steps.meta.outputs.version }}"
+          $assets = @(
+            "desktop\dist\Council-Setup-$version.exe",
+            "desktop\dist\Council-$version-portable.exe",
+            "council.exe",
+            "desktop\dist\latest.yml",
+            "SHA256SUMS.txt"
+          )
+          $notes = ".github\release-notes\$tag.md"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            # 已经发过（例如重建资产）：只覆盖文件，不动说明。
+            gh release upload $tag @assets --repo $env:GITHUB_REPOSITORY --clobber
+          } elseif (Test-Path $notes) {
+            gh release create $tag @assets --repo $env:GITHUB_REPOSITORY `
+              --title "Council $version" --notes-file $notes
+          } else {
+            gh release create $tag @assets --repo $env:GITHUB_REPOSITORY `
+              --title "Council $version" --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) { throw "发布失败（exit $LASTEXITCODE）" }
+          gh release view $tag --repo $env:GITHUB_REPOSITORY --json assets `
+            --jq '.assets[] | "\(.name) \(.size)"'
