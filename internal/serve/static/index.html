@@ -1878,6 +1878,44 @@
     font-size: 12px;
   }
   .settings-source { color: var(--muted-2); white-space: nowrap; }
+  /* provider 行：命令 + 动作按钮挤在右侧一列，命令过长时省略。 */
+  .settings-row-value-group {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    min-width: 0;
+    max-width: 62%;
+  }
+  .settings-row-value-group .settings-row-value {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: normal;
+  }
+  .settings-row-value-group .settings-row-actions { text-align: right; white-space: nowrap; }
+  /* 状态点：命令找得到是绿的；找不到是空心灰点，不是错误红点。 */
+  .settings-status-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: 1px;
+  }
+  .settings-status-dot.is-ok { background: var(--ok); }
+  .settings-status-dot.is-unknown { background: transparent; box-shadow: inset 0 0 0 1px var(--muted-2); }
+  .settings-badge {
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: 999px;
+    border: 1px solid var(--line-strong);
+    color: var(--muted-2);
+    font-size: 11px;
+    line-height: 16px;
+    vertical-align: 1px;
+  }
   .settings-row-actions { text-align: right; white-space: nowrap; }
   .settings-row-actions .btn-small {
     height: 28px;
@@ -2630,13 +2668,14 @@
           <section class="settings-page" data-settings-page="providers" hidden
                    aria-labelledby="settings-providers-title">
             <h2 id="settings-providers-title" class="settings-page-title" data-i18n="ui.settings.navProviders">提供方</h2>
-            <p class="settings-page-intro" data-i18n="ui.settings.providersIntro">这里列出各家命令行工具启动模型用的命令，只读展示；成员运行时仍由各自的命令启动。</p>
+            <p class="settings-page-intro" data-i18n="ui.settings.providersIntro">这里列出各家命令行工具启动模型用的命令；可以新增、修改、删除。成员运行时仍由各自的命令启动。</p>
             <section class="settings-group" aria-labelledby="settings-providers-list-title">
               <div class="settings-group-head">
                 <div>
                   <h3 id="settings-providers-list-title" class="settings-group-title" data-i18n="ui.settings.providersListTitle">已配置的 provider</h3>
-                  <p class="settings-group-desc" data-i18n="ui.settings.providersDesc">command 是启动成员进程时使用的可执行文件或命令。</p>
+                  <p class="settings-group-desc" data-i18n="ui.settings.providersDesc">command 是启动成员进程时使用的可执行文件。点「添加提供方」接入一个新的命令行工具。</p>
                 </div>
+                <button id="settings-provider-add" class="btn-small" type="button" data-i18n="ui.settings.providerAdd">+ 添加提供方</button>
               </div>
               <ul id="settings-providers" class="settings-rows"></ul>
               <p id="settings-providers-empty" class="settings-empty" hidden data-i18n="ui.settings.providersEmpty">（没有 provider）</p>
@@ -2823,6 +2862,35 @@
             </section>
           </section>
         </div>
+      </div>
+    </div>
+  </div>
+  <!-- provider 表单。与 agent 表单同一条路：先预览，确认后才落盘。 -->
+  <div id="settings-provider-overlay" class="settings-overlay" role="dialog" aria-modal="true"
+       aria-labelledby="settings-provider-title" hidden>
+    <div class="confirm-card settings-form-card">
+      <h2 id="settings-provider-title" data-i18n="ui.settings.providerFormAddTitle">添加提供方</h2>
+      <div class="settings-form-grid">
+        <div class="settings-field">
+          <label for="settings-provider-id">id
+            <span class="settings-field-hint" data-i18n="ui.settings.providerFormIDHint">成员的 provider 字段用这个名字</span>
+          </label>
+          <input id="settings-provider-id" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="例如 deepseek" data-i18n-placeholder="ui.settings.providerFormIDPlaceholder">
+        </div>
+        <div class="settings-field">
+          <label for="settings-provider-command">command
+            <span class="settings-field-hint" data-i18n="ui.settings.providerFormCommandHint">可执行文件的完整路径，或 PATH 里的命令名</span>
+          </label>
+          <input id="settings-provider-command" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="C:\Tools\deepseek\deepseek.cmd" data-i18n-placeholder="ui.settings.providerFormCommandPlaceholder">
+        </div>
+      </div>
+      <p id="settings-provider-hint" class="settings-form-hint"></p>
+      <p id="settings-provider-error" class="confirm-error" hidden></p>
+      <div class="confirm-actions">
+        <button id="settings-provider-cancel" class="btn-small" type="button" data-i18n="ui.common.cancel">取消</button>
+        <button id="settings-provider-save" class="btn-small primary" type="button" data-i18n="ui.settings.formPreviewSave">预览并保存</button>
       </div>
     </div>
   </div>
@@ -3376,6 +3444,15 @@
   const settingsFormError = document.getElementById('settings-form-error');
   const settingsFormCancel = document.getElementById('settings-form-cancel');
   const settingsFormSave = document.getElementById('settings-form-save');
+  const settingsProviderOverlay = document.getElementById('settings-provider-overlay');
+  const settingsProviderTitle = document.getElementById('settings-provider-title');
+  const settingsProviderID = document.getElementById('settings-provider-id');
+  const settingsProviderCommand = document.getElementById('settings-provider-command');
+  const settingsProviderHint = document.getElementById('settings-provider-hint');
+  const settingsProviderError = document.getElementById('settings-provider-error');
+  const settingsProviderCancel = document.getElementById('settings-provider-cancel');
+  const settingsProviderSave = document.getElementById('settings-provider-save');
+  const settingsProviderAdd = document.getElementById('settings-provider-add');
   const settingsPreview = document.getElementById('settings-preview');
   const settingsPreviewTitle = document.getElementById('settings-preview-title');
   const settingsPreviewTarget = document.getElementById('settings-preview-target');
@@ -8145,6 +8222,18 @@
     }
   }
 
+  // providerStatusDot 画一个状态点：找得到命令是绿的，找不到是灰的（不是
+  // 红色——命令放在别处、由启动脚本注入都是合法配置，这里只是提示）。
+  function providerStatusDot(exists) {
+    const dot = document.createElement('span');
+    dot.className = 'settings-status-dot ' + (exists ? 'is-ok' : 'is-unknown');
+    dot.title = exists
+      ? t('ui.settings.providerFound', '这个命令在这台机器上找得到')
+      : t('ui.settings.providerNotFound', '这台机器上没找到这个命令；如果它由启动脚本提供，可以忽略');
+    dot.setAttribute('aria-hidden', 'true');
+    return dot;
+  }
+
   function renderSettingsProviders() {
     settingsProviders.replaceChildren();
     const providers = state.settings && Array.isArray(state.settings.providers)
@@ -8159,17 +8248,140 @@
       const label = document.createElement('div');
       label.className = 'settings-row-label mono';
       label.textContent = provider.id || t('ui.settings.noID', '（没有 id）');
+      if (provider.exists !== false) label.prepend(providerStatusDot(true));
+      else label.prepend(providerStatusDot(false));
+      if (!provider.writable) {
+        const badge = document.createElement('span');
+        badge.className = 'settings-badge';
+        badge.textContent = t('ui.settings.providerInherited', '低优先级层');
+        badge.title = t('ui.settings.providerInheritedTitle',
+          '这一条不在可写的配置文件里，只能去定义它的那份文件改');
+        label.append(' ', badge);
+      }
       const hint = document.createElement('div');
       hint.className = 'settings-row-hint';
       hint.textContent = t('ui.settings.providerCommand', 'provider.command');
       main.append(label, hint);
+
+      const right = document.createElement('div');
+      right.className = 'settings-row-value-group';
       const command = document.createElement('span');
       command.className = 'settings-row-value mono';
       command.textContent = provider.command || t('ui.settings.emptyCommand', '（空 command）');
       command.title = provider.command || '';
-      item.append(main, command);
+      right.append(command);
+
+      const actions = document.createElement('span');
+      actions.className = 'settings-row-actions';
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'btn-small';
+      edit.textContent = t('ui.settings.edit', '编辑');
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn-small danger';
+      remove.textContent = t('ui.settings.delete', '删除');
+      const locked = !provider.writable;
+      for (const button of [edit, remove]) {
+        button.disabled = locked;
+        if (locked) {
+          button.title = t('ui.settings.providerInheritedLocked',
+            '这一条定义在低优先级的配置文件里：请直接改那份文件');
+        }
+      }
+      edit.addEventListener('click', () => openProviderForm(provider.id));
+      remove.addEventListener('click', () => openProviderDelete(provider.id));
+      actions.append(edit, remove);
+      right.append(actions);
+      item.append(main, right);
       settingsProviders.appendChild(item);
     }
+  }
+
+  // providerByID 从最近一次设置快照里取一行。
+  function providerByID(id) {
+    const providers = state.settings && Array.isArray(state.settings.providers)
+      ? state.settings.providers
+      : [];
+    return providers.find((p) => p.id === id) || null;
+  }
+
+  function openProviderForm(id) {
+    const provider = id ? providerByID(id) : null;
+    if (id && !provider) {
+      showToast(t('ui.settings.providerMissing', '这个 provider 不在最新配置里，请重新打开设置'));
+      return;
+    }
+    if (provider && !provider.writable) {
+      showToast(t('ui.settings.providerInheritedLocked',
+        '这一条定义在低优先级的配置文件里：请直接改那份文件'));
+      return;
+    }
+    state.settingsProvider = { editing: Boolean(provider) };
+    settingsProviderTitle.textContent = provider
+      ? t('ui.settings.providerFormEditTitle', '编辑提供方 · {id}', { id: provider.id })
+      : t('ui.settings.providerFormAddTitle', '添加提供方');
+    settingsProviderID.value = provider ? provider.id : '';
+    settingsProviderID.disabled = Boolean(provider);
+    settingsProviderCommand.value = provider ? (provider.command || '') : '';
+    settingsProviderHint.textContent = t('ui.settings.providerFormHint',
+      '保存前会先显示「将写入 <路径>」与新旧对比，写盘前自动备份原文。');
+    settingsProviderError.hidden = true;
+    settingsProviderError.textContent = '';
+    settingsProviderOverlay.hidden = false;
+    (provider ? settingsProviderCommand : settingsProviderID).focus();
+  }
+
+  function closeProviderForm() {
+    settingsProviderOverlay.hidden = true;
+    state.settingsProvider = null;
+  }
+
+  function previewProviderSave() {
+    const form = state.settingsProvider;
+    if (!form) return;
+    const id = settingsProviderID.value.trim();
+    const command = settingsProviderCommand.value.trim();
+    const fail = (text, focus) => {
+      settingsProviderError.textContent = text;
+      settingsProviderError.hidden = false;
+      if (focus) focus.focus();
+    };
+    if (id === '') return fail(t('ui.settings.providerIDRequired', 'id 不能为空'), settingsProviderID);
+    if (command === '') return fail(t('ui.settings.providerCommandRequired', 'command 不能为空'), settingsProviderCommand);
+    const current = form.editing ? providerByID(id) : null;
+    if (form.editing && !current) {
+      return fail(t('ui.settings.providerMissing', '这个 provider 不在最新配置里，请重新打开设置'), null);
+    }
+    state.settingsPreview = {
+      kind: 'provider-save',
+      id,
+      editing: form.editing,
+      payload: { provider_id: id, command },
+      changes: [{
+        field: 'command',
+        old: current ? String(current.command || '') : t('ui.settings.diffNewValue', '（新增）'),
+        new: command,
+      }],
+      busy: false,
+    };
+    settingsProviderOverlay.hidden = true;
+    openSettingsPreview();
+  }
+
+  function openProviderDelete(id) {
+    const provider = providerByID(id);
+    if (!provider) {
+      showToast(t('ui.settings.providerMissing', '这个 provider 不在最新配置里，请重新打开设置'));
+      return;
+    }
+    if (!provider.writable) {
+      showToast(t('ui.settings.providerInheritedLocked',
+        '这一条定义在低优先级的配置文件里：请直接改那份文件'));
+      return;
+    }
+    state.settingsPreview = { kind: 'provider-delete', id, payload: {}, changes: [], busy: false };
+    openSettingsPreview();
   }
 
   // LOCAL_LEVEL_LABELS / LOCAL_LEVEL_DESCS 只做「档位 -> 文案 key」的映射。
@@ -8576,6 +8788,10 @@
       settingsAgentsEmpty.hidden = true;
       settingsTeamsEmpty.hidden = true;
     }
+    // 「添加」按钮要等设置加载完才可用：预览里的目标路径来自这份快照，
+    // 加载前点开只会看到「（未知路径）」，等到写完才发现写到了哪。
+    settingsAgentAdd.disabled = !settings;
+    settingsProviderAdd.disabled = !settings;
     renderSettingsFacts();
     renderSettingsProviders();
     renderSettingsLocalAgent(settings);
@@ -8788,32 +9004,51 @@
     openSettingsPreview();
   }
 
+  // openSettingsPreview 画确认框。它认四种 kind：
+  //   save / delete            —— agent，走 [agents.<id>]
+  //   provider-save / -delete  —— provider，走 [providers.<id>]
+  // 文案与端点都从 kind 推出来，别处不需要再各自 if 一遍。
+  function isProviderPreview(kind) {
+    return kind === 'provider-save' || kind === 'provider-delete';
+  }
+
   function openSettingsPreview() {
     const preview = state.settingsPreview;
     if (!preview) return;
     const target = (state.settings && state.settings.write_target) || t('ui.common.unknownPath', '（未知路径）');
-    const isDelete = preview.kind === 'delete';
+    const isDelete = preview.kind === 'delete' || preview.kind === 'provider-delete';
+    const isProvider = isProviderPreview(preview.kind);
+    const section = isProvider ? 'providers' : 'agents';
     settingsPreviewTitle.textContent = isDelete
-      ? t('ui.settings.previewDeleteTitle', '确认删除 agent')
-      : t('ui.settings.previewWriteTitle', '确认写入配置');
+      ? (isProvider
+        ? t('ui.settings.previewProviderDeleteTitle', '确认删除提供方')
+        : t('ui.settings.previewDeleteTitle', '确认删除 agent'))
+      : (isProvider
+        ? t('ui.settings.previewProviderWriteTitle', '确认写入提供方')
+        : t('ui.settings.previewWriteTitle', '确认写入配置'));
     settingsPreviewTarget.textContent = isDelete
       ? t('ui.settings.previewDeleteTarget',
-        '将从 {path} 删除 [agents.{id}] 这一段；文件里的其它段、注释与行尾保持原样。',
-        { path: target, id: preview.id })
+        '将从 {path} 删除 [{section}.{id}] 这一段；文件里的其它段、注释与行尾保持原样。',
+        { path: target, id: preview.id, section })
       : t('ui.settings.previewWriteTarget',
-        '将写入 {path} 的 [agents.{id}] 段；文件里的其它段、注释与行尾保持原样。',
-        { path: target, id: preview.id });
+        '将写入 {path} 的 [{section}.{id}] 段；文件里的其它段、注释与行尾保持原样。',
+        { path: target, id: preview.id, section });
     settingsPreviewBackup.textContent = t('ui.settings.previewBackup',
       '写入前会先把原文备份成 <配置文件名>.bak-<YYYYMMDD-HHmmss>，备份路径在成功提示里显示。');
 
     // A2/A3：保存前就把「立即生效 / 立即生效但会话会被重置 / 需要重启」
     // 摆在确认按钮上面。三档文案不能合并：身份字段的改动确实不用重启，
     // 但如果不说「上下文不再续接」，用户会在保存之后才发现成员失忆了。
-    const verdict = settingsPreviewVerdict(preview);
+    //
+    // provider 没有这三档：它的 command 是 BuildTurn 时从配置里取的，
+    // 已经跑着的 Runner 不会因为文件变了就换，一律按「需要重启」说。
+    const verdict = isProvider
+      ? { reloaded: false, resetSessions: false, reasons: [t('ui.settings.previewProviderRestart', 'provider 的改动要重启 serve 后生效')] }
+      : settingsPreviewVerdict(preview);
     if (verdict.reloaded) {
       settingsPreviewReload.textContent = verdict.resetSessions
         ? t('ui.settings.previewReset', '保存后立即生效；该成员的 provider 会话会被重置，之前的上下文不再续接。')
-        : t('ui.settings.previewHot', '保存后立即生效（只改了不影响身份指纹的字段，不需要重启 serve）。');
+        : t('ui.settings.previewHot', '保存后立即生效（只改了不影响身份指纹的字段，不需要重启服务）。');
     } else {
       settingsPreviewReload.textContent = t('ui.settings.previewRestart', '本次改动需要重启 serve 后生效：{reasons}', {
           reasons: verdict.reasons.join(t('ui.common.listSeparator', '、')) ||
@@ -8873,6 +9108,9 @@
     if (preview.kind === 'save' && state.settingsForm && !force) {
       settingsFormOverlay.hidden = false;
       settingsFormSave.focus();
+    } else if (preview.kind === 'provider-save' && state.settingsProvider && !force) {
+      settingsProviderOverlay.hidden = false;
+      settingsProviderSave.focus();
     }
   }
 
@@ -8884,10 +9122,12 @@
     settingsPreviewConfirm.disabled = true;
     settingsPreviewError.hidden = true;
     settingsPreviewError.textContent = '';
-    const isDelete = preview.kind === 'delete';
+    const isProvider = isProviderPreview(preview.kind);
+    const isDelete = preview.kind === 'delete' || preview.kind === 'provider-delete';
+    const sectionPath = isProvider ? 'providers' : 'agents';
     const url = isDelete
-      ? '/api/settings/agents/' + encodeURIComponent(preview.id) + '/delete'
-      : '/api/settings/agents';
+      ? '/api/settings/' + sectionPath + '/' + encodeURIComponent(preview.id) + '/delete'
+      : '/api/settings/' + sectionPath;
     try {
       const result = await postJSON(url, isDelete ? {} : preview.payload);
       // 先记下成功提示再重新读设置：renderSettings 会把 settingsResult
@@ -8940,9 +9180,11 @@
       state.settingsResult = lines.join('\n');
       state.settingsPreview = null;
       state.settingsForm = null;
+      state.settingsProvider = null;
       settingsPreview.hidden = true;
       settingsPreviewReload.hidden = true;
       settingsFormOverlay.hidden = true;
+      settingsProviderOverlay.hidden = true;
       settingsResult.className = 'settings-result '
         + (result && result.reloaded
           ? (sessionsReset > 0 ? 'is-reset' : 'is-hot')
@@ -8952,9 +9194,13 @@
       // 工作台的成员列表也要立刻反映新配置：/api/options 读的是同一份
       // 展示配置，只重画设置面板会让两处显示不一致。
       await loadOptions();
-      showToast(isDelete
-        ? t('ui.settings.deletedAgent', '已删除 agent {id}', { id: preview.id })
-        : t('ui.settings.savedAgent', '已保存 agent {id}', { id: preview.id }));
+      showToast(isProvider
+        ? (isDelete
+          ? t('ui.settings.deletedProvider', '已删除提供方 {id}', { id: preview.id })
+          : t('ui.settings.savedProvider', '已保存提供方 {id}', { id: preview.id }))
+        : (isDelete
+          ? t('ui.settings.deletedAgent', '已删除 agent {id}', { id: preview.id })
+          : t('ui.settings.savedAgent', '已保存 agent {id}', { id: preview.id })));
     } catch (err) {
       if (state.settingsPreview !== preview) return;
       preview.busy = false;
@@ -8976,6 +9222,9 @@
   });
   settingsLanguage.addEventListener('change', () => saveSettingsLanguage(settingsLanguage.value));
   settingsAgentAdd.addEventListener('click', () => openAgentForm(''));
+  settingsProviderAdd.addEventListener('click', () => openProviderForm(''));
+  settingsProviderCancel.addEventListener('click', closeProviderForm);
+  settingsProviderSave.addEventListener('click', previewProviderSave);
   settingsFormCancel.addEventListener('click', closeAgentForm);
   settingsFormSave.addEventListener('click', previewAgentSave);
   settingsPreviewCancel.addEventListener('click', () => closeSettingsPreview(false));
@@ -8995,6 +9244,11 @@
     if (!settingsFormOverlay.hidden) {
       event.preventDefault();
       closeAgentForm();
+      return;
+    }
+    if (!settingsProviderOverlay.hidden) {
+      event.preventDefault();
+      closeProviderForm();
       return;
     }
     if (!settingsOverlay.hidden) {

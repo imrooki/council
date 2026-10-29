@@ -1,7 +1,7 @@
 {
   "name": "council-desktop",
   "productName": "Council",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "Council 工作台的原生桌面外壳",
   "main": "main.js",
   "private": true,

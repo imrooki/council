@@ -87,7 +87,7 @@ var agentSectionKeys = []string{"display_name", "provider", "model", "effort", "
 //  5. 通过后备份原文；
 //  6. Rename 覆盖目标文件（同一目录内，Windows 上会替换已存在的目标）。
 func WriteAgentSection(layers []Layer, id string, agent, fallback AgentConfig) (AgentWriteResult, error) {
-	return writeAgentFile(layers, func(orig []byte) ([]byte, bool, error) {
+	return writeSettingsFile(layers, ErrAgentSectionMissing, func(orig []byte) ([]byte, bool, error) {
 		next, found, err := upsertAgentSection(orig, id, agent, fallback)
 		return next, found, err
 	})
@@ -98,7 +98,7 @@ func WriteAgentSection(layers []Layer, id string, agent, fallback AgentConfig) (
 // 的办法删掉）；新内容过不了 Validate（例如还有 team / summary 引用它）
 // 时返回 InvalidConfigError，文件不变。
 func RemoveAgentSection(layers []Layer, id string) (AgentWriteResult, error) {
-	return writeAgentFile(layers, func(orig []byte) ([]byte, bool, error) {
+	return writeSettingsFile(layers, ErrAgentSectionMissing, func(orig []byte) ([]byte, bool, error) {
 		return removeAgentSection(orig, id)
 	})
 }
@@ -123,10 +123,13 @@ func AgentDefinedIn(layers []Layer, id string) []string {
 	return out
 }
 
-// writeAgentFile 是两种写入共用的外壳：读原文 -> mutate -> 临时文件 ->
-// 合并校验 -> 备份 -> Rename。mutate 返回 found=false 表示「目标文件里
-// 没有要动的东西」（目前只有删除会这样）。
-func writeAgentFile(layers []Layer, mutate func([]byte) ([]byte, bool, error)) (AgentWriteResult, error) {
+// writeSettingsFile 是设置页所有写入共用的外壳：读原文 -> mutate -> 临时文件
+// -> 合并校验 -> 备份 -> Rename。mutate 返回 found=false 表示「目标文件里
+// 没有要动的东西」（只有删除会这样），此时原样返回 missing。
+//
+// agent、provider、语言、本机 agent 层级都走这一条路：备份与「先校验再替换」
+// 的纪律只有一份实现。
+func writeSettingsFile(layers []Layer, missing error, mutate func([]byte) ([]byte, bool, error)) (AgentWriteResult, error) {
 	if len(layers) == 0 || layers[0].Path == "" {
 		return AgentWriteResult{}, errors.New("settings: 没有可写入的配置层")
 	}
@@ -150,7 +153,7 @@ func writeAgentFile(layers []Layer, mutate func([]byte) ([]byte, bool, error)) (
 		return AgentWriteResult{}, err
 	}
 	if !found {
-		return AgentWriteResult{}, fmt.Errorf("%w: %s", ErrAgentSectionMissing, target)
+		return AgentWriteResult{}, fmt.Errorf("%w: %s", missing, target)
 	}
 	if bytes.Equal(next, orig) {
 		return AgentWriteResult{WriteTarget: target}, nil

@@ -889,11 +889,20 @@ func TestGui6IndexSettingsMarkup(t *testing.T) {
 		`id="settings-preview-target"`,
 		`id="settings-preview-diff-body"`,
 		`id="settings-result"`,
-		// 设置接口与写盘动作。
+		// 设置接口与写盘动作。provider 与 agent 共用同一段提交逻辑：
+		// 端点由 sectionPath 推出来（providers / agents），删除再接 /delete。
 		`api('/api/settings')`,
-		`'/api/settings/agents'`,
-		`'/api/settings/agents/' + encodeURIComponent(preview.id) + '/delete'`,
+		`const sectionPath = isProvider ? 'providers' : 'agents'`,
+		`'/api/settings/' + sectionPath`,
+		`'/api/settings/' + sectionPath + '/' + encodeURIComponent(preview.id) + '/delete'`,
 		`await postJSON(url, isDelete ? {} : preview.payload)`,
+		// 提供方页可以增删改（0.4.0）。
+		`id="settings-provider-add"`,
+		`id="settings-provider-overlay"`,
+		`function renderSettingsProviders()`,
+		`function openProviderForm(`,
+		`function previewProviderSave()`,
+		`function openProviderDelete(`,
 		// 预览文案：目标路径、写前备份、字段新旧对比。
 		`t('ui.settings.previewWriteTarget',`,
 		`t('ui.settings.previewBackup'`,

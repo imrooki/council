@@ -1065,8 +1065,17 @@ function createWindow() {
 
   // 页面缩放：视觉缩放本来就该锁死（桌面应用不缩网页），Ctrl+滚轮另由
   // 上面的按键规则挡；这里再锁一次 deviceScale 级别的缩放上限。
+  //
+  // Electron 45 的 setVisualZoomLevelLimits 返回 Promise：同步 try/catch
+  // 接不住它的拒绝。窗口已经被关掉（例如版本不匹配后直接退出）时调用它会
+  // 抛出「Render frame was disposed」，那就变成一个没人处理的 rejection。
   try {
-    contents.setVisualZoomLevelLimits(1, 1);
+    const zoomLock = contents.setVisualZoomLevelLimits(1, 1);
+    if (zoomLock && typeof zoomLock.catch === 'function') {
+      zoomLock.catch((error) => {
+        logEvent(`visual zoom limits failed: ${error && error.message ? error.message : String(error)}`);
+      });
+    }
   } catch (error) {
     logEvent(`visual zoom limits failed: ${error && error.message ? error.message : String(error)}`);
   }

@@ -28,7 +28,7 @@ go build -o council.exe ./cmd/council
 ./council.exe serve -rw -app
 ```
 
-第一次运行会在 `~/.council/config.toml` 生成一份带注释的配置，按里面的说明填 `[providers.*]` 与 `[agents.*]` 即可。
+第一次运行会在 `~/.council/config.toml` 生成一份带注释的配置，按里面的说明填 `[providers.*]` 与 `[agents.*]` 即可。设置页的「提供方」也能直接增删改（写入前会显示目标路径与新旧对比，并自动备份原文）。
 
 最小配置：
 

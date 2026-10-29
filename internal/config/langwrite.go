@@ -13,6 +13,7 @@ package config
 // 在 TOML 里的位置规则一模一样，复制一份只会让「插在哪一行」出现两种实现。
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -33,7 +34,7 @@ func LanguageValue(language string) string {
 // 一个只差名字的结构）。
 func WriteLanguage(layers []Layer, language string) (AgentWriteResult, error) {
 	value := LanguageValue(language)
-	return writeAgentFile(layers, func(orig []byte) ([]byte, bool, error) {
+	return writeSettingsFile(layers, errors.New("settings: 语言键不在写目标里"), func(orig []byte) ([]byte, bool, error) {
 		return setTopLevelKey(orig, "language", value)
 	})
 }

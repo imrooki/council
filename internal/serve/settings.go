@@ -32,6 +32,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -58,12 +59,23 @@ type settingsLayerJSON struct {
 	Exists  bool   `json:"exists"`
 }
 
-// settingsProviderJSON 是只读的 provider 展示。本片不写 providers：它只
-// 用来给表单里的 provider 下拉提供合法取值，以及让用户核对「这个 id 到底
-// 指向哪条命令」。
+// settingsProviderJSON 是设置页里一行 provider。
+//
+// 从 0.4.0 起 provider 可以在设置页里增删改：provider 只是一个 id 加一条
+// 可执行文件路径，没有别的字段，写进配置就是 [providers.<id>] command。
 type settingsProviderJSON struct {
 	ID      string `json:"id"`
 	Command string `json:"command"`
+	// Exists 表示 command 指向的东西在这台机器上找得到（绝对路径 stat，
+	// 否则走 PATH 查找）。它只是给界面画一个状态点，不参与任何校验：
+	// 命令放在别处、或由别的启动脚本注入，都是合法的配置。
+	Exists bool `json:"exists"`
+	// Writable 表示这一条写在可写目标里（用户自己加的）；false 表示它来自
+	// 低优先级层，设置页改不了它，只能去那份文件改。
+	Writable bool `json:"writable"`
+	// Agents 是引用这个 provider 的成员 id（排序后）。删除前要把它们列给
+	// 用户看：删掉被引用的 provider 会让配置校验失败。
+	Agents []string `json:"agents,omitempty"`
 }
 
 // settingsAgentJSON 是设置页里一行 agent。字段名用 permissions（复数），
@@ -150,6 +162,13 @@ type settingsAgentRequest struct {
 	Effort      string `json:"effort"`
 	Permissions string `json:"permissions"`
 	Mode        string `json:"mode"`
+}
+
+// settingsProviderRequest 是 POST /api/settings/providers 的请求体。
+// provider 只有一个字段：command 是启动成员进程时使用的可执行文件。
+type settingsProviderRequest struct {
+	ProviderID string `json:"provider_id"`
+	Command    string `json:"command"`
 }
 
 // settingsWriteResponse 是保存 / 删除成功的响应。
@@ -357,10 +376,15 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			providerIDs = append(providerIDs, id)
 		}
 		sort.Strings(providerIDs)
+		writableProviders := s.writableProviderIDs()
 		for _, id := range providerIDs {
+			command := cfg.Providers[id].Command
 			resp.Providers = append(resp.Providers, settingsProviderJSON{
-				ID:      id,
-				Command: cfg.Providers[id].Command,
+				ID:       id,
+				Command:  command,
+				Exists:   commandResolves(command),
+				Writable: writableProviders[id],
+				Agents:   agentsUsingProvider(cfg.Agents, id),
 			})
 		}
 	}
@@ -794,7 +818,23 @@ func (s *Server) handleSettingsAgentDelete(w http.ResponseWriter, r *http.Reques
 // handleSettingsAgentPath 处理 /api/settings/agents/{id}/delete。
 // 只认恰好两段，多一段少一段都是 404；路径本身不合法时也回 JSON。
 func (s *Server) handleSettingsAgentPath(w http.ResponseWriter, r *http.Request) {
-	rest := strings.TrimPrefix(r.URL.Path, "/api/settings/agents/")
+	s.handleSettingsDeletePath(w, r, "/api/settings/agents/", s.handleSettingsAgentDelete)
+}
+
+// handleSettingsProviderPath 处理 /api/settings/providers/{id}/delete。
+func (s *Server) handleSettingsProviderPath(w http.ResponseWriter, r *http.Request) {
+	s.handleSettingsDeletePath(w, r, "/api/settings/providers/", s.handleSettingsProviderDelete)
+}
+
+// handleSettingsDeletePath 是两条 /delete 路径共用的形状检查：恰好
+// {prefix}{id}/delete，多一段少一段都是 404。
+func (s *Server) handleSettingsDeletePath(
+	w http.ResponseWriter,
+	r *http.Request,
+	prefix string,
+	deleteFn func(http.ResponseWriter, *http.Request, string),
+) {
+	rest := strings.TrimPrefix(r.URL.Path, prefix)
 	if rest == "" || strings.HasSuffix(rest, "/") {
 		writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 		return
@@ -804,7 +844,187 @@ func (s *Server) handleSettingsAgentPath(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
 		return
 	}
-	s.handleSettingsAgentDelete(w, r, segments[0])
+	deleteFn(w, r, segments[0])
+}
+
+// handleSettingsProviderSave 新增或修改一个 provider。
+//
+// upsert 语义与 agent 一致：id 已存在就是改 command，不存在就是新增一段
+// [providers.<id>]。provider 只有一个字段，所以没有「待重启字段」那套分级，
+// 一律按「重启后生效」说清楚——cmd.Path 是 BuildTurn 时从 RunCfg 取的，
+// 已经跑着的 Runner 不会因为文件变了就换。
+func (s *Server) handleSettingsProviderSave(w http.ResponseWriter, r *http.Request) {
+	if !s.settingsWriteGate(w, r) {
+		return
+	}
+	var req settingsProviderRequest
+	if !decodeSettingsBody(w, r, &req) {
+		return
+	}
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	layers, err := s.settingsLayers()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	cur := s.currentCfg()
+	if cur == nil {
+		writeError(w, http.StatusInternalServerError, "写模式没有加载配置，无法保存 provider")
+		return
+	}
+
+	id := strings.TrimSpace(req.ProviderID)
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "provider_id 不能为空：新增要给出一个 id，修改要给出现有 id")
+		return
+	}
+	if problem := config.ProviderIDProblem(id); problem != "" {
+		writeError(w, http.StatusBadRequest, problem)
+		return
+	}
+	command := strings.TrimSpace(req.Command)
+	if command == "" {
+		writeError(w, http.StatusBadRequest, "command 不能为空：它是启动成员进程时使用的可执行文件路径")
+		return
+	}
+
+	res, err := config.WriteProviderSection(layers, id, config.ProviderConfig{Command: command})
+	if err != nil {
+		s.writeSettingsError(w, err)
+		return
+	}
+	if !res.Changed {
+		writeJSON(w, http.StatusOK, settingsWriteResponse{
+			BackupPath:  res.BackupPath,
+			WriteTarget: res.WriteTarget,
+			Note:        "配置没有变化：文件未改动，也没有生成备份。",
+		})
+		return
+	}
+	s.adoptReloadedConfig(res.Config)
+	writeJSON(w, http.StatusOK, settingsWriteResponse{
+		BackupPath:     res.BackupPath,
+		WriteTarget:    res.WriteTarget,
+		RestartReasons: []string{"provider " + id + " 的命令变了"},
+		Note: "已写入 provider " + id + "。" + settingsReloadNote +
+			"：正在跑的议会仍用启动时那份配置里的命令；已经建立过会话的成员，改完命令后建议对它敲 /session rebuild。",
+	})
+}
+
+// handleSettingsProviderDelete 从写目标里删掉 [providers.<id>]。
+func (s *Server) handleSettingsProviderDelete(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.settingsWriteGate(w, r) {
+		return
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		writeError(w, http.StatusNotFound, "没有这个接口: "+r.URL.Path)
+		return
+	}
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	layers, err := s.settingsLayers()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	cur := s.currentCfg()
+	if cur == nil {
+		writeError(w, http.StatusInternalServerError, "写模式没有加载配置，无法删除 provider")
+		return
+	}
+	if _, ok := cur.Providers[id]; !ok {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("provider 不存在: %s", id))
+		return
+	}
+	// 先看引用：删掉被 agent 引用的 provider 会让整份配置校验失败。与其让
+	// 用户看到「新配置没有通过校验」，不如直接点名是哪几个成员在用它。
+	if users := agentsUsingProvider(cur.Agents, id); len(users) > 0 {
+		writeError(w, http.StatusConflict,
+			fmt.Sprintf("不能删除 provider %s：成员 %s 还在用它。先把这些成员的 provider 改成别的，或连同成员一起删掉。",
+				id, strings.Join(users, "、")))
+		return
+	}
+
+	res, err := config.RemoveProviderSection(layers, id)
+	if errors.Is(err, config.ErrProviderSectionMissing) {
+		where := config.ProviderDefinedIn(layers, id)
+		hint := "它定义在低优先级的配置层里，本接口只写第一层"
+		if len(where) > 0 {
+			hint = "它定义在 " + strings.Join(where, "、") + "，本接口只写 " + layers[0].Path
+		}
+		writeError(w, http.StatusConflict,
+			fmt.Sprintf("不能删除 %s：%s。请直接改那份文件，删掉对应的 [providers.%s] 段", id, hint, id))
+		return
+	}
+	if err != nil {
+		s.writeSettingsError(w, err)
+		return
+	}
+	if !res.Changed {
+		writeJSON(w, http.StatusOK, settingsWriteResponse{
+			BackupPath:  res.BackupPath,
+			WriteTarget: res.WriteTarget,
+			Note:        "配置没有变化：文件未改动，也没有生成备份。",
+		})
+		return
+	}
+	s.adoptReloadedConfig(res.Config)
+	writeJSON(w, http.StatusOK, settingsWriteResponse{
+		BackupPath:     res.BackupPath,
+		WriteTarget:    res.WriteTarget,
+		RestartReasons: []string{"删除了 provider " + id},
+		Note:           "已删除 provider " + id + "。" + settingsReloadNote,
+	})
+}
+
+// writableProviderIDs 返回写目标里定义过的 provider id 集合。设置页用它
+// 区分「用户加的」与「继承自低优先级层的」：后者不该在这里删。
+func (s *Server) writableProviderIDs() map[string]bool {
+	out := map[string]bool{}
+	layers, err := s.settingsLayers()
+	if err != nil || len(layers) == 0 || layers[0].Path == "" {
+		return out
+	}
+	cfg, err := config.Load(layers[0].Path)
+	if err != nil || cfg == nil {
+		return out
+	}
+	for id := range cfg.Providers {
+		out[id] = true
+	}
+	return out
+}
+
+// agentsUsingProvider 返回引用了 provider 的成员 id（排序后）。
+func agentsUsingProvider(agents map[string]config.AgentConfig, providerID string) []string {
+	var out []string
+	for id, agent := range agents {
+		if agent.Provider == providerID {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// commandResolves 判断 command 指向的东西在这台机器上找不找得到。
+//
+// 只用于界面上的状态点：绝对/相对路径就 stat，裸名字走 PATH 查找
+// （exec.LookPath 在 Windows 上会按 PATHEXT 补 .exe/.cmd）。查不到不算错误，
+// 配置本身合法——命令可能由别的启动脚本提供。
+func commandResolves(command string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return false
+	}
+	if strings.ContainsAny(command, `\/:`) {
+		info, err := os.Stat(command)
+		return err == nil && !info.IsDir()
+	}
+	_, err := exec.LookPath(command)
+	return err == nil
 }
 
 // settingsWriteGate 是设置页两个写端点共用的前四道门，顺序与 rename /
