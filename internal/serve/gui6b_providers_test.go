@@ -221,6 +221,92 @@ func TestGui6bDeleteProviderRemovesSection(t *testing.T) {
 	}
 }
 
+func TestGui6bProviderArgsAndEnv(t *testing.T) {
+	env := newGui6Env(t)
+	code, _, raw := providerSave(t, env, map[string]any{
+		"provider_id": "wrapped",
+		"command":     "wrapped-cli",
+		"args":        []string{"--mode", "fast", "  "},
+		"env":         []string{"WRAPPED_TOKEN=abc", "  ", "WRAPPED_HOME=C:\\tmp\\w"},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("保存带参数的 provider = %d，期望 200；body=%s", code, raw)
+	}
+	after := gui6Read(t, env.projectConfig)
+	for _, want := range []string{
+		"[providers.wrapped]",
+		`command = 'wrapped-cli'`,
+		`args = ['--mode', 'fast']`,
+		`env = ['WRAPPED_TOKEN=abc', 'WRAPPED_HOME=C:\tmp\w']`,
+	} {
+		if !strings.Contains(after, want) {
+			t.Errorf("配置里缺少 %q:\n%s", want, after)
+		}
+	}
+	// 空行被丢掉，不该在文件里留一个空参数。
+	if strings.Contains(after, "'  '") {
+		t.Errorf("空白参数被写进了配置:\n%s", after)
+	}
+
+	// 读回来：三个字段都在。
+	var got *settingsProviderJSON
+	for i := range gui6Settings(t, env).Providers {
+		p := gui6Settings(t, env).Providers[i]
+		if p.ID == "wrapped" {
+			got = &p
+		}
+	}
+	if got == nil {
+		t.Fatalf("设置响应里没有 wrapped")
+	}
+	if len(got.Args) != 2 || got.Args[0] != "--mode" {
+		t.Errorf("args = %v", got.Args)
+	}
+	if len(got.Env) != 2 || got.Env[0] != "WRAPPED_TOKEN=abc" {
+		t.Errorf("env = %v", got.Env)
+	}
+
+	// 清空 args / env：那两行要从文件里消失，而不是留下 args = []。
+	code, _, raw = providerSave(t, env, map[string]any{
+		"provider_id": "wrapped",
+		"command":     "wrapped-cli",
+		"args":        []string{},
+		"env":         []string{},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("清空参数 = %d；body=%s", code, raw)
+	}
+	cleared := gui6Read(t, env.projectConfig)
+	if strings.Contains(cleared, "args =") || strings.Contains(cleared, "env =") {
+		t.Errorf("清空之后 args/env 行还留着:\n%s", cleared)
+	}
+	if !strings.Contains(cleared, "command = 'wrapped-cli'") {
+		t.Errorf("清空参数时把 command 也弄丢了:\n%s", cleared)
+	}
+}
+
+func TestGui6bProviderEnvValidation(t *testing.T) {
+	env := newGui6Env(t)
+	before := gui6Read(t, env.projectConfig)
+	for _, entry := range []string{"NOEQUALS", "1ABC=x", "A B=x", "=x"} {
+		code, _, raw := providerSave(t, env, map[string]any{
+			"provider_id": "bad-env",
+			"command":     "x",
+			"env":         []string{entry},
+		})
+		if code != http.StatusBadRequest {
+			t.Errorf("env %q = %d，期望 400；body=%s", entry, code, raw)
+			continue
+		}
+		if !strings.Contains(raw, "环境变量") {
+			t.Errorf("env %q 的错误消息不友好: %s", entry, raw)
+		}
+	}
+	if got := gui6Read(t, env.projectConfig); got != before {
+		t.Errorf("校验失败却改了文件:\n%s", got)
+	}
+}
+
 func TestGui6bProviderValidation(t *testing.T) {
 	env := newGui6Env(t)
 	cases := []struct {

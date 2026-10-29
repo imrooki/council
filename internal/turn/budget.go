@@ -114,7 +114,7 @@ func (r *Runner) budgetOne(ctx context.Context, convID, agentID string, snap Rou
 		return row, nil
 	}
 
-	fp, fpErr := identityFPAt(p, agentID, ac, r.dirFor(convID, agentID, tier), r.roleDirFor(agentID), tier, snap.Rules)
+	fp, fpErr := identityFPAt(p, agentID, ac, r.dirFor(convID, agentID, tier), r.roleDirFor(agentID), tier, snap.Rules, providerExtras(r.cfg, ac.Provider)...)
 	if fpErr != nil || fp == "" {
 		// 指纹算不出就不要拿空串去查。identity_fp 的历史行全是空串，
 		// 空串会命中片 2a 之前的空窗，那是在用另一份前缀的数字冒充。
@@ -367,6 +367,9 @@ func argvHeadroom(
 	}
 	if cmd.Path == "" && cfg != nil && cfg.Providers != nil {
 		cmd.Path = cfg.Providers[ac.Provider].Command
+	}
+	if pc, ok := cfg.Providers[ac.Provider]; ok {
+		applyProviderInvocation(&cmd, pc)
 	}
 	path := cmd.Path
 	if resolved, lookErr := exec.LookPath(path); lookErr == nil {

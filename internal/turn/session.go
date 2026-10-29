@@ -188,8 +188,9 @@ func identityFPFor(
 	convID string,
 	tier provider.PermissionTier,
 	rules RulesBlocks,
+	extras ...string,
 ) (string, error) {
-	return identityFPAt(p, agentID, ac, agentWorkDir(baseWorkDir, convID, agentID, tier), "", tier, rules)
+	return identityFPAt(p, agentID, ac, agentWorkDir(baseWorkDir, convID, agentID, tier), "", tier, rules, extras...)
 }
 
 // identityFPAt 是 identityFPFor 的「目录已经解析好」版本。固定工作目录
@@ -207,6 +208,7 @@ func identityFPAt(
 	dir, roleDir string,
 	tier provider.PermissionTier,
 	rules RulesBlocks,
+	extras ...string,
 ) (string, error) {
 	caps := p.Capabilities()
 	emitted := effortFlagEmitted(caps.Effort, ac.Effort)
@@ -228,7 +230,7 @@ func identityFPAt(
 		// 每条带 prompt 的会话第一轮就会被判成身份漂移。
 		SystemPrompt: ac.Prompt,
 	}
-	prefixDigest, err := PrefixArgsDigest(p, probeReq)
+	prefixDigest, err := prefixArgsDigestWith(p, probeReq, extras)
 	if err != nil {
 		return "", fmt.Errorf("prefix args digest for %s: %w", agentID, err)
 	}
@@ -265,13 +267,59 @@ func identityFPAt(
 // **失败必须返回 error，不许吞**。BuildTurn 会因为权限档不放行、将来
 // 新加的校验而失败，吞掉错误就是静默降级。
 func PrefixArgsDigest(p provider.Provider, req provider.TurnRequest) (string, error) {
+	return prefixArgsDigestWith(p, req, nil)
+}
+
+// prefixArgsDigestWith 是 PrefixArgsDigest 的「带上 provider 级额外参数」版本。
+//
+// extras 来自 [providers.<id>] 的 args / env：它们不在适配器生成的 argv 里，
+// 但确实会随下一次起进程发出去（args 追加在 argv 末尾，env 覆盖进环境）。
+// 所以「同一条会话里这些值变了」与「model 变了」是同一类事实——旧会话的
+// 前缀是按旧参数建的，不该继续用。extras 为空时输出与 PrefixArgsDigest
+// 逐字节相同（既有 golden 摘要不受影响）。
+//
+// 段标记（\x00args / \x00env）是为了让「参数 A 恰好等于环境变量 B」两条
+// 不同配置得出不同摘要；packFingerprint 自带长度前缀，段内不会误切。
+func prefixArgsDigestWith(p provider.Provider, req provider.TurnRequest, extras []string) (string, error) {
 	args, err := normalizedPrefixArgs(p, req)
 	if err != nil {
 		return "", err
 	}
+	args = append(args, extras...)
 	encoded := packFingerprint(args...)
 	sum := sha256.Sum256([]byte(encoded))
 	return strconv.Itoa(len(args)) + "/" + hex.EncodeToString(sum[:6]), nil
+}
+
+// providerExtras 是 ProviderInvocationExtras 的空安全包装：配置里没有这个
+// provider（理论上 Validate 会拦住，运行期仍可能面对半份配置）时返回 nil。
+func providerExtras(cfg *config.Config, providerID string) []string {
+	if cfg == nil {
+		return nil
+	}
+	pc, ok := cfg.Providers[providerID]
+	if !ok {
+		return nil
+	}
+	return ProviderInvocationExtras(pc)
+}
+// ProviderInvocationExtras 把 provider 的 args / env 摊成指纹里的一段，
+// 顺序固定（先 args 后 env），带段标记。空配置返回 nil——调用方据此保持
+// 与旧指纹逐字节相同。
+func ProviderInvocationExtras(pc config.ProviderConfig) []string {
+	if len(pc.Args) == 0 && len(pc.Env) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(pc.Args)+len(pc.Env)+2)
+	if len(pc.Args) > 0 {
+		out = append(out, "\x00args")
+		out = append(out, pc.Args...)
+	}
+	if len(pc.Env) > 0 {
+		out = append(out, "\x00env")
+		out = append(out, pc.Env...)
+	}
+	return out
 }
 
 // normalizedPrefixArgs 组一次探针命令行，归一化 ProviderSession / Prompt /

@@ -54,8 +54,39 @@ func (c *Config) Validate() error {
 		if !idRegexp.MatchString(id) {
 			add("providers."+id, fmt.Sprintf("id %q does not match %s", id, idPattern))
 		}
-		if c.Providers[id].Command == "" {
+		pc := c.Providers[id]
+		if pc.Command == "" {
 			add("providers."+id+".command", "must not be empty")
+		}
+		if len(pc.Args) > MaxProviderArgs {
+			add("providers."+id+".args", fmt.Sprintf("has %d entries, exceeds the %d-entry limit", len(pc.Args), MaxProviderArgs))
+		}
+		for i, arg := range pc.Args {
+			if arg == "" {
+				add(fmt.Sprintf("providers.%s.args[%d]", id, i), "must not be empty")
+				continue
+			}
+			if strings.ContainsRune(arg, 0) {
+				add(fmt.Sprintf("providers.%s.args[%d]", id, i), "must not contain NUL")
+				continue
+			}
+			if len(arg) > MaxProviderEntryBytes {
+				add(fmt.Sprintf("providers.%s.args[%d]", id, i), fmt.Sprintf(
+					"is %d bytes, exceeds the %d-byte limit", len(arg), MaxProviderEntryBytes))
+			}
+		}
+		if len(pc.Env) > MaxProviderEnv {
+			add("providers."+id+".env", fmt.Sprintf("has %d entries, exceeds the %d-entry limit", len(pc.Env), MaxProviderEnv))
+		}
+		for i, entry := range pc.Env {
+			path := fmt.Sprintf("providers.%s.env[%d]", id, i)
+			if problem := EnvEntryProblem(entry); problem != "" {
+				add(path, problem)
+				continue
+			}
+			if len(entry) > MaxProviderEntryBytes {
+				add(path, fmt.Sprintf("is %d bytes, exceeds the %d-byte limit", len(entry), MaxProviderEntryBytes))
+			}
 		}
 	}
 

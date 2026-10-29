@@ -496,7 +496,7 @@ func (r *Runner) askUpToWith(ctx context.Context, convID, agentID string, upTo i
 	// 共用同一份计算，理由见它自己的注释：两处但凡有一处漏改，审计就会
 	// 报出一堆不存在的漂移，或者反过来漏报真实的漂移。
 	identity := renderIdentity(agentID, ac, rules)
-	fp, fpErr := identityFPAt(p, agentID, ac, dir, r.roleDirFor(agentID), tier, rules)
+	fp, fpErr := identityFPAt(p, agentID, ac, dir, r.roleDirFor(agentID), tier, rules, providerExtras(r.cfg, ac.Provider)...)
 	if fpErr != nil {
 		// 探针组不出命令行（权限档不放行、agy 的规则文件把探针正文顶过
 		// MaxPromptBytes……）：与其它起进程之前的拒绝走同一条路，不吞。
@@ -684,6 +684,10 @@ func (r *Runner) askUpToWith(ctx context.Context, convID, agentID string, upTo i
 		// 适配器不一定认识配置里的可执行文件路径。空 Path 起进程会变成
 		// 「找不到命令」，错误落在 spawn 而不是配置。
 		cmd.Path = cfg.Providers[ac.Provider].Command
+	}
+	// provider 级的 args / env 也落到这一轮上：与指纹里那一段是同一个事实。
+	if pc, ok := cfg.Providers[ac.Provider]; ok {
+		applyProviderInvocation(&cmd, pc)
 	}
 	if cmd.Dir == "" {
 		// 回填的是这个 agent 自己的工作目录，不是 provider 名拼出来的目录。

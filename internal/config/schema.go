@@ -137,9 +137,29 @@ type SummaryConfig struct {
 const DefaultSummaryRole = "你是这场讨论的总结人，不参与讨论。每次被叫到时，读用户的问题和各成员的发言，做一致性判断：他们在哪些点上一致，在哪些点上有分歧、各自的依据是什么，有没有人答非所问或明显出错。你的话只给用户看，其余成员看不到；不要替任何一方继续论证，不要提出新的方案。用中文回答：先用一句话给出总的判断，再分条列出一致之处与分歧之处，写得简短。"
 
 // ProviderConfig 描述一个外部 provider 的启动方式。
+//
+// 三个字段拼起来就是一次完整的启动：command 是可执行文件，args 是追加在
+// 适配器自己生成的参数之后的额外参数，env 是要覆盖进子进程环境的条目
+// （"K=V" 形式，覆盖同名变量；没写的变量照旧继承）。
+//
+// 为什么 env 是 []string 而不是 map：设置页是一行一条的编辑方式，写进
+// TOML 就是 env = ["K=V"]，与 args 同一种形状，解析、校验、逐行回写都只有
+// 一套代码。map 形式要额外处理 [providers.x.env] 子表的增删，收益为零。
 type ProviderConfig struct {
-	Command string `toml:"command"`
+	Command string   `toml:"command"`
+	Args    []string `toml:"args"`
+	Env     []string `toml:"env"`
 }
+
+// MaxProviderArgs / MaxProviderEnv / MaxProviderEntryBytes 是不让一行配置
+// 变成一整段脚本的上限。它们不是实测临界点，是「设置页那一格里塞不下」的
+// 工程约束：超限直接报错，不截断（截断会让实际启动参数与屏幕上看到的
+// 不一样，且没有任何一层会报出来）。
+const (
+	MaxProviderArgs       = 32
+	MaxProviderEnv        = 32
+	MaxProviderEntryBytes = 1024
+)
 
 // MaxAgentPromptBytes 是 AgentConfig.Prompt 的硬上限（8 KiB）。
 //

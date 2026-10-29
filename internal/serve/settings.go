@@ -66,6 +66,10 @@ type settingsLayerJSON struct {
 type settingsProviderJSON struct {
 	ID      string `json:"id"`
 	Command string `json:"command"`
+	// Args / Env 是 provider 级的额外参数与环境变量覆盖：args 追加在适配器
+	// 生成的 argv 之后，env 覆盖进子进程环境。两者都进身份指纹。
+	Args []string `json:"args,omitempty"`
+	Env  []string `json:"env,omitempty"`
 	// Exists 表示 command 指向的东西在这台机器上找得到（绝对路径 stat，
 	// 否则走 PATH 查找）。它只是给界面画一个状态点，不参与任何校验：
 	// 命令放在别处、或由别的启动脚本注入，都是合法的配置。
@@ -167,8 +171,10 @@ type settingsAgentRequest struct {
 // settingsProviderRequest 是 POST /api/settings/providers 的请求体。
 // provider 只有一个字段：command 是启动成员进程时使用的可执行文件。
 type settingsProviderRequest struct {
-	ProviderID string `json:"provider_id"`
-	Command    string `json:"command"`
+	ProviderID string   `json:"provider_id"`
+	Command    string   `json:"command"`
+	Args       []string `json:"args"`
+	Env        []string `json:"env"`
 }
 
 // settingsWriteResponse 是保存 / 删除成功的响应。
@@ -378,11 +384,13 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		sort.Strings(providerIDs)
 		writableProviders := s.writableProviderIDs()
 		for _, id := range providerIDs {
-			command := cfg.Providers[id].Command
+			provider := cfg.Providers[id]
 			resp.Providers = append(resp.Providers, settingsProviderJSON{
 				ID:       id,
-				Command:  command,
-				Exists:   commandResolves(command),
+				Command:  provider.Command,
+				Args:     provider.Args,
+				Env:      provider.Env,
+				Exists:   commandResolves(provider.Command),
 				Writable: writableProviders[id],
 				Agents:   agentsUsingProvider(cfg.Agents, id),
 			})
@@ -889,7 +897,22 @@ func (s *Server) handleSettingsProviderSave(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	res, err := config.WriteProviderSection(layers, id, config.ProviderConfig{Command: command})
+	args, argErr := cleanProviderArgs(req.Args)
+	if argErr != "" {
+		writeError(w, http.StatusBadRequest, argErr)
+		return
+	}
+	env, envErr := cleanProviderEnv(req.Env)
+	if envErr != "" {
+		writeError(w, http.StatusBadRequest, envErr)
+		return
+	}
+
+	res, err := config.WriteProviderSection(layers, id, config.ProviderConfig{
+		Command: command,
+		Args:    args,
+		Env:     env,
+	})
 	if err != nil {
 		s.writeSettingsError(w, err)
 		return
@@ -910,6 +933,52 @@ func (s *Server) handleSettingsProviderSave(w http.ResponseWriter, r *http.Reque
 		Note: "已写入 provider " + id + "。" + settingsReloadNote +
 			"：正在跑的议会仍用启动时那份配置里的命令；已经建立过会话的成员，改完命令后建议对它敲 /session rebuild。",
 	})
+}
+
+// cleanProviderArgs 去掉空行（界面上多敲一行回车不该变成空参数），并对
+// 数量与长度做与人话一致的检查。真正的最终判定在 config.Validate，这里
+// 只是把最常见的输入错误换成本地化的说明。
+func cleanProviderArgs(raw []string) ([]string, string) {
+	out := make([]string, 0, len(raw))
+	for _, arg := range raw {
+		arg = strings.TrimRight(arg, "\r")
+		if strings.TrimSpace(arg) == "" {
+			continue
+		}
+		out = append(out, arg)
+	}
+	if len(out) > config.MaxProviderArgs {
+		return nil, fmt.Sprintf("参数最多 %d 条，现在有 %d 条", config.MaxProviderArgs, len(out))
+	}
+	for _, arg := range out {
+		if len(arg) > config.MaxProviderEntryBytes {
+			return nil, fmt.Sprintf("单个参数超过 %d 字节", config.MaxProviderEntryBytes)
+		}
+	}
+	return out, ""
+}
+
+// cleanProviderEnv 与 cleanProviderArgs 同一套：去空行，再按 NAME=VALUE 校验。
+func cleanProviderEnv(raw []string) ([]string, string) {
+	out := make([]string, 0, len(raw))
+	for _, entry := range raw {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if problem := config.EnvEntryProblem(entry); problem != "" {
+			return nil, "环境变量「" + entry + "」不合法：" + problem +
+				"：要写成 NAME=VALUE，NAME 只能用字母、数字与下划线，且不以数字开头"
+		}
+		if len(entry) > config.MaxProviderEntryBytes {
+			return nil, fmt.Sprintf("环境变量条目超过 %d 字节", config.MaxProviderEntryBytes)
+		}
+		out = append(out, entry)
+	}
+	if len(out) > config.MaxProviderEnv {
+		return nil, fmt.Sprintf("环境变量最多 %d 条，现在有 %d 条", config.MaxProviderEnv, len(out))
+	}
+	return out, ""
 }
 
 // handleSettingsProviderDelete 从写目标里删掉 [providers.<id>]。

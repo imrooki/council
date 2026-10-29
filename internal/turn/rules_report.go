@@ -184,6 +184,9 @@ func (r *Runner) probeHeadroom(p provider.Provider, agentID string, cfg *config.
 		cmd.Path = cfg.Providers[ac.Provider].Command
 	}
 
+	if pc, ok := cfg.Providers[ac.Provider]; ok {
+		applyProviderInvocation(&cmd, pc)
+	}
 	path := cmd.Path
 	if resolved, lookErr := exec.LookPath(path); lookErr == nil {
 		path = resolved

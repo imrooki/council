@@ -16,7 +16,7 @@ var ErrProviderSectionMissing = errors.New("settings: provider section not found
 
 // providerSectionKeys 是 provider 段里设置页会改的键。顺序固定，理由同
 // agentSectionKeys：同一份配置改两次不该出现不同字节。
-var providerSectionKeys = []string{"command"}
+var providerSectionKeys = []string{"command", "args", "env"}
 
 // WriteProviderSection 把 [providers.<id>] 写进 layers[0]：已有这一段就
 // 原地改 command，没有就在文件末尾追加一段。
@@ -57,6 +57,34 @@ func ProviderDefinedIn(layers []Layer, id string) []string {
 		}
 	}
 	return out
+}
+
+// EnvEntryProblem 返回一条 env 条目的问题（空串表示合法）。
+//
+// 形状固定是 NAME=VALUE：NAME 只能是字母、数字、下划线，且不以数字开头。
+// 这条规则不是为了好看——Windows 的 CreateProcess 拿到一条没有 '=' 的条目
+// 会把它当成「继承这个变量名」，与用户想表达的「设一个值」完全不同，而
+// 这种差异在进程里看不出来，只会体现成「设了却没生效」。
+func EnvEntryProblem(entry string) string {
+	if entry == "" {
+		return "must not be empty"
+	}
+	eq := strings.IndexByte(entry, '=')
+	if eq <= 0 {
+		return "must look like NAME=VALUE"
+	}
+	name := entry[:eq]
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		ok := c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (i > 0 && c >= '0' && c <= '9')
+		if !ok {
+			return "variable name may only contain letters, digits and _, and must not start with a digit"
+		}
+	}
+	if strings.ContainsRune(entry, 0) {
+		return "must not contain NUL"
+	}
+	return ""
 }
 
 // ProviderIDProblem 返回 provider id 不合规的原因（空串表示没问题）。
@@ -101,7 +129,6 @@ func findProviderSection(lines []fileLine, id string) (start, end int, ok bool) 
 func upsertProviderSection(content []byte, id string, provider ProviderConfig) ([]byte, bool, error) {
 	lines := splitFileLines(string(content))
 	eol := dominantEOL(lines)
-	want := "command = " + tomlCommandString(provider.Command)
 
 	start, end, ok := findProviderSection(lines, id)
 	if !ok {
@@ -110,28 +137,55 @@ func upsertProviderSection(content []byte, id string, provider ProviderConfig) (
 	}
 
 	body := make([]fileLine, 0, end-start+2)
-	handled := false
+	handled := map[string]bool{}
 	for i := start + 1; i < end; i++ {
-		if !handled && isKeyLine(lines[i].text, "command") {
-			stmtEnd := statementEnd(lines, i, end)
-			handled = true
-			replacement := fileLine{text: want, eol: lines[i].eol}
-			if replacement.eol == "" {
-				replacement.eol = eol
+		key := ""
+		for _, candidate := range providerSectionKeys {
+			if isKeyLine(lines[i].text, candidate) {
+				key = candidate
+				break
 			}
-			// 行尾注释是用户写的说明，换值时接回去（与 agent 段同一处理）。
-			if stmtEnd == i {
-				if comment := trailingComment(lines[i].text); comment != "" {
-					replacement.text = want + "  " + comment
-				}
-			}
-			body = append(body, replacement)
+		}
+		if key == "" {
+			body = append(body, lines[i])
+			continue
+		}
+		stmtEnd := statementEnd(lines, i, end)
+		handled[key] = true
+		value, keep := providerKeyValue(provider, key)
+		if !keep {
+			// 空数组不写进文件：args = [] 与「没有这一行」等价，留在文件里
+			// 只会让用户以为设了什么。
 			i = stmtEnd
 			continue
 		}
-		body = append(body, lines[i])
+		want := key + " = " + value
+		replacement := fileLine{text: want, eol: lines[i].eol}
+		if replacement.eol == "" {
+			replacement.eol = eol
+		}
+		// 行尾注释是用户写的说明，换值时接回去（与 agent 段同一处理）。
+		if stmtEnd == i {
+			if comment := trailingComment(lines[i].text); comment != "" {
+				replacement.text = want + "  " + comment
+			}
+		}
+		body = append(body, replacement)
+		i = stmtEnd
 	}
-	if !handled {
+
+	var missing []fileLine
+	for _, key := range providerSectionKeys {
+		if handled[key] {
+			continue
+		}
+		value, keep := providerKeyValue(provider, key)
+		if !keep {
+			continue
+		}
+		missing = append(missing, fileLine{text: key + " = " + value, eol: eol})
+	}
+	if len(missing) > 0 {
 		at := len(body)
 		for at > 0 && isBlankLine(body[at-1]) {
 			at--
@@ -139,9 +193,9 @@ func upsertProviderSection(content []byte, id string, provider ProviderConfig) (
 		if at > 0 && body[at-1].eol == "" {
 			body[at-1].eol = eol
 		}
-		merged := make([]fileLine, 0, len(body)+1)
+		merged := make([]fileLine, 0, len(body)+len(missing))
 		merged = append(merged, body[:at]...)
-		merged = append(merged, fileLine{text: want, eol: eol})
+		merged = append(merged, missing...)
 		merged = append(merged, body[at:]...)
 		body = merged
 	}
@@ -154,6 +208,36 @@ func upsertProviderSection(content []byte, id string, provider ProviderConfig) (
 	out = append(out, body...)
 	out = append(out, lines[end:]...)
 	return []byte(joinFileLines(out)), true, nil
+}
+
+// providerKeyValue 把 ProviderConfig 里的一个键渲染成 TOML 值文本。
+// keep=false 表示这个键不该出现在文件里（空 args / 空 env）。
+func providerKeyValue(provider ProviderConfig, key string) (value string, keep bool) {
+	switch key {
+	case "command":
+		return tomlCommandString(provider.Command), true
+	case "args":
+		if len(provider.Args) == 0 {
+			return "", false
+		}
+		return tomlStringArray(provider.Args), true
+	case "env":
+		if len(provider.Env) == 0 {
+			return "", false
+		}
+		return tomlStringArray(provider.Env), true
+	}
+	return "", false
+}
+
+// tomlStringArray 渲染 ["a", "b"]。元素用 tomlCommandString 的同一套规则：
+// 能单引号就单引号（Windows 路径里的反斜杠不用转义），否则退回基本字符串。
+func tomlStringArray(values []string) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, tomlCommandString(value))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 // removeProviderSection 删掉整段。缩进写在段头之前的注释行不归这一段管，
@@ -180,11 +264,11 @@ func renderProviderSection(id string, provider ProviderConfig, eol string) strin
 	var b strings.Builder
 	b.WriteString("[" + table + "]" + eol)
 	for _, key := range providerSectionKeys {
-		value := provider.Command
-		if key == "command" {
-			value = provider.Command
+		value, keep := providerKeyValue(provider, key)
+		if !keep {
+			continue
 		}
-		b.WriteString(key + " = " + tomlCommandString(value) + eol)
+		b.WriteString(key + " = " + value + eol)
 	}
 	return b.String()
 }

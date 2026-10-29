@@ -1906,6 +1906,22 @@
   }
   .settings-status-dot.is-ok { background: var(--ok); }
   .settings-status-dot.is-unknown { background: transparent; box-shadow: inset 0 0 0 1px var(--muted-2); }
+  /* provider 表单里的多行输入（args / env）：跨两列，等宽字体，方便按行核对。 */
+  .settings-field.settings-field-wide { grid-column: 1 / -1; }
+  .settings-field textarea {
+    width: 100%;
+    min-height: 62px;
+    padding: 6px 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 18px;
+    resize: vertical;
+  }
+  .settings-field textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .settings-badge {
     display: inline-block;
     padding: 0 6px;
@@ -2880,10 +2896,24 @@
         </div>
         <div class="settings-field">
           <label for="settings-provider-command">command
-            <span class="settings-field-hint" data-i18n="ui.settings.providerFormCommandHint">可执行文件的完整路径，或 PATH 里的命令名</span>
+            <span class="settings-field-hint" data-i18n="ui.settings.providerFormCommandHint">完整路径，或 PATH 里的命令名</span>
           </label>
           <input id="settings-provider-command" type="text" autocomplete="off" spellcheck="false"
                  placeholder="C:\Tools\deepseek\deepseek.cmd" data-i18n-placeholder="ui.settings.providerFormCommandPlaceholder">
+        </div>
+        <div class="settings-field settings-field-wide">
+          <label for="settings-provider-args">args
+            <span class="settings-field-hint" data-i18n="ui.settings.providerFormArgsHint">一行一个，追加在命令之后</span>
+          </label>
+          <textarea id="settings-provider-args" rows="3" spellcheck="false"
+                    placeholder="--profile&#10;work" data-i18n-placeholder="ui.settings.providerFormArgsPlaceholder"></textarea>
+        </div>
+        <div class="settings-field settings-field-wide">
+          <label for="settings-provider-env">env
+            <span class="settings-field-hint" data-i18n="ui.settings.providerFormEnvHint">一行一个 NAME=VALUE</span>
+          </label>
+          <textarea id="settings-provider-env" rows="3" spellcheck="false"
+                    placeholder="DEEPSEEK_API_KEY=...&#10;HTTPS_PROXY=http://127.0.0.1:7890" data-i18n-placeholder="ui.settings.providerFormEnvPlaceholder"></textarea>
         </div>
       </div>
       <p id="settings-provider-hint" class="settings-form-hint"></p>
@@ -3448,6 +3478,8 @@
   const settingsProviderTitle = document.getElementById('settings-provider-title');
   const settingsProviderID = document.getElementById('settings-provider-id');
   const settingsProviderCommand = document.getElementById('settings-provider-command');
+  const settingsProviderArgs = document.getElementById('settings-provider-args');
+  const settingsProviderEnv = document.getElementById('settings-provider-env');
   const settingsProviderHint = document.getElementById('settings-provider-hint');
   const settingsProviderError = document.getElementById('settings-provider-error');
   const settingsProviderCancel = document.getElementById('settings-provider-cancel');
@@ -8324,6 +8356,8 @@
     settingsProviderID.value = provider ? provider.id : '';
     settingsProviderID.disabled = Boolean(provider);
     settingsProviderCommand.value = provider ? (provider.command || '') : '';
+    settingsProviderArgs.value = provider ? (provider.args || []).join('\n') : '';
+    settingsProviderEnv.value = provider ? (provider.env || []).join('\n') : '';
     settingsProviderHint.textContent = t('ui.settings.providerFormHint',
       '保存前会先显示「将写入 <路径>」与新旧对比，写盘前自动备份原文。');
     settingsProviderError.hidden = true;
@@ -8342,6 +8376,9 @@
     if (!form) return;
     const id = settingsProviderID.value.trim();
     const command = settingsProviderCommand.value.trim();
+    const splitLines = (raw) => raw.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '');
+    const args = splitLines(settingsProviderArgs.value);
+    const env = splitLines(settingsProviderEnv.value);
     const fail = (text, focus) => {
       settingsProviderError.textContent = text;
       settingsProviderError.hidden = false;
@@ -8357,12 +8394,24 @@
       kind: 'provider-save',
       id,
       editing: form.editing,
-      payload: { provider_id: id, command },
-      changes: [{
-        field: 'command',
-        old: current ? String(current.command || '') : t('ui.settings.diffNewValue', '（新增）'),
-        new: command,
-      }],
+      payload: { provider_id: id, command, args, env },
+      changes: [
+        {
+          field: 'command',
+          old: current ? String(current.command || '') : t('ui.settings.diffNewValue', '（新增）'),
+          new: command,
+        },
+        {
+          field: 'args',
+          old: current ? (current.args || []).join(' ') : t('ui.settings.diffNewValue', '（新增）'),
+          new: args.join(' '),
+        },
+        {
+          field: 'env',
+          old: current ? (current.env || []).join(' ') : t('ui.settings.diffNewValue', '（新增）'),
+          new: env.join(' '),
+        },
+      ],
       busy: false,
     };
     settingsProviderOverlay.hidden = true;

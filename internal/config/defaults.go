@@ -78,6 +78,10 @@ func DefaultTOML() string {
 #
 # [providers.<id>]: council 去哪找这家工具。id 是 claude、grok、agy、codex 之一，
 # command 写可执行文件的绝对路径，或 PATH 上的名字。
+# 还可以加两样（都可以不写）：
+#   args = ['--profile', 'work']     启动时追加在命令之后的参数
+#   env  = ['HTTPS_PROXY=http://127.0.0.1:7890']   覆盖同名环境变量，其余照旧继承
+# 这两样会进成员的身份指纹：改了它们，已有会话需要 /session rebuild 才续得上。
 #
 # 成员不用手写：在 council 里敲 /new <标题> 开一个会话，敲 /add 看识别出的模型，
 # 再用 /add +编号 挑成员，council 会把那一段 [agents.<id>] 追加到本文件末尾。

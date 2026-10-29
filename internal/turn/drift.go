@@ -147,7 +147,7 @@ func (r *Runner) auditDriftAgainst(ctx context.Context, rules RulesBlocks, cfg *
 		// convID 传 ps.ConvID：这一行本来就是某条会话的 provider 会话，
 		// WORKSPACE 档的工作目录要含它才能与 Ask 当时真正用的路径对上
 		// （agentWorkDir 的注释）。
-		newFP, fpErr := identityFPAt(p, ps.AgentID, ac, r.dirFor(ps.ConvID, ps.AgentID, tier), r.roleDirFor(ps.AgentID), tier, rules)
+		newFP, fpErr := identityFPAt(p, ps.AgentID, ac, r.dirFor(ps.ConvID, ps.AgentID, tier), r.roleDirFor(ps.AgentID), tier, rules, providerExtras(r.cfg, ac.Provider)...)
 		if fpErr != nil {
 			// 与 provider 查不到、权限档不放行同体例：一行算不出来不该拖累
 			// 其余能算的行，AuditDrift 存在的意义就是把静默的事情变响亮。
