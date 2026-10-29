@@ -5,15 +5,32 @@
 <title>设置 Council</title>
 <style>
   :root {
-    --bg: #0b0c0e;
-    --surface: #16181c;
-    --surface-2: #1d2025;
-    --line: #2a2e35;
-    --ink: #e6e8ea;
-    --muted: #9aa0a6;
-    --accent: #5b9cf8;
-    --warn: #e0a33e;
-    --ok: #4fbf7a;
+    /* 亮色是默认、暗色跟随系统 —— 与工作台页面同一套规则。向导是用户看到的
+       第一个界面，它和工作台的颜色不一致会立刻暴露「这是两个东西」。 */
+    color-scheme: light;
+    --bg: #f9fafb;
+    --surface: #ffffff;
+    --surface-2: #f1f3f5;
+    --line: rgba(0, 0, 0, .12);
+    --ink: #0f1115;
+    --muted: #61666b;
+    --accent: #2f6fdf;
+    --warn: #a45b00;
+    --ok: #1a7f45;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #0b0c0e;
+      --surface: #16181c;
+      --surface-2: #1d2025;
+      --line: #2a2e35;
+      --ink: #e6e8ea;
+      --muted: #9aa0a6;
+      --accent: #5b9cf8;
+      --warn: #e0a33e;
+      --ok: #4fbf7a;
+    }
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }

@@ -4,7 +4,7 @@
 // 所有业务仍然在 Go 的 HTTP 服务里，Electron 这边不读库、不跑议会，
 // 也不替用户登录任何东西。
 
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, screen, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeTheme, screen, shell } = require('electron');
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -568,12 +568,32 @@ function loadingDataUrl(statusText) {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <title>${APP_TITLE}</title>
 <style>
-  :root { color-scheme: dark; }
+  /* 亮色是默认，暗色跟随系统 —— 与工作台页面（index.html）同一套规则。
+     以前这里是写死的暗色：浅色系统上会看到「黑屏加载页 → 白界面」的一跳，
+     那是最像网页的一瞬间。 */
+  :root {
+    color-scheme: light;
+    --bg: #f9fafb;
+    --ink: #0f1115;
+    --muted: #61666b;
+    --accent: #2f6fdf;
+    --accent-soft: rgba(47, 111, 223, .22);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #0b0c0e;
+      --ink: #e8eaed;
+      --muted: #9aa0a6;
+      --accent: #8ab4f8;
+      --accent-soft: rgba(138, 180, 248, .28);
+    }
+  }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
-    background: #0b0c0e;
-    color: #e8eaed;
+    background: var(--bg);
+    color: var(--ink);
     font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
     display: grid;
     place-items: center;
@@ -584,30 +604,30 @@ function loadingDataUrl(statusText) {
   .mark { width: 76px; height: 76px; position: relative; }
   .mark .core {
     position: absolute; left: 50%; top: 50%; width: 20px; height: 20px;
-    margin: -10px 0 0 -10px; border-radius: 50%; background: #8ab4f8;
-    box-shadow: 0 0 28px rgba(138, 180, 248, .45);
+    margin: -10px 0 0 -10px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 28px var(--accent-soft);
   }
   .mark .orbit {
     position: absolute; left: 50%; top: 50%; width: 58px; height: 58px;
-    margin: -29px 0 0 -29px; border: 1px solid rgba(138, 180, 248, .28);
+    margin: -29px 0 0 -29px; border: 1px solid var(--accent-soft);
     border-radius: 50%;
   }
   .mark .dot {
     position: absolute; width: 7px; height: 7px; border-radius: 50%;
-    background: #c6d4f2;
+    background: var(--muted);
   }
   .mark .dot.a { left: 9px; top: 24px; }
   .mark .dot.b { right: 9px; top: 24px; }
   .mark .dot.c { left: 50%; bottom: 4px; margin-left: -3.5px; }
   h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: .12em; }
-  p { margin: 0; color: #9aa0a6; font-size: 13px; min-height: 18px; }
+  p { margin: 0; color: var(--muted); font-size: 13px; min-height: 18px; }
   .spinner {
     width: 18px; height: 18px; border-radius: 50%;
-    border: 2px solid rgba(138, 180, 248, .22);
-    border-top-color: #8ab4f8;
+    border: 2px solid var(--accent-soft);
+    border-top-color: var(--accent);
     animation: spin .8s linear infinite;
   }
-  footer { position: fixed; bottom: 22px; color: #5f6368; font-size: 11px; }
+  footer { position: fixed; bottom: 22px; color: var(--muted); font-size: 11px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
 </style>
@@ -928,13 +948,16 @@ function saveWindowState() {
 
 function createWindow() {
   const saved = loadWindowState();
+  // 窗口底色跟随系统亮暗：这是「无闪白」的关键一帧，写死暗色会在浅色系统上
+  // 露出与工作台不一致的一跳。
+  const initialBackground = nativeTheme.shouldUseDarkColors ? '#0b0c0e' : '#f9fafb';
   const options = {
     width: saved ? saved.width : 1440,
     height: saved ? saved.height : 900,
     minWidth: 980,
     show: false,
     title: APP_TITLE,
-    backgroundColor: '#0b0c0e',
+    backgroundColor: initialBackground,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -959,6 +982,18 @@ function createWindow() {
   mainWindow.setMenuBarVisibility(false);
   pageTitle = APP_TITLE;
   if (saved && saved.maximized) mainWindow.maximize();
+
+  // 系统主题变了就跟着变：窗口底色（首帧背景）+ 页面自己的 prefers-color-scheme。
+  nativeTheme.on('updated', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const background = nativeTheme.shouldUseDarkColors ? '#0b0c0e' : '#f9fafb';
+    try {
+      mainWindow.setBackgroundColor(background);
+    } catch (error) {
+      logEvent(`theme background update failed: ${error && error.message ? error.message : String(error)}`);
+    }
+    logEvent(`theme changed dark=${nativeTheme.shouldUseDarkColors}`);
+  });
 
   // 移动与缩放比较频繁：合并成一次写盘，窗口拖拽时不会每像素写一次文件。
   let stateTimer = null;
@@ -1015,6 +1050,59 @@ function createWindow() {
 
   const contents = mainWindow.webContents;
 
+  // ---- 去掉网页痕迹 ----
+  //
+  // 用户不该在这个窗口里感到「我在看一个网页」。Chromium 自带的刷新、DevTools、
+  // 打印、页面缩放、Ctrl+滚轮都是普通浏览器语义，桌面应用里没有这些。
+  // 规则放在 lib/webguard.js（纯函数、有用例），这里只负责接线与记账。
+
+  contents.on('before-input-event', (event, input) => {
+    const reason = isBlockedShortcut(input);
+    if (!reason) return;
+    event.preventDefault();
+    logEvent(`input blocked reason=${reason} key=${input.key} code=${input.code || ''}`);
+  });
+
+  // 页面缩放：视觉缩放本来就该锁死（桌面应用不缩网页），Ctrl+滚轮另由
+  // 上面的按键规则挡；这里再锁一次 deviceScale 级别的缩放上限。
+  try {
+    contents.setVisualZoomLevelLimits(1, 1);
+  } catch (error) {
+    logEvent(`visual zoom limits failed: ${error && error.message ? error.message : String(error)}`);
+  }
+
+  // 右键：给原生的编辑/链接菜单，绝不给 Chromium 的「重新加载 / 检查」。
+  contents.on('context-menu', (_event, params) => {
+    const items = buildContextMenuItems({
+      editable: Boolean(params.isEditable),
+      selectionText: params.selectionText || '',
+      linkURL: params.linkURL || '',
+    });
+    if (items.length === 0) {
+      logEvent('context menu: no items for this target');
+      return;
+    }
+    const template = menuItemsToTemplate(items, {
+      copyText: (text) => {
+        try {
+          clipboard.writeText(text);
+        } catch (error) {
+          logEvent(`clipboard write failed: ${error && error.message ? error.message : String(error)}`);
+        }
+      },
+      openExternal: (url) => {
+        shell.openExternal(url).catch((error) => {
+          logEvent(`context menu openExternal failed: ${error && error.message ? error.message : String(error)}`);
+        });
+      },
+    });
+    logEvent(`context menu items=${items.map((i) => i.id).join(',')}`);
+    Menu.buildFromTemplate(template).popup({ window: mainWindow });
+  });
+
+  // 拖文件/拖链接进窗口：浏览器会直接导航过去。桌面应用不该有这种语义。
+  // 真正的处理在下面那个 will-navigate 里（同源放行、外链交给系统浏览器）。
+
   // 标题由外壳统一控制，保留页面自己的标题并加上 attach / 自启。
   contents.on('page-title-updated', (event, title) => {
     event.preventDefault();
@@ -1036,9 +1124,11 @@ function createWindow() {
   });
 
   // 页面自己跳走时也拦一下：工作台内部的同源跳转放行，外链交给系统浏览器。
+  // 拖文件/拖链接进窗口也走这条路 —— 桌面应用不该把窗口导航到别处。
   contents.on('will-navigate', (event, url) => {
     if (isSameAppOrigin(url)) return;
     event.preventDefault();
+    logEvent(`navigation blocked url=${url}`);
     if (isHttpUrl(url)) {
       shell.openExternal(url).catch(() => {});
     }
@@ -1193,8 +1283,79 @@ async function loadWorkbench(url, mode, health) {
   }
 }
 
+// buildAppMenu 装一份最小但原生的应用菜单。
+//
+// 以前这里是 Menu.setApplicationMenu(null)：窗口里没有任何菜单，Alt 也唤不出
+// 东西 —— 这本身就是「没有原生壳」的痕迹。菜单栏仍然默认隐藏（autoHideMenuBar
+// + setMenuBarVisibility(false)），按 Alt 才出现，和普通 Windows 应用一致。
+//
+// 刻意不放的东西：刷新、缩放、强制重载、开发者工具、打印 —— 那些是浏览器菜单。
+function buildAppMenu() {
+  const template = [
+    {
+      label: '文件',
+      submenu: [
+        {
+          label: '关闭窗口',
+          accelerator: 'CmdOrCtrl+W',
+          click: () => {
+            if (!mainWindow || mainWindow.isDestroyed()) return;
+            // 与标题栏的 × 走同一条路：有托盘就收进托盘。
+            mainWindow.close();
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '退出 Council',
+          click: () => {
+            quitFromTray().catch((error) => {
+              logEvent(`menu quit failed: ${error && error.message ? error.message : String(error)}`);
+              app.exit(1);
+            });
+          },
+        },
+      ],
+    },
+    {
+      label: '编辑',
+      submenu: [
+        { role: 'cut', label: '剪切' },
+        { role: 'copy', label: '复制' },
+        { role: 'paste', label: '粘贴' },
+        { role: 'selectAll', label: '全选' },
+      ],
+    },
+    {
+      label: '帮助',
+      submenu: [
+        {
+          label: '关于 Council',
+          click: () => {
+            showAbout().catch((error) => {
+              logEvent(`about dialog failed: ${error && error.message ? error.message : String(error)}`);
+            });
+          },
+        },
+        { label: '打开诊断日志', click: () => openDiagnosticsLog() },
+        {
+          label: '在浏览器中打开',
+          click: () => {
+            const target = browserTargetUrl();
+            if (!target) return;
+            shell.openExternal(target).catch((error) => {
+              logEvent(`menu open in browser failed: ${error && error.message ? error.message : String(error)}`);
+            });
+          },
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  logEvent('app menu installed labels=文件,编辑,帮助');
+}
+
 async function start() {
-  Menu.setApplicationMenu(null);
+  buildAppMenu();
   app.setAppUserModelId('com.council.workbench');
 
   startupStarted = true;
@@ -1598,6 +1759,8 @@ const {
   shouldHandleDeepLink,
 } = require('./lib/deeplink');
 const { versionsMatch } = require('./lib/version');
+const { isBlockedShortcut } = require('./lib/webguard');
+const { buildContextMenuItems, menuItemsToTemplate } = require('./lib/contextmenu');
 
 let pendingDeepLink = '';
 // 单实例锁的重试会让同一个 argv 触发多次 second-instance，这里按原文去重。
