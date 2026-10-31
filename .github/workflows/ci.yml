@@ -1,0 +1,61 @@
+name: ci
+
+# 每次 push / PR 都跑，不再等到发版才发现 Linux 上编不过、测试早就红了。
+# 三条线互相独立：Go（含 -race）、桌面外壳、dsh 插件。
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 取源码
+        uses: actions/checkout@v4
+
+      - name: 装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # T1 的回归：go build ./... 必须能在 Linux 上通过，而不是只有
+      # go build ./cmd/council 能过。
+      - name: 构建全部包
+        run: go build ./...
+
+      - name: 静态检查
+        run: go vet ./...
+
+      # -race 是刚需：费用/指纹那类竞态只在竞态检测器下才会稳定暴露。
+      - name: 测试（含竞态检测）
+        run: go test -race ./... -count=1
+
+  node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 取源码
+        uses: actions/checkout@v4
+
+      - name: 装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 桌面测试只 import main.js / lib 与 Node 内建模块，不需要 Electron
+      # 本体；--ignore-scripts 省掉 postinstall 下载，CI 快很多。
+      - name: 桌面外壳测试
+        working-directory: desktop
+        run: |
+          npm ci --ignore-scripts
+          npm test
+
+      # 插件没有运行时依赖，也没有 package-lock.json；测试直接跑即可。
+      - name: dsh 插件测试
+        working-directory: contrib/dsh-subagent-council
+        run: npm test

@@ -133,11 +133,14 @@ export function startCouncilRun(config, request, deps = {}) {
 
   const armForceTimer = () => {
     if (forceTimer !== undefined || resolvedExit) return;
+    // Not unref'd: while the timer is pending the run is not settled yet, and
+    // `node --test` treats an empty (only-unref'd) event loop as a cancelled
+    // test. The child handle normally keeps the loop alive anyway; this timer
+    // only has to cover the pathological "child never reports close" path.
     forceTimer = setTimeout(() => {
       forcedExit = true;
       settleExit();
     }, killSettleMs);
-    forceTimer.unref?.();
   };
 
   const issueKill = () => {
@@ -203,12 +206,15 @@ export function startCouncilRun(config, request, deps = {}) {
     if (killRequested) issueKill();
   });
 
+  // Same reason as armForceTimer: the timeout is part of the run's lifetime,
+  // not a background housekeeping timer. clearTimeout in settleExit/teardown
+  // is what releases it, so referencing it cannot keep the host alive after
+  // the run ends.
   timeoutTimer = setTimeout(() => {
     if (resolvedExit) return;
     timedOut = true;
     killTree();
   }, config.timeoutMs);
-  timeoutTimer.unref?.();
 
   const onAbort = () => {
     if (cancelled) return;
