@@ -17,6 +17,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -405,10 +406,23 @@ func (t *Tx) claimLease(ctx context.Context, req LeaseRequest, now time.Time) (L
 		return Lease{}, fmt.Errorf("insert lease on %s: %w", key, err)
 	}
 
-	if err := t.appendLeaseEvent(ctx, lease.ID, now, "granted", fmt.Sprintf(
-		`{"owner_kind":%q,"owner_id":%q,"access_mode":%q,"generation":%d,"ttl_seconds":%d}`,
-		lease.OwnerKind, lease.OwnerID, lease.Access, lease.Generation, int64(req.TTL/time.Second),
-	)); err != nil {
+	detail, err := json.Marshal(struct {
+		OwnerKind  string `json:"owner_kind"`
+		OwnerID    string `json:"owner_id"`
+		AccessMode string `json:"access_mode"`
+		Generation int64  `json:"generation"`
+		TTLSeconds int64  `json:"ttl_seconds"`
+	}{
+		OwnerKind:  lease.OwnerKind,
+		OwnerID:    lease.OwnerID,
+		AccessMode: string(lease.Access),
+		Generation: lease.Generation,
+		TTLSeconds: int64(req.TTL / time.Second),
+	})
+	if err != nil {
+		return Lease{}, fmt.Errorf("encode granted lease event: %w", err)
+	}
+	if err := t.appendLeaseEvent(ctx, lease.ID, now, "granted", string(detail)); err != nil {
 		return Lease{}, err
 	}
 	return lease, nil
@@ -564,8 +578,13 @@ func (t *Tx) markLeaseReleased(ctx context.Context, lease Lease, now time.Time) 
 }
 
 func (t *Tx) markLeaseExpired(ctx context.Context, lease Lease, now time.Time) error {
-	detail := fmt.Sprintf(`{"expires_at":%q}`, formatTime(lease.ExpiresAt))
-	return t.setLeaseState(ctx, lease, LeaseExpired, now, "expired", detail)
+	detail, err := json.Marshal(struct {
+		ExpiresAt string `json:"expires_at"`
+	}{ExpiresAt: formatTime(lease.ExpiresAt)})
+	if err != nil {
+		return fmt.Errorf("encode expired lease event: %w", err)
+	}
+	return t.setLeaseState(ctx, lease, LeaseExpired, now, "expired", string(detail))
 }
 
 // setLeaseState 改一次状态并留一条事件。两条写都在同一个事务里：
