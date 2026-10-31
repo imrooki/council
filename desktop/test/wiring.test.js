@@ -42,3 +42,16 @@ test('设置向导也跟随系统亮暗', () => {
   assert.match(setupSource, /prefers-color-scheme:\s*dark/, '向导要有暗色媒体查询');
   assert.match(setupSource, /color-scheme:\s*light/, '向导默认是亮色');
 });
+
+test('B15：只读看板与未知版本不再静默 attach', () => {
+  assert.match(mainSource, /health\.writable !== true/, '只读看板要用 writable !== true 判断，不能等 omitempty 的 false');
+  assert.match(mainSource, /local === '\(未知\)'/, 'engineVersion 探测失败时不能当成版本不同');
+  const exeStart = mainSource.indexOf('function resolveCouncilExeSync');
+  assert.ok(exeStart > 0);
+  const exeBlock = mainSource.slice(exeStart, mainSource.indexOf('\nfunction ', exeStart + 10));
+  assert.match(exeBlock, /COUNCIL_EXE/, '同步定位也要认 COUNCIL_EXE');
+  const attachStart = mainSource.indexOf('if (target.attach)');
+  assert.ok(attachStart > 0);
+  const attachBlock = mainSource.slice(attachStart, mainSource.indexOf('\n  }', attachStart));
+  assert.match(attachBlock, /attachVersionMatches\(target\.attach\.health/, 'primary-retry 的 attach 也要做版本检查');
+});

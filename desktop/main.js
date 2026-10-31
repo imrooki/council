@@ -1493,6 +1493,7 @@ async function start() {
   setLoadingStatus('正在启动工作台…');
   const target = await selectSpawnTarget();
   if (target.attach) {
+    if (!(await attachVersionMatches(target.attach.health, target.url))) return;
     await loadWorkbench(target.url, {
       kind: 'attach',
       source: target.source,
@@ -1547,12 +1548,31 @@ async function start() {
 // 既不能覆盖它的界面，也不能再起一个 serve。让用户看到旧界面却不告诉他，
 // 比停下来更糟 —— 他会以为装的新版没生效。
 async function attachVersionMatches(health, url) {
+  // health.writable 在只读模式里是 omitempty，键根本不出现；不能等它 === false。
+  // 桌面版需要写能力（设置、成员、工作区），挂到只读看板上会静默变成半残界面，
+  // 所以这里明确停下来，让用户先用 council serve -rw 重启（B15）。
+  if (!health || health.writable !== true) {
+    logEvent(`attached workbench is read-only (url=${url}); refusing`);
+    await failStartup(new StartupFailure(
+      '看板是只读模式',
+      '这台机器上已经有一个只读的 Council 看板在运行。\n\n'
+      + '桌面版需要写模式（council serve -rw）才能改动设置、成员与工作区。\n'
+      + '请先退出那个看板，再重新打开 Council。',
+    ));
+    return false;
+  }
   const remote = health && typeof health.version === 'string' ? health.version.trim() : '';
   if (!remote) {
     logEvent(`attached workbench has no version (url=${url}); proceeding`);
     return true;
   }
   const local = await engineVersion();
+  // --version 探测失败时 engineVersion 返回 "(未知)"。不知道自己的版本
+  // 不能当成「版本不同」：那会把用户的正常启动挡在门外（B15）。
+  if (!local || local === '(未知)') {
+    logEvent(`local engine version unknown; proceeding with remote=${remote} url=${url}`);
+    return true;
+  }
   if (versionsMatch(remote, local)) {
     logEvent(`attached workbench version ok: ${remote}`);
     return true;
@@ -1667,6 +1687,14 @@ function runCouncilCollect(args, stdinText, timeoutMs = 60000) {
 // resolveCouncilExeSync 是同步版的 exe 定位：向导阶段还没有窗口可以报错，
 // 找不到就直接把原因抛给调用方（会显示在向导的状态行里）。
 function resolveCouncilExeSync() {
+  const fromEnv = (process.env.COUNCIL_EXE || '').trim();
+  if (fromEnv) {
+    const explicit = path.resolve(fromEnv);
+    if (!fs.existsSync(explicit)) {
+      throw new Error(`COUNCIL_EXE 指向的 council.exe 不存在：${explicit}`);
+    }
+    return explicit;
+  }
   const candidates = [];
   if (app.isPackaged) {
     candidates.push(path.join(process.resourcesPath, 'council.exe'));
