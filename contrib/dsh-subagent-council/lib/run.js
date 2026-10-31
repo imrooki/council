@@ -10,6 +10,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { spawn as nodeSpawn } from 'node:child_process';
+import fs from 'node:fs';
 import { win32 as pathWin32 } from 'node:path';
 import {
   buildAskCommand,
@@ -78,6 +79,9 @@ export function startCouncilRun(config, request, deps = {}) {
   const cwd = resolveRequestCwd(request);
   const task = promptToText(request?.prompt);
   const { argv, note } = buildAskCommand(config, task, cwd);
+  // 裸名在 Windows 上会先搜 cwd；先按 PATH 解析成绝对路径，找不到就保持
+  // 原样让 spawn 自己报错（P2）。
+  argv[0] = resolveCouncilExecutable(argv[0], platform, process.env);
 
   let child;
   try {
@@ -431,6 +435,35 @@ function resolveRequestCwd(request) {
 function systemTaskkillPath() {
   const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
   return pathWin32.join(root, 'System32', 'taskkill.exe');
+}
+
+/**
+ * 把一个裸命令名解析成 PATH 里的绝对路径。含分隔符的路径原样返回；找不到
+ * 也原样返回，让 spawn 的 ENOENT 诊断保持原样。Windows 上不查 cwd，避免
+ * 「同名假 council.exe」被优先执行。
+ */
+export function resolveCouncilExecutable(binary, platform, env = process.env) {
+  if (typeof binary !== 'string' || binary === '') return binary;
+  if (binary.includes('/') || binary.includes('\\')) return binary;
+  const pathValue = env.PATH || env.Path || '';
+  if (pathValue === '') return binary;
+  const sep = platform === 'win32' ? '\\' : '/';
+  const dirs = pathValue.split(platform === 'win32' ? ';' : ':').filter(Boolean);
+  const exts = platform === 'win32'
+    ? (env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)
+    : [''];
+  for (const dir of dirs) {
+    const base = dir.replace(/[\\/]+$/, '');
+    for (const ext of ['', ...exts]) {
+      const candidate = `${base}${sep}${binary}${ext}`;
+      try {
+        if (fs.statSync(candidate).isFile()) return candidate;
+      } catch {
+        // 下一个候选
+      }
+    }
+  }
+  return binary;
 }
 
 function spawnOptions(cwd, platform) {

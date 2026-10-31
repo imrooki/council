@@ -16,6 +16,7 @@
     "lib/command.test.js",
     "lib/index.test.js",
     "lib/tool.test.js",
+    "lib/resolve.test.js",
     "lib/package.json",
     "cordis.patch.yml",
     "SKILL.md",
@@ -23,7 +24,7 @@
   ],
   "license": "MIT",
   "scripts": {
-    "test": "node --test lib/"
+    "test": "node --test lib/command.test.js lib/index.test.js lib/tool.test.js lib/resolve.test.js"
   },
   "dsh": {
     "bundle": {
