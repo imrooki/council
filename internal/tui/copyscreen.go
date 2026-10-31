@@ -175,15 +175,18 @@ func (m Model) copyScreenLoaded(msg copyScreenLoadedMsg) (Model, tea.Cmd) {
 	m.copyScr = copyScreenState{}
 	if msg.err != nil {
 		if errors.Is(msg.err, repl.ErrCopyEmpty) {
-			m.status = repl.MsgCopyNoContent
+			m.status = m.t("tui.copy.noContent", repl.MsgCopyNoContent)
 			return m, nil
+		}
+		if errors.Is(msg.err, repl.ErrCopyUsage) {
+			return m, m.println(m.t("tui.copy.usage", repl.CopyUsage))
 		}
 		// 读库失败按命令错误的既有体例打到回滚区，不退出、不改状态栏。
 		return m, m.println(msg.err.Error())
 	}
 	lines := copyScreenText(m.lang, msg.lines)
 	if len(lines) == 0 {
-		m.status = repl.MsgCopyNoContent
+		m.status = m.t("tui.copy.noContent", repl.MsgCopyNoContent)
 		return m, nil
 	}
 	m = m.ctrlCDisarm()

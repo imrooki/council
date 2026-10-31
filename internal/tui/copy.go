@@ -225,10 +225,13 @@ func (m Model) copyDone(msg copyDoneMsg) (tea.Model, tea.Cmd) {
 	m = m.ctrlCDisarm()
 	if msg.err != nil {
 		if errors.Is(msg.err, repl.ErrCopyEmpty) {
-			m.status = msg.err.Error()
+			m.status = m.t("tui.copy.noContent", repl.MsgCopyNoContent)
 			return m, nil
 		}
-		// 参数非法与读库失败按命令错误的既有体例打到回滚区，不退出、不改状态栏。
+		if errors.Is(msg.err, repl.ErrCopyUsage) {
+			return m, m.println(m.t("tui.copy.usage", repl.CopyUsage))
+		}
+		// 读库失败按命令错误的既有体例打到回滚区，不退出、不改状态栏。
 		return m, m.println(msg.err.Error())
 	}
 	var expire tea.Cmd
