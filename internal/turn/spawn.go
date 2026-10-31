@@ -154,7 +154,7 @@ func spawnProcess(ctx context.Context, c provider.Command) (stdout, stderr []byt
 		if mkdirErr := os.MkdirAll(dir, 0o755); mkdirErr != nil {
 			return nil, nil, 0, false, fmt.Errorf("%w: mkdir %s: %w", ErrProcessNotStarted, dir, mkdirErr)
 		}
-		if writeErr := os.WriteFile(name, body, 0o600); writeErr != nil {
+		if writeErr := writeSpawnFile(name, body); writeErr != nil {
 			return nil, nil, 0, false, fmt.Errorf("%w: write %s: %w", ErrProcessNotStarted, name, writeErr)
 		}
 	}
@@ -279,4 +279,30 @@ func (w *capWriter) Write(p []byte) (int, error) {
 	}
 	_, err := w.buf.Write(p)
 	return len(p), err
+}
+
+// writeSpawnFile 用临时文件 + Rename 落身份文件。serve 的并发 job 可能同时
+// 给同一个 agent 写同一个 council-role.txt；直接 os.WriteFile 会先截断再写，
+// 另一个进程恰好在中间读就会看到半份身份块（P2）。Rename 在同一目录内是
+// 原子的，读到的要么是旧全文，要么是新全文。
+func writeSpawnFile(path string, body []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".council-write-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(body); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
