@@ -66,3 +66,12 @@ test('B17：便携版不注册协议、不启用更新器', () => {
   const updBlock = mainSource.slice(updStart, mainSource.indexOf('\n}', updStart));
   assert.match(updBlock, /PORTABLE_EXECUTABLE_DIR/, '便携版应禁用 updater');
 });
+
+test('P2: serve URL waits for a whole line and saved bounds need 80px visible', () => {
+  assert.ok(
+    mainSource.includes('(?:\\r?\\n|$)'),
+    'URL regex must not accept a chunk split in the middle of the port',
+  );
+  assert.match(mainSource, /bounds\.y \+ bounds\.height > area\.y \+ 80/, 'need 80px of the window visible');
+  assert.doesNotMatch(mainSource, /bounds\.y \+ bounds\.height > area\.y \+ 40/, '40px is not enough');
+});

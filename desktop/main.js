@@ -410,7 +410,9 @@ async function startCouncil(port) {
   child.stdout.on('data', (chunk) => {
     councilStdoutTail = appendTail(councilStdoutTail, chunk, OUTPUT_TAIL_CHARS);
     if (!spawnedInfo.url) {
-      const match = councilStdoutTail.match(/council serve:\s+(https?:\/\/[^\s]+)/);
+      // 必须等这一行完整到达（行尾/EOF）再取地址：chunk 可能恰好切在
+      // 端口中间，先匹配到 "http://127.0.0.1:12" 就再也不会更新（P2）。
+      const match = councilStdoutTail.match(/council serve:\s+(https?:\/\/[^\s]+)(?:\r?\n|$)/);
       if (match) {
         spawnedInfo.url = match[1];
         logEvent(`spawn announced url=${match[1]}`);
@@ -919,7 +921,7 @@ function loadWindowState() {
       return bounds.x < area.x + area.width - 80
         && bounds.x + bounds.width > area.x + 80
         && bounds.y < area.y + area.height - 80
-        && bounds.y + bounds.height > area.y + 40;
+        && bounds.y + bounds.height > area.y + 80;
     });
     if (!visible) {
       logEvent(`window state ignored: bounds off-screen ${JSON.stringify(bounds)}`);
