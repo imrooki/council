@@ -113,31 +113,36 @@ func collectDiff(ctx context.Context, copyDir string) (string, []string, error) 
 	if err != nil {
 		return "", nil, err
 	}
-	status, err := runGit(ctx, copyDir, "status", "--porcelain")
+	status, err := runGit(ctx, copyDir, "status", "--porcelain", "-z")
 	if err != nil {
 		return "", nil, err
 	}
 	return string(diff), parseStatusPaths(status), nil
 }
 
-// parseStatusPaths 取 porcelain 输出里的路径列。第一列两个字节是状态，
-// 第三列是空格；重命名/复制行是 "旧 -> 新"，取新路径。空切片而不是 nil：
-// JSON 里 files 是数组，不是 null。
+// parseStatusPaths 取 porcelain -z 输出里的路径列。每条以 NUL 分隔：
+// 前两个字节是状态，第三列是空格；重命名/复制的格式是
+// `XY 新路径\0旧路径\0`，只收新路径并跳过紧随其后的旧路径。
+// 用 -z 而不是默认输出：默认输出会给含空格、引号或非 ASCII 的路径加引号
+// 并转义，按空格切会把文件名拆坏（P2）。
 func parseStatusPaths(out []byte) []string {
-	files := make([]string, 0)
-	text := strings.ReplaceAll(string(out), "\r\n", "\n")
-	for _, line := range strings.Split(text, "\n") {
-		if len(line) < 4 {
+	fields := strings.Split(string(out), "\x00")
+	files := make([]string, 0, len(fields))
+	for i := 0; i < len(fields); i++ {
+		entry := fields[i]
+		if len(entry) < 4 {
 			continue
 		}
-		path := strings.TrimSpace(line[3:])
-		if i := strings.Index(path, " -> "); i >= 0 {
-			path = strings.TrimSpace(path[i+4:])
-		}
+		status := entry[0]
+		path := entry[3:]
 		if path == "" {
 			continue
 		}
 		files = append(files, path)
+		if status == 'R' || status == 'C' {
+			// 下一项是旧路径，不是另一个文件。
+			i++
+		}
 	}
 	return files
 }
