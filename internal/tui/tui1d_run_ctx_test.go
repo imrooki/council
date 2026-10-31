@@ -123,9 +123,9 @@ func TestTui1dRunCtxReachesInFlightCommand(t *testing.T) {
 	go func() { runDone <- Run(ctx, r, lw, "test", inR, outW) }()
 
 	// 收尾顺序：取消根 ctx；放掉假 Store（坏实现下它还在等一个永远不来的 ctx.Done）；
-	// 等 Run 返回；先关 inW（让 readLoop 的 Read 读到 EOF 退出），再关 inR；
-	// 关 outW 让读 goroutine 的 io.Copy 读到 EOF，等它结束，最后关 outR。
-	// 每一步等待都带超时，坏实现下也不会把整包挂住。
+	// 等 Run 返回；关 inW（让 readLoop 的 Read 读到 EOF 退出；inR 由 cancelreader
+	// 自己收，测试侧不碰）；关 outW 让读 goroutine 的 io.Copy 读到 EOF，等它结束，
+	// 最后关 outR。每一步等待都带超时，坏实现下也不会把整包挂住。
 	var releaseOnce sync.Once
 	var runErr error
 	runReturned := false
@@ -152,7 +152,8 @@ func TestTui1dRunCtxReachesInFlightCommand(t *testing.T) {
 			t.Errorf("收尾：cancel() 之后 5 秒 Run 仍没有返回")
 		}
 		_ = inW.Close()
-		_ = inR.Close()
+		// inR 交给 bubbletea 的 cancelreader：Run 返回时 readLoop 可能还在
+		// 读同一个 fd，测试侧再 Close 会与 Fd() 形成竞态（-race 下稳定命中）。
 		_ = outW.Close()
 		select {
 		case <-readDone:

@@ -169,7 +169,10 @@ func chxRunTui(t *testing.T, noAuto bool) string {
 			t.Errorf("收尾：cancel() 之后 5 秒 Run 仍没有返回")
 		}
 		_ = inW.Close()
-		_ = inR.Close()
+		// inR 留给 bubbletea 的 cancelreader 收尾：Run 返回时它可能还有
+		// 一个 readLoop goroutine 在 Fd() 上，测试这边再 Close 会与它
+		// 形成 fd 竞态（-race 下稳定命中）。fd 数量有限，用例进程退出时
+		// 由操作系统回收。
 		_ = outW.Close()
 		select {
 		case <-readDone:

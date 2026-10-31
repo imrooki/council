@@ -51,11 +51,26 @@ func RunLang(ctx context.Context, r *repl.REPL, out *LineWriter, version string,
 	// Model.View 平时把它写成 false（内联模式），只有复制模式那一帧临时写成 true
 	// （见 copyscreen.go 的 View 分支）。
 	p := tea.NewProgram(m,
-		tea.WithContext(ctx),
+		// 不把根 ctx 直接交给 tea.WithContext：bubbletea 在 external ctx 已取消
+		// 时走 shutdown(kill=true)，不等 readLoop 退出就 Close cancelreader，
+		// 与正在 Fd() 的读 goroutine 形成 fd 竞态（Linux -race 稳定复现）。
+		// 改为下面这个 goroutine 在根 ctx 取消时送一个正常的 Quit：shutdown
+		// 会先 Cancel、等 readLoop 结束，再 Close。Model 仍然拿同一个 ctx，
+		// 在飞命令照旧跟着取消。
 		tea.WithInput(in),
 		tea.WithOutput(stdout),
 		tea.WithoutSignalHandler(),
 	)
+	// 根 ctx 取消（SIGTERM、关窗）→ 正常 Quit；Run 自己返回后关 stop，
+	// 不让这个 goroutine 活到下一次 Run。
+	stopQuitWatch := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			p.Quit()
+		case <-stopQuitWatch:
+		}
+	}()
 	// 观察者装在这里，不装进 runWith，也不挨着那里的两次 SetEmit。
 	// runWith 的签名是 (program, *LineWriter, io.Writer)，手里没有 REPL，program 接口里也拿不到 REPL（只有 Send 与 Run）；
 	// x39e 与 tui1d 直接调用 runWith，签名因此冻结。
@@ -67,7 +82,9 @@ func RunLang(ctx context.Context, r *repl.REPL, out *LineWriter, version string,
 	}
 	// final 必须是 stdout 本身：启动横幅、在飞对账、漂移通知在 runWith 第 1 步直写它，
 	// 换成别的句柄这些行就从屏幕上消失。TestTui1dRunFinalIsRealStdout 用管道钉着这一行。
-	return runWith(p, out, stdout)
+	err := runWith(p, out, stdout)
+	close(stopQuitWatch)
+	return err
 }
 
 // runWith 是 Run 抽掉「怎么造 Program」之后的那部分，顺序全在这里。

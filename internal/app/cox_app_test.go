@@ -189,7 +189,8 @@ func coxRunTui(t *testing.T, verbose bool) string {
 			t.Errorf("收尾：cancel() 之后 5 秒 Run 仍没有返回")
 		}
 		_ = inW.Close()
-		_ = inR.Close()
+		// 同 chx_app_test.go：inR 由 bubbletea 的 cancelreader 收尾，
+		// Run 返回后立刻 Close 会与残留 readLoop 的 Fd() 竞态。
 		_ = outW.Close()
 		select {
 		case <-readDone:

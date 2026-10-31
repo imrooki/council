@@ -81,7 +81,8 @@ func mlxStartRun(t *testing.T, paste string) *mlxRunRig {
 			t.Errorf("收尾：cancel() 之后 5 秒 Run 仍没有返回")
 		}
 		_ = inW.Close()
-		_ = inR.Close()
+		// inR 不在测试侧 Close：Run 返回后 bubbletea 的 readLoop 可能还在
+		// 调 Fd()，这里再关就是与它抢同一个 fd（-race 下稳定命中）。
 		_ = outW.Close()
 		select {
 		case <-readDone:
