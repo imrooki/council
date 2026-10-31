@@ -22,6 +22,11 @@ const maxSpawnOutputBytes = 8 << 20
 // ErrCommandLineTooLong 表示组出来的整条命令行超过 OS 上限。
 var ErrCommandLineTooLong = errors.New("assembled command line exceeds the OS limit")
 
+// ErrProcessNotStarted 表示这一轮在 cmd.Start 之前就失败了，provider 进程
+// 从未存在过。它让 failClosed 区分「钱可能已经花掉」与「一分钱都没花」：
+// 后者把基线标成可疑会让下一轮的真实金额被永久丢掉（B1）。
+var ErrProcessNotStarted = errors.New("provider process was never started")
+
 // maxCommandLineBytes 是 Windows CreateProcess 的命令行上限。
 //
 // 它与 provider.MaxPromptBytes 不是一回事：那个说「这家的正文通路有上限」，
@@ -107,10 +112,10 @@ func spawnProcess(ctx context.Context, c provider.Command) (stdout, stderr []byt
 		// 入场费与行为随启动目录漂移，拿到写盘权限的成员还会把文件写进那个仓库。
 		// 适配器本应在 BuildTurn 就因空 WorkDir 返回 ErrNoWorkDir；这里再拦一次，
 		// 是因为 Spawner 会被测试换成假实现，生产路径不能把空 Dir 放过去。
-		return nil, nil, 0, false, fmt.Errorf("command dir is empty: %w", provider.ErrNoWorkDir)
+		return nil, nil, 0, false, fmt.Errorf("%w: command dir is empty: %w", ErrProcessNotStarted, provider.ErrNoWorkDir)
 	}
 	if c.Path == "" {
-		return nil, nil, 0, false, fmt.Errorf("command path is empty")
+		return nil, nil, 0, false, fmt.Errorf("%w: command path is empty", ErrProcessNotStarted)
 	}
 
 	path := c.Path
@@ -147,10 +152,10 @@ func spawnProcess(ctx context.Context, c provider.Command) (stdout, stderr []byt
 	for name, body := range c.Files {
 		dir := filepath.Dir(name)
 		if mkdirErr := os.MkdirAll(dir, 0o755); mkdirErr != nil {
-			return nil, nil, 0, false, fmt.Errorf("mkdir %s: %w", dir, mkdirErr)
+			return nil, nil, 0, false, fmt.Errorf("%w: mkdir %s: %w", ErrProcessNotStarted, dir, mkdirErr)
 		}
 		if writeErr := os.WriteFile(name, body, 0o600); writeErr != nil {
-			return nil, nil, 0, false, fmt.Errorf("write %s: %w", name, writeErr)
+			return nil, nil, 0, false, fmt.Errorf("%w: write %s: %w", ErrProcessNotStarted, name, writeErr)
 		}
 	}
 
@@ -173,14 +178,14 @@ func spawnProcess(ctx context.Context, c provider.Command) (stdout, stderr []byt
 	} else {
 		nullFile, openErr := os.Open(os.DevNull)
 		if openErr != nil {
-			return nil, nil, 0, false, fmt.Errorf("open null device: %w", openErr)
+			return nil, nil, 0, false, fmt.Errorf("%w: open null device: %w", ErrProcessNotStarted, openErr)
 		}
 		defer nullFile.Close()
 		cmd.Stdin = nullFile
 	}
 
 	if startErr := cmd.Start(); startErr != nil {
-		return nil, nil, 0, false, startErr
+		return nil, nil, 0, false, fmt.Errorf("%w: %w", ErrProcessNotStarted, startErr)
 	}
 	pid := 0
 	if cmd.Process != nil {

@@ -95,7 +95,7 @@ func toolDefinitions() []toolDefinition {
 					"budget_usd": map[string]any{
 						"type":        "number",
 						"minimum":     minBudgetUSD,
-						"description": "Hard cost cap in USD. Must be at least 0.5; default 5.",
+						"description": "Budget cap in USD, checked after each round; one round can exceed it. Must be at least 0.5; default 5.",
 					},
 					"cwd": map[string]any{
 						"type":        "string",
@@ -158,7 +158,7 @@ func toolDefinitions() []toolDefinition {
 					"budget_usd": map[string]any{
 						"type":        "number",
 						"minimum":     minBudgetUSD,
-						"description": "Hard cost cap in USD. Must be at least 0.5; default 5.",
+						"description": "Budget cap in USD, checked after each round; one round can exceed it. Must be at least 0.5; default 5.",
 					},
 				},
 				"required":             []string{"prompt"},

@@ -1118,9 +1118,12 @@ func (r *Runner) failClosed(ctx context.Context, rec *Record, st *sessionState, 
 	rec.MaybeAdvanced = maybeAdvanced
 	rec.Err = err
 	rec.Message = nil
-	if !fresh {
+	if !fresh && !errors.Is(err, ErrProcessNotStarted) {
 		// 进程跑过、结局未知：基线可能已经落后。fresh 时还没有会话记录可标，
 		// 下一轮仍是 Fresh，不需要、也不该为此插一条空会话。
+		//
+		// Start 之前就失败（不在 PATH、身份文件写不进去）的那一轮一分钱都
+		// 没花，不能把基线标成可疑：那会让下一轮真实花掉的金额被永久丢掉（B1）。
 		st.baselineSuspect = true
 	}
 	extra := map[string]any{}

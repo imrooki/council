@@ -163,7 +163,7 @@ func ParseLang(args []string, cfg *config.Config, descLang i18n.Lang) (Options, 
 	mode := fs.String("mode", "ask", flagText("cli.ask.flag.mode", "ask＝各成员说一轮；round＝多轮，语义同 /round"))
 	rounds := fs.Int("rounds", 1, flagText("cli.ask.flag.rounds", "仅 round 生效；ask 下必须是 1"))
 	summary := fs.String("summary", "", flagText("cli.ask.flag.summary", "汇总成员；none 显式关闭（round 下不允许关闭）"))
-	budget := fs.Float64("budget-usd", 5, flagText("cli.ask.flag.budget", "本次调用的硬上限，单位 USD，不得小于 0.5"))
+	budget := fs.Float64("budget-usd", 5, flagText("cli.ask.flag.budget", "本次调用的预算上限（每轮结束后检查，单轮可能超线），单位 USD，不得小于 0.5"))
 	timeout := fs.Duration("timeout", 10*time.Minute, flagText("cli.ask.flag.timeout", "整体超时；到点取消全部在飞"))
 	conversation := fs.String("conversation", "", flagText("cli.ask.flag.conversation", "续接已有会话；未知 id 退 1"))
 	workspace := fs.String("workspace", "", flagText("cli.ask.flag.workspace", "在 git 仓库的隔离 worktree 副本里跑，跑完返回 diff"))
@@ -425,7 +425,7 @@ flags:
   -mode ask|round      ask＝各成员说一轮（默认）；round＝多轮
   -rounds <n>          仅 round 生效，默认 1；ask 下必须是 1
   -summary <id|none>   汇总成员；默认取配置 [summary].agent，round 下不能用 none
-  -budget-usd <n>      硬上限，默认 5，最小 0.5
+  -budget-usd <n>      预算上限（每轮结束后检查，单轮可能超线），默认 5，最小 0.5
   -timeout <duration>  整体超时，默认 10m
   -conversation <id>   续接已有会话
   -workspace <dir>     在 git 仓库的隔离 worktree 副本里跑，返回 diff

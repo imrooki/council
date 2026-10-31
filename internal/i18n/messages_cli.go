@@ -60,7 +60,7 @@ var zhCLI = Catalog{
 	"cli.ask.flag.mode":         "ask＝各成员说一轮；round＝多轮，语义同 /round",
 	"cli.ask.flag.rounds":       "仅 round 生效；ask 下必须是 1",
 	"cli.ask.flag.summary":      "汇总成员；none 显式关闭（round 下不允许关闭）",
-	"cli.ask.flag.budget":       "本次调用的硬上限，单位 USD，不得小于 0.5",
+	"cli.ask.flag.budget":       "本次调用的预算上限（每轮结束后检查，单轮可能超线），单位 USD，不得小于 0.5",
 	"cli.ask.flag.timeout":      "整体超时；到点取消全部在飞",
 	"cli.ask.flag.conversation": "续接已有会话；未知 id 退 1",
 	"cli.ask.flag.workspace":    "在 git 仓库的隔离 worktree 副本里跑，跑完返回 diff",
@@ -81,7 +81,7 @@ flags:
   -mode ask|round      ask＝各成员说一轮（默认）；round＝多轮
   -rounds <n>          仅 round 生效，默认 1；ask 下必须是 1
   -summary <id|none>   汇总成员；默认取配置 [summary].agent，round 下不能用 none
-  -budget-usd <n>      硬上限，默认 5，最小 0.5
+  -budget-usd <n>      预算上限（每轮结束后检查，单轮可能超线），默认 5，最小 0.5
   -timeout <duration>  整体超时，默认 10m
   -conversation <id>   续接已有会话
   -workspace <dir>     在 git 仓库的隔离 worktree 副本里跑，返回 diff
@@ -123,7 +123,7 @@ flags:
 	"cli.ask.summaryNoReply":    "council: 汇总成员 %s 没有回复（%s）\n",
 	"cli.ask.writeFailed":       "council ask: 写结果失败: %v\n",
 	"cli.ask.partial":           "council: partial: %d/%d 成员失败\n",
-	"cli.ask.budgetExceeded":    "council: 预算触线：已花 %.4f USD，上限 %.2f USD\n",
+	"cli.ask.budgetExceeded":    "council: 预算触线：保守估计已花 %.4f USD，上限 %.2f USD\n",
 
 	// ---- council ask：文本模式（-json 为假） ----
 	"cli.ask.text.statusLine": "状态: %s\n会话: %s\n成员: %s\n金额: %s USD\n",
@@ -443,7 +443,7 @@ var enCLI = Catalog{
 	"cli.ask.flag.mode":         "ask = each member speaks one turn; round = multiple rounds, same semantics as /round",
 	"cli.ask.flag.rounds":       "Only for round; must be 1 under ask",
 	"cli.ask.flag.summary":      "Summary member; none disables it (not allowed under round)",
-	"cli.ask.flag.budget":       "Hard cap for this call in USD; at least 0.5",
+	"cli.ask.flag.budget":       "Budget cap for this call in USD, checked after each round (one round can exceed it); at least 0.5",
 	"cli.ask.flag.timeout":      "Overall timeout; cancels everything in flight when reached",
 	"cli.ask.flag.conversation": "Resume an existing conversation; unknown ids exit 1",
 	"cli.ask.flag.workspace":    "Run in an isolated git worktree copy and return the diff",
@@ -503,7 +503,7 @@ flags:
 	"cli.ask.summaryNoReply":    "council: summary member %s did not reply (%s)\n",
 	"cli.ask.writeFailed":       "council ask: failed to write the result: %v\n",
 	"cli.ask.partial":           "council: partial: %d/%d members failed\n",
-	"cli.ask.budgetExceeded":    "council: budget exceeded: spent %.4f USD, cap %.2f USD\n",
+	"cli.ask.budgetExceeded":    "council: budget exceeded: estimated spend %.4f USD, cap %.2f USD\n",
 
 	"cli.ask.text.statusLine": "status: %s\nconversation: %s\nmembers: %s\ncost: %s USD\n",
 	"cli.ask.text.incomplete": " (incomplete: %d members do not report cost)",

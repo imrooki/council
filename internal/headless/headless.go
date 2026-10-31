@@ -331,7 +331,7 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 			s.execErr = fmt.Errorf("整轮没有跑起来: %w", recs[0].Err)
 			break
 		}
-		if s.costUSD >= opts.BudgetUSD {
+		if s.budgetUSD >= opts.BudgetUSD {
 			s.budgetExceeded = true
 			break
 		}
@@ -364,9 +364,9 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 			s.noteContext(runCtx.Err())
 		}
 	}
-	// 总结也要花钱。它成功把钱加进 costUSD 之后必须重查一次上限，
+	// 总结也要花钱。它成功把钱加进 budgetUSD 之后必须重查一次上限，
 	// 否则「发言轮未触线、总结把它推过线」会漏报成 ok。
-	if s.execErr == nil && !s.budgetExceeded && s.costUSD >= opts.BudgetUSD {
+	if s.execErr == nil && !s.budgetExceeded && s.budgetUSD >= opts.BudgetUSD {
 		s.budgetExceeded = true
 	}
 	// diff 一定要收：成员已经改过副本，哪怕这一趟被取消、超时或触线，
@@ -423,6 +423,8 @@ type askState struct {
 	turns          []TurnJSON
 	asked          []turn.Record
 	costUSD        float64
+	budgetUSD      float64
+	budget         budgetTracker
 	failed         map[string]struct{}
 	budgetExceeded bool
 	canceled       bool
@@ -544,6 +546,7 @@ func (s *askState) addTurn(rec turn.Record, round int) {
 	s.turns = append(s.turns, turnJSON(s.deps.Cfg, rec, round))
 	s.asked = append(s.asked, rec)
 	s.costUSD += costOf(rec)
+	s.budgetUSD += s.budget.add(rec)
 	if rec.Outcome != turn.OutcomeSpoke {
 		s.failed[rec.AgentID] = struct{}{}
 	}
@@ -622,6 +625,7 @@ func (s *askState) runSummary(ctx context.Context) error {
 	}
 	rec := recs[0]
 	s.costUSD += costOf(rec)
+	s.budgetUSD += s.budget.add(rec)
 	if rec.Message != nil {
 		s.summary = rec.Message.Text
 	} else if rec.DroppedText != "" {
@@ -699,8 +703,8 @@ func (s *askState) finish(status string) error {
 		fmt.Fprint(s.errOut, i18n.TF(s.opts.Lang, "cli.ask.partial", "council: partial: %d/%d 成员失败\n", failedN, total))
 		return nil
 	case statusBudgetExceeded:
-		fmt.Fprint(s.errOut, i18n.TF(s.opts.Lang, "cli.ask.budgetExceeded", "council: 预算触线：已花 %.4f USD，上限 %.2f USD\n", s.costUSD, s.opts.BudgetUSD))
-		return fmt.Errorf("预算触线：已花 %.4f USD，上限 %.2f USD", s.costUSD, s.opts.BudgetUSD)
+		fmt.Fprint(s.errOut, i18n.TF(s.opts.Lang, "cli.ask.budgetExceeded", "council: 预算触线：保守估计已花 %.4f USD，上限 %.2f USD\n", s.budgetUSD, s.opts.BudgetUSD))
+		return fmt.Errorf("预算触线：保守估计已花 %.4f USD，上限 %.2f USD", s.budgetUSD, s.opts.BudgetUSD)
 	case statusError:
 		if s.execErr == nil {
 			s.execErr = errors.New("执行出错")
@@ -829,6 +833,45 @@ func containsID(ids []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// budgetTracker 是预算专用的保守口径，与最终展示的 cost_usd 分开。
+//
+// 为什么不能直接累加 rec.CostUSDDelta：claude 的失败轮、基线可疑后的下一轮、
+// 续接旧会话继承的可疑状态都会让 delta 是 nil；costOf 把它折成 0，预算因此
+// 比实际花得少（B1）。这里改看 provider 报的累计值 total：
+//
+//   - 有可信 delta 时照用（它是同一口径的差值）；
+//   - delta 为 nil 但 total 还在时，用 total − 上一次记下的 total；
+//   - 没有上一次基线，或 total 比基线小（provider 侧重置），就把 total 整笔
+//     算进来 —— 宁可多算让预算提前停，也不能少算让预算永远追不上。
+//
+// 只影响预算，不影响 turns[].cost_usd 与 result.cost_usd：后者是「报过金额
+// 的那些轮」之和，语义是账，不是上限估计。
+type budgetTracker struct {
+	lastTotal map[string]float64
+}
+
+func (b *budgetTracker) add(rec turn.Record) float64 {
+	if b.lastTotal == nil {
+		b.lastTotal = make(map[string]float64)
+	}
+	if rec.CostUSDDelta != nil {
+		if rec.Usage.CostUSDTotal != nil {
+			b.lastTotal[rec.AgentID] = *rec.Usage.CostUSDTotal
+		}
+		return *rec.CostUSDDelta
+	}
+	if rec.Usage.CostUSDTotal == nil {
+		return 0
+	}
+	total := *rec.Usage.CostUSDTotal
+	prev, hadPrev := b.lastTotal[rec.AgentID]
+	b.lastTotal[rec.AgentID] = total
+	if hadPrev && total >= prev {
+		return total - prev
+	}
+	return total
 }
 
 // costOf 把可空的单轮金额折成结果里的数字。nil 读作「这一轮没报金额」，
