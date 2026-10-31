@@ -32,7 +32,14 @@ cd contrib/dsh-subagent-council && npm test
 
 ## 2026-10-31 全仓审查：发现与修改方案
 
-审查方式：按模块分 7 路逐文件读代码，在仓库副本里写临时测试 / `-race` / 假 CLI 脚本复现；下面每条都核过代码，标「疑似」的是缺真机证据。看板（`internal/serve`）那一路中途中断，只完成了 Host 校验这一项，**serve 的其余部分（导出、`/api/fs/dirs`、SSE、热加载）还需要补审**。
+### 交接说明（先读这一段）
+
+- **当前状态**：只做了审查，**一行产品代码都没改**。本文件是唯一产出，分支 `claude/fervent-meitner-eqwuu0`。
+- **审查方式**：按模块分 7 路逐文件读代码（turn+provider、store+conversation、serve、config+headless+mcp、cmd+localagent、repl+tui+app、desktop+前端+contrib+CI），在仓库副本里写临时测试、跑 `-race`、用假 CLI 脚本复现。每条都对过代码；标「疑似」的是缺 Windows 真机或真实 CLI 的证据。
+- **复现脚本不在仓库里**：它们写在云端容器的 `/tmp`，容器回收后就没了。每条都写了触发条件，照着在本地补一个回归用例即可——修复时**先写失败用例，再改代码**。
+- **没审完的**：看板（`internal/serve`）那一路中途中断，只完成了 Host 校验（S1）；导出、`/api/fs/dirs`、SSE / 长连接、设置页热加载还需要补审。前端 `index.html` 已由桌面那一路看过 XSS（没发现问题）。
+- **测试注释里提到的 `.handoff` 验收记录**不在公开仓库里（在本机或私有仓库），本次审查没有看到。
+- **编号**：S = 安全 / 失控，B = 正确性，T = 构建测试；P2 是小问题。修完一条就在下面删掉或标上提交哈希。
 
 ### P0：安全 / 失控花钱 / 失控改文件（先修）
 
