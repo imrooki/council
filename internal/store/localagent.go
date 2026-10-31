@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"council/internal/conversation"
+	"council/internal/localagent"
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
@@ -358,7 +359,7 @@ func (t *Tx) claimLease(ctx context.Context, req LeaseRequest, now time.Time) (L
 		return Lease{}, err
 	}
 
-	holder, err := t.grantedLeaseFor(ctx, key, req.Access)
+	holder, err := t.grantedLeaseFor(ctx, key, req.Access, now)
 	if err != nil {
 		return Lease{}, err
 	}
@@ -505,32 +506,53 @@ func (t *Tx) releaseLeasesByOwner(ctx context.Context, resourceKey, ownerID stri
 
 // grantedLeaseFor 返回挡住这次申请的持有者，没有则返回 nil。
 // read 只与 write 冲突，write 与任何 granted 租约冲突。
-func (t *Tx) grantedLeaseFor(ctx context.Context, resourceKey string, want LeaseAccess) (*Lease, error) {
+//
+// 冲突不要求 resource_key 完全相等：父目录与子目录会互相踩，tcp 的
+// localhost / 127.0.0.1 在规范化之后已经是同一个键（B9）。这里把 granted
+// 行都读出来逐条比，租约数量很小，不需要在 SQL 里拼路径前缀。
+func (t *Tx) grantedLeaseFor(ctx context.Context, resourceKey string, want LeaseAccess, now time.Time) (*Lease, error) {
 	query := `SELECT ` + leaseColumns + ` FROM local_leases
-		WHERE state = 'granted' AND resource_key = ?`
+		WHERE state = 'granted'`
 	if want == LeaseRead {
 		query += ` AND access_mode = 'write'`
 	}
-	query += ` ORDER BY granted_at LIMIT 1`
+	query += ` ORDER BY granted_at`
 
-	lease, err := scanLease(t.tx.QueryRowContext(ctx, query, resourceKey))
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
+	rows, err := t.tx.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("find lease holder of %s: %w", resourceKey, err)
 	}
-	return &lease, nil
+	defer rows.Close()
+	for rows.Next() {
+		lease, err := scanLease(rows)
+		if err != nil {
+			return nil, err
+		}
+		if !lease.ExpiresAt.After(now) {
+			// expireLeasesFor 通常已经改写过；这里再挡一次读到的过期行。
+			continue
+		}
+		if localagent.ResourceOverlaps(lease.ResourceKey, resourceKey) {
+			found := lease
+			return &found, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate lease holders of %s: %w", resourceKey, err)
+	}
+	return nil, nil
 }
 
 // expireLeasesFor 把某个资源上已经过期的 granted 行改写成 expired。
 // 每条改写都留一条事件，这样「它是怎么没的」在历史里能查到。
 func (t *Tx) expireLeasesFor(ctx context.Context, resourceKey string, now time.Time) error {
+	// 不只清理同一个 key：父目录/子目录以及 tcp 别名都算同一块资源；
+	// 过期行留在 granted 里会让新申请被一条早该失效的租约挡住。
 	rows, err := t.tx.QueryContext(ctx,
 		`SELECT `+leaseColumns+` FROM local_leases
-		 WHERE state = 'granted' AND resource_key = ?`, resourceKey)
+		 WHERE state = 'granted'`)
 	if err != nil {
-		return fmt.Errorf("find expiring leases on %s: %w", resourceKey, err)
+		return fmt.Errorf("find expiring leases near %s: %w", resourceKey, err)
 	}
 	var expired []Lease
 	for rows.Next() {

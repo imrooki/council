@@ -72,8 +72,10 @@ func TestNormalizeResourcePort(t *testing.T) {
 		"tcp:8765":           "tcp:127.0.0.1:8765",
 		"TCP:8765":           "tcp:127.0.0.1:8765",
 		"tcp:127.0.0.1:8765": "tcp:127.0.0.1:8765",
-		"tcp:LocalHost:8765": "tcp:localhost:8765",
+		"tcp:LocalHost:8765": "tcp:127.0.0.1:8765",
+		"tcp:localhost.:8765": "tcp:127.0.0.1:8765",
 		"tcp:[::1]:8765":     "tcp:[::1]:8765",
+		"tcp:example.com:80": "tcp:example.com:80",
 		"tcp::8765":          "tcp:127.0.0.1:8765",
 		"  tcp:6432  ":       "tcp:127.0.0.1:6432",
 	}
@@ -88,7 +90,10 @@ func TestNormalizeResourcePort(t *testing.T) {
 		}
 	}
 
-	for _, bad := range []string{"tcp:", "tcp:0", "tcp:65536", "tcp:abc", "tcp:127.0.0.1:"} {
+	for _, bad := range []string{
+		"tcp:", "tcp:0", "tcp:65536", "tcp:abc", "tcp:127.0.0.1:",
+		"tcp:not a host!:80", "tcp:foo_bar:80", "tcp:[::1:80",
+	} {
 		if _, err := NormalizeResource(bad); !errors.Is(err, ErrInvalidResource) {
 			t.Errorf("NormalizeResource(%q) 的错误 = %v，期望 ErrInvalidResource", bad, err)
 		}

@@ -15,6 +15,7 @@ package localagent
 import (
 	"errors"
 	"fmt"
+	"net"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -93,14 +94,80 @@ func normalizePortResource(spec string) (string, error) {
 		hostPart := strings.TrimSpace(spec[:i])
 		portPart = strings.TrimSpace(spec[i+1:])
 		if hostPart != "" {
-			host = hostPart
+			canonical, err := canonicalTCPHost(hostPart)
+			if err != nil {
+				return "", err
+			}
+			host = canonical
 		}
 	}
 	port, err := strconv.Atoi(portPart)
 	if err != nil || port < 1 || port > 65535 {
 		return "", fmt.Errorf("%w: 端口 %q 不合法（1-65535 的整数）", ErrInvalidResource, portPart)
 	}
-	return tcpResourcePrefix + strings.ToLower(host) + ":" + strconv.Itoa(port), nil
+	return tcpResourcePrefix + host + ":" + strconv.Itoa(port), nil
+}
+
+// canonicalTCPHost 把 tcp: 资源里的 host 折成唯一写法：IPv4 / 主机名小写，
+// IPv6 统一带方括号，localhost 折成 127.0.0.1。非法 host 直接拒绝——旧实现
+// 把任意字符串（包括 "not a host!"）都塞进资源键，两个其实相同的地址会
+// 被当成两个资源（B9）。
+func canonicalTCPHost(raw string) (string, error) {
+	candidate := strings.TrimSpace(raw)
+	if strings.HasPrefix(candidate, "[") && strings.HasSuffix(candidate, "]") {
+		candidate = candidate[1 : len(candidate)-1]
+	}
+	candidate = strings.TrimSuffix(candidate, ".")
+
+	if ip := net.ParseIP(candidate); ip != nil {
+		if ip4 := ip.To4(); ip4 != nil {
+			return ip4.String(), nil
+		}
+		return "[" + ip.String() + "]", nil
+	}
+	if strings.ContainsAny(candidate, ":[]") {
+		return "", fmt.Errorf("%w: tcp host %q 不是合法的 IP 地址", ErrInvalidResource, raw)
+	}
+	if strings.EqualFold(candidate, "localhost") {
+		return "127.0.0.1", nil
+	}
+	if !validTCPHostName(candidate) {
+		return "", fmt.Errorf("%w: tcp host %q 不是合法的主机名", ErrInvalidResource, raw)
+	}
+	return strings.ToLower(candidate), nil
+}
+
+// validTCPHostName 只接受 DNS 主机名的字符集（字母、数字、连字符与点）。
+// 端口资源不是 URL，不接受 userinfo、端口内嵌、空格或下划线。
+func validTCPHostName(host string) bool {
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || len(label) > 63 {
+			return false
+		}
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for i := 0; i < len(label); i++ {
+			c := label[i]
+			if c >= 'A' && c <= 'Z' {
+				continue
+			}
+			if c >= 'a' && c <= 'z' {
+				continue
+			}
+			if c >= '0' && c <= '9' {
+				continue
+			}
+			if c == '-' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
 }
 
 // normalizePathResource 把路径折成绝对的、小写的、无尾部分隔符的键。
