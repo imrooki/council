@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // fsDirEntry 是选择器里的一行。
@@ -119,16 +120,31 @@ func parentDir(dir string) string {
 }
 
 // volumeRoots 是选择器开屏的根列表。Windows 上只列真实存在的盘符。
+//
+// 结果按进程缓存一次：旧实现每个 /api/fs/dirs 请求都对 A–Z 逐个 os.Stat，
+// 一个断开的网络盘就能让整个目录选择器卡住（服务补审）。盘符在进程生命周期
+// 内变化很少，真要热插拔盘符，重启 serve 即可。
+var (
+	volumeRootsOnce  sync.Once
+	volumeRootsCache []fsDirEntry
+	// volumeRootsStat 只给测试注入计数用；生产恒为 os.Stat。
+	volumeRootsStat = os.Stat
+)
+
 func volumeRoots() []fsDirEntry {
-	if filepath.Separator != '\\' {
-		return []fsDirEntry{{Name: "/", Path: "/"}}
-	}
-	roots := make([]fsDirEntry, 0, 4)
-	for letter := 'A'; letter <= 'Z'; letter++ {
-		path := string(letter) + `:\`
-		if info, err := os.Stat(path); err == nil && info.IsDir() {
-			roots = append(roots, fsDirEntry{Name: string(letter) + ":", Path: path})
+	volumeRootsOnce.Do(func() {
+		if filepath.Separator != '\\' {
+			volumeRootsCache = []fsDirEntry{{Name: "/", Path: "/"}}
+			return
 		}
-	}
-	return roots
+		roots := make([]fsDirEntry, 0, 4)
+		for letter := 'A'; letter <= 'Z'; letter++ {
+			path := string(letter) + `:\`
+			if info, err := volumeRootsStat(path); err == nil && info.IsDir() {
+				roots = append(roots, fsDirEntry{Name: string(letter) + ":", Path: path})
+			}
+		}
+		volumeRootsCache = roots
+	})
+	return append([]fsDirEntry(nil), volumeRootsCache...)
 }
