@@ -124,7 +124,7 @@ cd contrib/dsh-subagent-council && npm test
 - @ 补全时光标在 token 中间，右边的残余字符会留着：`hi @alice` 按两次 ← 再回车，得到 `hi @alice ce`（`internal/tui/model.go:826-838`）。（已修：1e319d9）
 - 命令只认半角 `/`（`internal/repl/commands.go:183`、`seam.go:68`）：全角 `／use 123` 被当成发言落库，TUI 默认开自动回复时还会问全员一轮、花钱。`/to` 的 id 列表也不认全角逗号（`commands.go:420`）。（已修：0f7746b）
 - `/cost --round` 要求完整 round_id，但界面只显示末 6 位（`repl/roundobs.go:190`），照抄一定得到「没有记账行」（`repl/cost.go:332`）。支持后缀匹配，或打印完整 id。（已修：f5ac84a）
-- TUI 小问题：runCtx 正常结束时不调 cancel，子 context 一直挂在根 ctx 上（`tui/model.go:417, 898`）；复制屏底栏不按宽度截断，终端高度 ≤ 2 时帧高超出（`copyscreen.go:596`）；复制屏提示、`ErrCopyEmpty`、`ErrCopyUsage`、`repl/copyscreen.go:47`、`app/firstrun.go`、`app.go:178-179` 的文案没有走 i18n。（runCtx/高度已修：0276c5e；复制文案已修：c4126a3；app 配置路径提示已修：b080a27；firstrun 文案未动）
+- TUI 小问题：runCtx 正常结束时不调 cancel，子 context 一直挂在根 ctx 上（`tui/model.go:417, 898`）；复制屏底栏不按宽度截断，终端高度 ≤ 2 时帧高超出（`copyscreen.go:596`）；复制屏提示、`ErrCopyEmpty`、`ErrCopyUsage`、`repl/copyscreen.go:47`、`app/firstrun.go`、`app.go:178-179` 的文案没有走 i18n。（runCtx/高度已修：0276c5e；复制文案已修：c4126a3；app 与 firstrun 文案已修：b080a27、861d2dd）
 
 看板补审（2026-10-31，导出 / `/api/fs/dirs` / SSE / 设置页热加载）：
 
@@ -156,5 +156,5 @@ cd contrib/dsh-subagent-council && npm test
 ### 2026-11-01 收尾状态
 
 - Windows `go test ./... -count=1` 全绿；Linux Docker `golang:1.27` 全绿；`internal/turn ./internal/tui ./internal/repl` 的 `-race` 全绿；desktop 28 项、contrib 89 项全绿。
-- 未修/未验证：B3 按设计冲突保留；grok/agy 首行以 `-` 开头未用真 CLI 复现；claude `total_cost_usd` 仍需真机确认；只读 Store 的 v1–v4 面板依赖与打开时一次 schema 探测未改；firstrun 文案仍未走 i18n。
+- 未修/未验证：B3 按设计冲突保留；grok/agy 首行以 `-` 开头未用真 CLI 复现；claude `total_cost_usd` 仍需真机确认；只读 Store 的 v1–v4 面板依赖与打开时一次 schema 探测未改。
 - 本批提交未推送。
