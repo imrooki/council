@@ -376,11 +376,95 @@ func splitTablePath(inner string) []string {
 	return parts
 }
 
+// insideMultilineString 标记每一行在行首时是否已经处在 TOML 多行字符串
+// （""" 或 '''）内部。找段与改键都必须跳过这些行：role / prompt 里的
+// "[输出格式]" 不是表头，model = … 也不是字段（B5）。
+//
+// 只跟踪字符串，不跟踪多行数组：数组里的元素不会被误认成表头或字段，
+// 因为 findAgentSection 认的是整行 [table]，isKeyLine 认的是行首键名。
+func insideMultilineString(lines []fileLine) []bool {
+	inside := make([]bool, len(lines))
+	basic, literal := false, false
+	for i, line := range lines {
+		inside[i] = basic || literal
+		text := line.text
+		for j := 0; j < len(text); {
+			if basic {
+				if text[j] == '\\' {
+					// 多行基本字符串里的转义：跳过下一个字符，\" 不会结束字符串。
+					j += 2
+					continue
+				}
+				if strings.HasPrefix(text[j:], `"""`) {
+					basic = false
+					j += 3
+					continue
+				}
+				j++
+				continue
+			}
+			if literal {
+				if strings.HasPrefix(text[j:], `'''`) {
+					literal = false
+					j += 3
+					continue
+				}
+				j++
+				continue
+			}
+			switch text[j] {
+			case '#':
+				// 引号外的 # 是注释，后面的三引号不算字符串开始。
+				j = len(text)
+			case '"':
+				if strings.HasPrefix(text[j:], `"""`) {
+					basic = true
+					j += 3
+					continue
+				}
+				// 单行基本字符串：跳过到配对引号，处理转义。
+				j++
+				for j < len(text) {
+					if text[j] == '\\' {
+						j += 2
+						continue
+					}
+					if text[j] == '"' {
+						j++
+						break
+					}
+					j++
+				}
+			case '\'':
+				if strings.HasPrefix(text[j:], `'''`) {
+					literal = true
+					j += 3
+					continue
+				}
+				j++
+				for j < len(text) && text[j] != '\'' {
+					j++
+				}
+				if j < len(text) {
+					j++
+				}
+			default:
+				j++
+			}
+		}
+	}
+	return inside
+}
+
 // findAgentSection 定位 [agents.<id>] 这一段：start 是表头行，end 是下一行
 // 表头的下标（没有下一段时是 len(lines)）。ok=false 表示目标文件里没有这一段。
 func findAgentSection(lines []fileLine, id string) (start, end int, ok bool) {
+	inside := insideMultilineString(lines)
 	start = -1
 	for i, line := range lines {
+		if inside[i] {
+			continue
+		}
 		path, isHeader := parseTableHeader(line.text)
 		if !isHeader {
 			continue
@@ -508,8 +592,14 @@ func upsertAgentSection(content []byte, id string, agent, fallback AgentConfig) 
 	}
 
 	body := make([]fileLine, 0, end-start-1+len(values))
+	inside := insideMultilineString(lines)
 	handled := make(map[string]bool, len(agentSectionKeys))
 	for i := start + 1; i < end; i++ {
+		if inside[i] {
+			// 多行字符串内部的行原样保留：role/prompt 里的 model = … 不是字段。
+			body = append(body, lines[i])
+			continue
+		}
 		key := ""
 		for _, candidate := range agentSectionKeys {
 			if isKeyLine(lines[i].text, candidate) {
