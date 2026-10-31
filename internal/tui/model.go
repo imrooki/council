@@ -165,6 +165,12 @@ type Model struct {
 	// copyScr 是复制模式（TUI-2，见 copyscreen.go）的状态。零值是「不在复制模式」，
 	// 所以非复制路径上 View 不会开备用屏，也不会挂 OnMouse。
 	copyScr copyScreenState
+	// copying 为真表示 TUI 本地的 /copy 取数命令还在跑。它不占据复制模式，
+	// 但必须挡住 Submit：否则 CopyRecent 与 Submit 会并发读写同一个 REPL 的
+	// 当前会话（B21）。
+	copying bool
+	// copySeq 是复制模式取数的单调代号；每次 startCopyScreen 自增。
+	copySeq uint64
 	// finalizing 为真表示处在 submitDone 到收口之间的窗口。窗口里 Ctrl-C 与 Enter 被挡住。
 	finalizing bool
 	// pinCursor 为真时 View 把光标钉在表头行首。
@@ -384,6 +390,11 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// 交回下面既有的分支（宽高要更新，退出之后活区才对）。取数期间也算半个
 	// 复制模式：键盘要挡住，免得 Enter 与 CopyScreen 并发进同一个 REPL。
 	// 这一段必须在 @ 补全列表那一支前面：复制模式里没有输入框，列表也不在屏幕上。
+	if done, ok := msg.(copyDoneMsg); ok {
+		// 剪贴板结果可能赶在复制模式取数/整屏期间回来；先落剪贴板，不能被
+		// updateCopyScreen 的 default 分支吞掉（B21）。
+		return m.copyDone(done)
+	}
 	if m.copyScr.on || m.copyScr.loading {
 		if next, cmd, handled := m.updateCopyScreen(msg); handled {
 			return next, cmd
@@ -849,6 +860,10 @@ const oneCommandHint = "一次只能一条命令，逐条回车；整段当消�
 // 「再按一次 Ctrl-C 退出」，到期或按别的键后恢复成这句。打字、tick、窗口尺寸变化都不动它，
 // @ 补全列表在屏幕上时归列表的六个键（Ctrl-C、Esc、上、下、Tab、回车）也不动它。
 func (m Model) beginSubmit() (tea.Model, tea.Cmd) {
+	if m.copying {
+		m.status = m.t("tui.status.copyPending", "正在复制，稍等")
+		return m, nil
+	}
 	text := strings.TrimRight(m.ta.Value(), "\r\n")
 	if strings.TrimSpace(text) == "" {
 		return m, nil

@@ -211,6 +211,7 @@ func (m Model) beginCopy(text string, cmds []tea.Cmd) (tea.Model, tea.Cmd, bool)
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	m.copying = true
 	return m, tea.Sequence(append(cmds, copyCmd(src, ctx, args))...), true
 }
 
@@ -219,6 +220,7 @@ func (m Model) beginCopy(text string, cmds []tea.Cmd) (tea.Model, tea.Cmd, bool)
 // 先把 Ctrl-C 的武装解除：命令结束是一次「别的事件」，而复制提示会改写状态栏，
 // 留着武装的话到期恢复出来的是一句已经作废的「再按一次 Ctrl-C …」。
 func (m Model) copyDone(msg copyDoneMsg) (tea.Model, tea.Cmd) {
+	m.copying = false
 	m = m.ctrlCDisarm()
 	if msg.err != nil {
 		if errors.Is(msg.err, repl.ErrCopyEmpty) {

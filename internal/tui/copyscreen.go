@@ -55,6 +55,10 @@ type copyScreenState struct {
 	// 消息」又不许先进整屏再退出来（任务书 §3），所以先记 loading，
 	// 结果回来再决定进不进。
 	loading bool
+	// loadSeq 是本次取数的代号。Esc 取消后立刻再按 Ctrl+G 时，旧 Cmd 的
+	// 结果可能在新请求 loading 期间回来；只靠 loading 布尔值会把它当成
+	// 新请求的数据（B21）。
+	loadSeq uint64
 	// lines 是排版好的正文行：纯文本，[名字] 行与两条之间的空行都在里面。
 	// 生成之后只读，Update 之间按值拷贝共享同一份底层数组。
 	lines []string
@@ -93,16 +97,17 @@ type copyScreenSource interface {
 
 // copyScreenLoadedMsg 是取数命令的结果。err 非 nil 时 lines 无意义。
 type copyScreenLoadedMsg struct {
+	seq       uint64
 	lines     []repl.CopyLine
 	truncated bool
 	err       error
 }
 
 // copyScreenLoadCmd 在命令 goroutine 上向 REPL 取正文，不在 Update 里读库。
-func copyScreenLoadCmd(src copyScreenSource, ctx context.Context) tea.Cmd {
+func copyScreenLoadCmd(src copyScreenSource, ctx context.Context, seq uint64) tea.Cmd {
 	return func() tea.Msg {
 		lines, truncated, err := src.CopyScreen(ctx)
-		return copyScreenLoadedMsg{lines: lines, truncated: truncated, err: err}
+		return copyScreenLoadedMsg{seq: seq, lines: lines, truncated: truncated, err: err}
 	}
 }
 
@@ -148,11 +153,13 @@ func (m Model) startCopyScreen() (Model, tea.Cmd) {
 	m = m.copyStatusSettle()
 	m = m.ctrlCDisarm()
 	m.copyScr = copyScreenState{loading: true}
+	m.copySeq++
+	m.copyScr.loadSeq = m.copySeq
 	ctx := m.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return m, copyScreenLoadCmd(src, ctx)
+	return m, copyScreenLoadCmd(src, ctx, m.copyScr.loadSeq)
 }
 
 // copyScreenLoaded 处理取数结果。
@@ -160,8 +167,8 @@ func (m Model) startCopyScreen() (Model, tea.Cmd) {
 // 空结果（没有当前会话、会话里没有可复制正文）不进整屏：状态栏一句
 // 「没有可复制的消息」，与 /copy 空会话的答复是同一个常量（repl.MsgCopyNoContent）。
 func (m Model) copyScreenLoaded(msg copyScreenLoadedMsg) (Model, tea.Cmd) {
-	if !m.copyScr.loading {
-		// 取数期间 Model 已经换过一轮（重复的 Ctrl+G 被挡在 startCopyScreen），
+	if !m.copyScr.loading || msg.seq != m.copyScr.loadSeq {
+		// 取数期间 Model 已经换过一轮，或用户 Esc 后又发起了一次新的取数：
 		// 迟到的结果丢掉，不能把用户拽进整屏。
 		return m, nil
 	}
