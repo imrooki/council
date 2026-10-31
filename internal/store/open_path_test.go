@@ -14,6 +14,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -114,17 +115,28 @@ func TestOpenReadOnlyDataDirWithSpecialChars(t *testing.T) {
 // TestSQLiteURIPathEscapes 是纯函数用例：顺序与幂等性比「看起来对」重要
 // —— 先转 % 再转 #/?，否则 %23 会被二次转义成 %2523。
 func TestSQLiteURIPathEscapes(t *testing.T) {
-	cases := map[string]string{
-		`C:\plain\path`: "C:/plain/path",
-		`C:\a#b\c`:      "C:/a%23b/c",
-		`C:\a%23b\c`:    "C:/a%2523b/c",
-		`C:\a?b\c`:      "C:/a%3Fb/c",
-		`C:\a%b#c?d\e`:  "C:/a%25b%23c%3Fd/e",
-		`/home/me/a#b`:  "/home/me/a%23b",
+	// 反斜杠只有在 Windows 上才是路径分隔符：filepath.ToSlash 在 Linux 上
+	// 原样保留它。同一份输入因此在两个平台有不同期望，这不是产品分叉，
+	// 而是「平台怎么解释这个字符串」的事实（审查 T2）。
+	cases := []struct {
+		in          string
+		wantWindows string
+		wantOther   string
+	}{
+		{`C:\plain\path`, "C:/plain/path", `C:\plain\path`},
+		{`C:\a#b\c`, "C:/a%23b/c", `C:\a%23b\c`},
+		{`C:\a%23b\c`, "C:/a%2523b/c", `C:\a%2523b\c`},
+		{`C:\a?b\c`, "C:/a%3Fb/c", `C:\a%3Fb\c`},
+		{`C:\a%b#c?d\e`, "C:/a%25b%23c%3Fd/e", `C:\a%25b%23c%3Fd\e`},
+		{`/home/me/a#b`, "/home/me/a%23b", "/home/me/a%23b"},
 	}
-	for in, want := range cases {
-		if got := sqliteURIPath(in); got != want {
-			t.Errorf("sqliteURIPath(%q) = %q，期望 %q", in, got, want)
+	for _, tc := range cases {
+		want := tc.wantOther
+		if runtime.GOOS == "windows" {
+			want = tc.wantWindows
+		}
+		if got := sqliteURIPath(tc.in); got != want {
+			t.Errorf("sqliteURIPath(%q) = %q，期望 %q", tc.in, got, want)
 		}
 	}
 	if strings.Contains(sqliteURIPath(`C:\a#b`), "#") {

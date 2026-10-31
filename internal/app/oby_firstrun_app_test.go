@@ -77,6 +77,7 @@ func TestObyFirstRunLoginText(t *testing.T) {
 // 登录说明照打，但只列 agy。与 B2 只差装不装 agy，是 B2「登录说明不打」的正对照。
 // 【判别力】N1、N5、N9、N12、N20、N21、N22。
 func TestObyFirstRunAPIKey(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obyKeyFakes(t, e, true)
 
@@ -100,6 +101,7 @@ func TestObyFirstRunAPIKey(t *testing.T) {
 // TestObyFirstRunAPIKeyAllIn 是 B2：同 B1 但不装 agy。找到的全是已登录（API key），登录说明与登录办法都不打。
 // 【判别力】N20（已登录（API key）的也列登录办法）、N1、N5、N12、N21、N22。
 func TestObyFirstRunAPIKeyAllIn(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obyKeyFakes(t, e, false)
 
@@ -129,6 +131,7 @@ const obyStatusLimit = "60000"
 // 那一行变成已登录，而且 Run 要等远超 obyB3Limit（实测约 24.5 s）。
 // 【判别力】N23。
 func TestObyFirstRunCodexStatusTimeout(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obxSetTimeout(t, 2*time.Second)
 	loopOn := obxFixture(t, e, "loop.on", "x")

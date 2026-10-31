@@ -543,10 +543,13 @@ func TestAsk_慢总结超时仍partial(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("COUNCIL_FAKE_CALLS", filepath.Join(dir, "calls"))
 	t.Setenv("COUNCIL_FAKE_SLEEP_AFTER", "2")
-	t.Setenv("COUNCIL_FAKE_SLEEP_MS", "3000")
+	t.Setenv("COUNCIL_FAKE_SLEEP_MS", "30000")
 	cfgPath, _ := writeAskConfig(t, "[summary]\nagent = \"s1\"\n")
+	// 总超时必须宽到让前两个发言成员在 -race 下也能跑完：竞态检测器会让
+	// 每次假 CLI 启动慢一个量级，1.2s 会在第一轮就跑完之前到期，测试就
+	// 变成「一个结果都没有」而不是「总结被截断」。
 	out, errOut, err := runAskForTest(t, context.Background(), cfgPath,
-		[]string{"-p", "q", "-members", "c1,c3", "-timeout", "1200ms", "-json"}, "")
+		[]string{"-p", "q", "-members", "c1,c3", "-timeout", "5000ms", "-json"}, "")
 	if err != nil {
 		t.Fatalf("总结超时不应返回错误（已有发言结果），实际 %v；Err:\n%s", err, errOut)
 	}

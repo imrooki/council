@@ -20,8 +20,11 @@ import (
 func TestWriteLocalAgentReplacesTopLevelAndKeepsBytes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
+	// 同 language_test.go：data_dir 必须是当前平台的真绝对路径，
+	// E:\council-data 在 Linux 上不是绝对路径（审查 T2）。
+	dataDir := filepath.Join(t.TempDir(), "data")
 	orig := "# 顶部注释\r\n" +
-		"data_dir = 'E:\\council-data'  # 行尾注释\r\n" +
+		"data_dir = '" + dataDir + "'  # 行尾注释\r\n" +
 		"language = \"zh\"\r\n" +
 		"local_agent = \"off\"\r\n" +
 		"\r\n" +

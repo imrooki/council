@@ -60,7 +60,9 @@ func TestApplyProviderInvocationNoopWhenEmpty(t *testing.T) {
 }
 
 func TestMergeProviderEnvOverridesCaseInsensitivelyOnWindows(t *testing.T) {
-	base := []string{"PATH=C:\\a", "KEEP=1"}
+	// 基环境里同时放 PATH 与 Path：Windows 上它们是同一个变量，覆盖必须
+	// 把两条都去掉；POSIX 上大小写敏感，只去掉与覆盖项完全同名的 PATH。
+	base := []string{"PATH=C:\\a", "Path=C:\\a", "KEEP=1"}
 	merged := mergeProviderEnv(base, []string{"PATH=C:\\b"})
 	var paths []string
 	for _, entry := range merged {

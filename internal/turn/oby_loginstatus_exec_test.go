@@ -1,3 +1,8 @@
+//go:build windows
+
+// 这些用例与 obx_loginstatus_exec_test.go 同一套 .cmd 垫片装置，
+// 非 Windows 上无法执行（审查 T2）。
+
 package turn
 
 import (

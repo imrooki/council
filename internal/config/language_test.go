@@ -112,8 +112,12 @@ func TestLanguageValidation(t *testing.T) {
 func TestWriteLanguageReplacesTopLevelAndKeepsBytes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
+	// data_dir 必须是绝对路径，而 E:\ 只在 Windows 上算绝对路径。用临时目录
+	// 拼一个当前平台的真绝对路径，这条用例才是在验「只改 language 一行」，
+	// 不是在验盘符（审查 T2）。
+	dataDir := filepath.Join(t.TempDir(), "data")
 	orig := "# 顶部注释\r\n" +
-		"data_dir = 'E:\\council-data'  # 行尾注释\r\n" +
+		"data_dir = '" + dataDir + "'  # 行尾注释\r\n" +
 		"language = \"zh\"\r\n" +
 		"\r\n" +
 		"[providers.claude]\r\n" +

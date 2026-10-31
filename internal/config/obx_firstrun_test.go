@@ -108,6 +108,7 @@ func obxLoadText(t *testing.T, text string) *Config {
 // 对 M1-M6、M9、M10 红；cwd_planted 对 X1 红，它的前提断言是正对照（宿主注入的
 // NoDefaultCurrentDirectoryInExePath 不拿掉时 LookPath 不看当前目录，这一条会成为空用例）。
 func TestObxDetectProviders(t *testing.T) {
+	skipUnlessWindows(t)
 	t.Run("path_and_known", func(t *testing.T) {
 		e := obxDetectEnv(t)
 		claude := obxTouch(t, e.p2, "claude.cmd")
@@ -220,6 +221,7 @@ func TestObxProviderBlockTOML(t *testing.T) {
 // TestObxFirstRunTOML 是 C3（v1.2 拆成两个子测试）。
 // 【判别力】literal 对 M12、M14-M17、M21、M101、M106 红；quote_data_dir 对 M21、M101、M102 红。
 func TestObxFirstRunTOML(t *testing.T) {
+	skipUnlessWindows(t)
 	t.Run("literal", func(t *testing.T) {
 		got := FirstRunTOML(`C:\h\.council\data`, []DetectedProvider{
 			{ID: "claude", Path: `C:\x\claude.cmd`},
@@ -305,8 +307,11 @@ func TestObxCreateConfigFile(t *testing.T) {
 		t.Fatalf("写 blk: %v", err)
 	}
 	bp := filepath.Join(blk, "config.toml")
-	if _, serr := os.Stat(bp); !errors.Is(serr, fs.ErrNotExist) {
-		t.Fatalf("前提：Stat(%s) 应当满足 ErrNotExist，实际 %v", bp, serr)
+	// 父路径是普通文件时，Windows 的 Stat 返回 ErrNotExist，Linux 返回
+	// ENOTDIR。这里只要求「现在还不存在」，两种语义都算前提成立；
+	// 钉死 ErrNotExist 会让这条用例在 Linux 上因为平台差异而不是产品行为失败。
+	if _, serr := os.Stat(bp); serr == nil {
+		t.Fatalf("前提：%s 现在不该存在，实际 Stat 成功", bp)
 	}
 	err = CreateConfigFile(bp, []byte("x = 1\n"))
 	if err == nil || errors.Is(err, fs.ErrExist) {

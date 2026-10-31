@@ -59,6 +59,7 @@ func obzSetup(t *testing.T, e *obxEnv) (string, string) {
 // 标记在 Run 之前不存在（前提）。
 // 【判别力】Q29（行式分支不装执行器：没有登录段、没有标记），另有 Q22、Q23。
 func TestObzAddLoginLineMode(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	explicit, marker := obzSetup(t, e)
 	obxNotExist(t, marker)
@@ -83,6 +84,7 @@ func TestObzAddLoginLineMode(t *testing.T) {
 // 屏幕上（去掉 ANSI 与空格）出现登录段的段头与 codex 那一行，标记文件证明 login status 被调到。
 // 【判别力】Q28（TUI 分支不装执行器）。
 func TestObzAddLoginTUI(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	explicit, marker := obzSetup(t, e)
 	obxNotExist(t, marker)
@@ -168,6 +170,7 @@ const obzGrokExitOut = "You are not authenticated.\n\nAvailable models:\n  * gro
 // 退出（前提）；「没登录」而不是「登录状态查不出」证明 stdout 被用上了。
 // 【判别力】Q36（firstRunCheck 只在识别无错时才截 stdout，只有它杀得到），另有 Q23、Q30。
 func TestObzFirstRunGrokExitError(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	gfx := obxFixture(t, e, "grok.out", obzGrokExitOut)
 	obxFake(t, e.bin, "grok", `@type "`+gfx+`"`, "@echo obz-grok-exit 1>&2", "@exit /b 1")

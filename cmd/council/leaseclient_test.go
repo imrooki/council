@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -68,8 +69,13 @@ func TestClaimOverServer(t *testing.T) {
 	whoTestEnv(t)
 	fake, url := newLeaseFakeDashboard(t, http.StatusOK, leaseGrantedBody("lease-abc"))
 
+	// 资源用当前平台的真绝对路径：`D:\work\proj` 在 Linux 上会被
+	// NormalizeResource 当成相对路径拼上 cwd，这条用例本意是验请求体形状，
+	// 不该被盘符语义挡住（审查 T2）。
+	resource := filepath.Join(t.TempDir(), "proj")
+	wantResource := strings.ToLower(filepath.Clean(resource))
 	_, errOut, code := claimRun(t, claimPanicDeps(t),
-		"-server", url, "-mode", "read", "-ttl", "90s", "-owner", "me", `D:\work\proj`)
+		"-server", url, "-mode", "read", "-ttl", "90s", "-owner", "me", resource)
 	if code != exitOK {
 		t.Fatalf("退出码 = %d，期望 0；stderr=%s", code, errOut)
 	}
@@ -77,7 +83,7 @@ func TestClaimOverServer(t *testing.T) {
 		t.Errorf("请求路径 = %q，期望 /api/local-agents/lease", fake.path)
 	}
 	wantBody := map[string]any{
-		"resource":    `d:\work\proj`,
+		"resource":    wantResource,
 		"mode":        "read",
 		"ttl_seconds": float64(90),
 		"owner":       "me",

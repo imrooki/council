@@ -66,6 +66,7 @@ func adnAppFileAdded(t *testing.T, e *obxEnv, explicit, orig string) {
 // 再追加、加入，out 的结尾整段相等（会话 id 与备份时间戳按形状比）；文件与备份按字节比。
 // 【判别力】V45（行式分支不打开开关）。
 func TestAdnAppLineMode(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	explicit, orig := adnAppSetup(t, e)
 
@@ -88,6 +89,7 @@ func TestAdnAppLineMode(t *testing.T) {
 // 屏幕上（去掉 ANSI 与空格）出现「gpt-obx-high已加入会话」，文件与备份按字节比。
 // 【判别力】V46（TUI 分支不打开开关）。
 func TestAdnAppTUI(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	explicit, orig := adnAppSetup(t, e)
 

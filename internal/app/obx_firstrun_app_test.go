@@ -429,6 +429,7 @@ func TestObxGuardSeesCreation(t *testing.T) {
 // 【判别力】三档里的「已登录（带订阅）」「没登录」「已登录（不带订阅）」都在这一条里：M56、M57、M58、M89、M92；
 // M101、M103（DataDir 断言与横幅）。E2 的「errOut 为空」以第一次的非空 errOut 为正对照。
 func TestObxFirstRunEndToEnd(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obxThreeFakes(t, e)
 
@@ -471,6 +472,7 @@ func TestObxFirstRunEndToEnd(t *testing.T) {
 // TestObxFirstRunNoAuto 是 A2：同 A1 但 NoAuto；只差第 3 步那一句。与 A1 互为对照。
 // 【判别力】M30（noAuto 那一支永远不走）。
 func TestObxFirstRunNoAuto(t *testing.T) {
+	skipUnlessWindows(t)
 	if !strings.Contains(obxDone, obxStep3Auto) {
 		t.Fatalf("前提不成立：obxDone 里没有第 3 步的对话模式那一句，换不出 NoAuto 的期望")
 	}
@@ -496,6 +498,7 @@ func TestObxFirstRunNoAuto(t *testing.T) {
 // TestObxFirstRunNoneFound 是 A3：一个假 CLI 都不装。
 // 【判别力】M31（一家都没找到时返回 nil）；不建 .council 以 A1 为正对照。
 func TestObxFirstRunNoneFound(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 
 	out, errOut, err := obxRun(t, context.Background(), Options{In: obxIn("/quit\n")})
@@ -547,6 +550,7 @@ func TestObxFirstRunExplicitMissing(t *testing.T) {
 // TestObxFirstRunWriteFails 是 A5：<home>\.council 是一个普通文件，建不了目录。
 // 【判别力】M43（不打本来要写的内容）、M44（返回 nil）。
 func TestObxFirstRunWriteFails(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obxThreeFakes(t, e)
 	blocker := filepath.Join(e.home, ".council")
@@ -584,6 +588,7 @@ func TestObxFirstRunWriteFails(t *testing.T) {
 // 找到的全都已登录，登录说明与登录办法都不打（A1 里那两段的缺席对照）。
 // 【判别力】M41、M42、M24（临时文件没删）、M74（总打登录说明）。
 func TestObxFirstRunRace(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	body := "[providers.claude]\ncommand = 'obx-prepared'\n\n[agents.p1]\nprovider = 'claude'\nmodel = 'm'\n"
 	prepared := obxFixture(t, e, "prepared.toml", body)
@@ -619,6 +624,7 @@ func TestObxFirstRunRace(t *testing.T) {
 // TestObxFirstRunCanceled 是 A7：传一个已经取消的 ctx。
 // 【判别力】M36（不查取消）、M52（取消当错误返回）；不建文件以 A1 为正对照。
 func TestObxFirstRunCanceled(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obxThreeFakes(t, e)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -642,6 +648,7 @@ func TestObxFirstRunCanceled(t *testing.T) {
 // grok 一个模型都没列出来、codex 以 3 退出（debug models 与 login status 都走这两行）。
 // 【判别力】M33、M37、M39、M40、M66、X2（claude 最后超时，一定最后完成）。
 func TestObxFirstRunFailures(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obxSetTimeout(t, 1*time.Second)
 	loopOn := obxFixture(t, e, "loop.on", "x")
@@ -671,6 +678,7 @@ func TestObxFirstRunFailures(t *testing.T) {
 // claude 5 s 超时。codex 是没登录这一档。
 // 【判别力】M34（串行）；M73、M88、M91（codex 没登录这一档）。
 func TestObxFirstRunParallel(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obxSetTimeout(t, 5*time.Second)
 	marker := filepath.Join(e.fx, "codex-started")
@@ -698,6 +706,7 @@ func TestObxFirstRunParallel(t *testing.T) {
 // 互为「grok 提示出现 / 不出现」的对照；claude 在配置里、agy 没装，都不提示。
 // 【判别力】M53（行式分支不装检测器）、M60、M61、M63、M2、M12。
 func TestObxAddHintLineMode(t *testing.T) {
+	skipUnlessWindows(t)
 	for _, mode := range []string{"hint", "configured"} {
 		t.Run(mode, func(t *testing.T) {
 			e := obxIsolate(t)
@@ -742,6 +751,7 @@ func TestObxAddHintLineMode(t *testing.T) {
 // 以及 TUI 分支装了检测器（首次运行之后才装上的 agy 在 /add 之后得到提示）。
 // 【判别力】M54（TUI 分支不装检测器）；M47 之类把首次运行写进 out 的，顺序变，红。
 func TestObxFirstRunTUI(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obxThreeFakes(t, e)
 
@@ -824,6 +834,7 @@ func TestObxFirstRunTUI(t *testing.T) {
 // 出现「正在检查」（obxMarkWriter 建标记）才回答。找到的全都已登录，登录说明不打。
 // 【判别力】X3（「正在检查」挪到识别之后打：claude 等不到标记，3 s 超时）、M74。
 func TestObxFirstRunCheckingFirst(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obxSetTimeout(t, 3*time.Second)
 	marker := filepath.Join(e.fx, "checking-seen")
@@ -846,6 +857,7 @@ func TestObxFirstRunCheckingFirst(t *testing.T) {
 // 交给 LoadAndValidate 照常报。A1 是「不含第一次运行」的正对照（只差 home 的名字合不合法）。
 // 【判别力】X5（Stat 的任何错误都进首次运行）。
 func TestObxFirstRunBadHome(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obxThreeFakes(t, e)
 	bad := filepath.Join(e.root, "a<b")
@@ -876,6 +888,7 @@ func TestObxFirstRunBadHome(t *testing.T) {
 // （否则会在启动目录下建文件）；走 reportConfigError 非 explicit 的 NotExist 分支，只打两行说明。
 // 【判别力】M27（去掉 IsAbs：在启动目录下建出 relhome\.council\config.toml）、M55（这一支把模板加回来）。
 func TestObxFirstRunRelativeHome(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obxThreeFakes(t, e)
 	cwd := filepath.Join(e.root, "cwd")
@@ -904,6 +917,7 @@ func TestObxFirstRunRelativeHome(t *testing.T) {
 // 不列登录办法）、agy 找到时的查不出与兜底句、codex 已登录（不列登录办法）。
 // 【判别力】OB2 的 N1、N20、N21（grok 那一行与登录办法）、M39、M89、M92、M56。
 func TestObxFirstRunLoginStates(t *testing.T) {
+	skipUnlessWindows(t)
 	e := obxIsolate(t)
 	obxTypeFake(t, e, "claude", obxClaudeNoLoginOut)
 	obxTypeFake(t, e, "grok", obxGrokKeyOut)

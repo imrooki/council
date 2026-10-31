@@ -1,3 +1,8 @@
+//go:build windows
+
+// 这些用例用 .cmd 批处理垫片冒充 CLI，并依赖 cmd.exe 的退出码语义。
+// 非 Windows 上既没有 cmd.exe，也造不出可执行的 .cmd（审查 T2）。
+
 package turn
 
 import (
