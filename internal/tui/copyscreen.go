@@ -12,8 +12,10 @@ package tui
 //     鼠标模式序列，并真的 enter/leave alt screen。
 //
 //  2. 正文行是纯文本，选区是「显示列」。列到 rune 的映射一律用
-//     github.com/mattn/go-runewidth 按显示宽度算：中文占两格，一个汉字的两格
-//     都指向同一个 rune。按字节或 rune 下标切，中文行会切错。
+//     charmbracelet/x/ansi 的字形簇宽度算，与 View 里的 ansi.Truncate
+//     同一套算法：中文占两格，一个汉字的两格都指向同一个字形簇。按字节
+//     或 rune 下标切，中文行会切错；按 go-runewidth 的逐 rune 宽度切，
+//     带 VS16 的 emoji 会与渲染宽度对不上（B19）。
 //
 //  3. 复制提示沿用 TUI-1 的 copyStatusShow / copyStatusExpire / copyHint（copy.go）：
 //     同一句话、同一个 2 秒窗口、同一份 rune 计数，不另起一套。
@@ -27,7 +29,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/mattn/go-runewidth"
 
 	"council/internal/i18n"
 	"council/internal/repl"
@@ -440,7 +441,7 @@ func (m Model) copyPointAt(x, y int) copyPoint {
 	row := min(max(y-1, 0), body-1)
 	line := min(m.copyFirst()+row, n-1)
 	cell := 0
-	if w := runewidth.StringWidth(s.lines[line]); w > 0 {
+	if w := ansi.StringWidth(s.lines[line]); w > 0 {
 		switch {
 		case x >= m.copyWidth()-1:
 			// 可见区最右列 = 这一行的行尾。长行被显示截断之后，鼠标永远
@@ -665,15 +666,13 @@ func copyLineThrough(line string, cell int) string {
 // 跟着前一个字走（见 copyRuneEndAtCell）。
 func copyRuneStartAtCell(rs []rune, cell int) int {
 	col := 0
-	for i, r := range rs {
-		w := runewidth.RuneWidth(r)
-		if w < 0 {
-			w = 0
-		}
+	for i := 0; i < len(rs); {
+		n, w := copyGraphemeAt(rs, i)
 		if cell < col+w {
 			return i
 		}
 		col += w
+		i += n
 	}
 	return len(rs)
 }
@@ -684,19 +683,28 @@ func copyRuneStartAtCell(rs []rune, cell int) int {
 // 否则从中间切时会把组合符号留在选区外面，复制出来是拆开的字。
 func copyRuneEndAtCell(rs []rune, cell int) int {
 	col := 0
-	for i, r := range rs {
-		w := runewidth.RuneWidth(r)
-		if w < 0 {
-			w = 0
-		}
+	for i := 0; i < len(rs); {
+		n, w := copyGraphemeAt(rs, i)
 		if w > 0 && cell < col+w {
-			j := i + 1
-			for j < len(rs) && runewidth.RuneWidth(rs[j]) <= 0 {
-				j++
-			}
-			return j
+			// 字形簇整体返回：VS16、组合符号跟着基字符一起选进来。
+			return i + n
 		}
 		col += w
+		i += n
 	}
 	return len(rs)
+}
+
+// copyGraphemeAt 返回从 rs[i] 开始的一个字形簇的 rune 数与显示宽度。
+// 宽度函数与 ansi.StringWidth / ansi.Truncate 同源，保证选区坐标系与渲染一致。
+func copyGraphemeAt(rs []rune, i int) (runeCount, width int) {
+	cluster, w := ansi.FirstGraphemeCluster(string(rs[i:]), ansi.GraphemeWidth)
+	runeCount = utf8.RuneCountInString(cluster)
+	if runeCount == 0 {
+		runeCount = 1
+	}
+	if w < 0 {
+		w = 0
+	}
+	return runeCount, w
 }
