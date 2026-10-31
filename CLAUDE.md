@@ -10,14 +10,14 @@
 ## 构建与测试
 
 ```sh
-go build ./cmd/council          # go build ./... 在非 Windows 上会被 cmd/council-launch 卡住（见审查 T1）
+go build ./...                  # 两个平台都能过；council-launch 在非 Windows 上是拒绝入口
 go test ./... -count=1
 cd desktop && npm ci && npm test
 cd contrib/dsh-subagent-council && npm test
 ```
 
-- 作者只在 Windows 上实测；Linux 上 `go test ./...` 目前有约 30 个用例失败，几乎全是测试写死了 Windows 前提（见审查 T2），不是产品回归。改动后对比失败清单，别把它们当成自己引入的问题。
-- `-race` 在 Windows 开发机上没跑过（没有 gcc）；在 Linux 上跑 `go test -race` 能抓到真实竞态（见 B2）。
+- Linux 上的 `go test ./...` 现在是绿的：Windows 专属的 `.cmd` 装置按 build tag / `t.Skip` 跳过，路径与 ErrNotExist 的期望按平台写（T2）。
+- `-race` 在 Linux CI 上跑（`.github/workflows/ci.yml` 的 `go test -race ./...`）。Windows 开发机没有 gcc，跑不了。
 - 版本号：仓库根 `VERSION` 与 `desktop/package.json` 必须一致，release 流水线会校验；`scripts/build.ps1` 把 git 短哈希拼进版本串。
 
 ## 写代码的约定
@@ -34,7 +34,7 @@ cd contrib/dsh-subagent-council && npm test
 
 ### 交接说明（先读这一段）
 
-- **当前状态**：只做了审查，**一行产品代码都没改**。本文件是唯一产出。仓库 <https://github.com/imrooki/council>，分支 [`claude/fervent-meitner-eqwuu0`](https://github.com/imrooki/council/tree/claude/fervent-meitner-eqwuu0)。
+- **当前状态**：审查时的产出一行产品代码都没改；2026-10-31 起按下面的「修复顺序」落地，已修条目在末尾标了提交哈希。仓库 <https://github.com/imrooki/council>，分支 [`claude/fervent-meitner-eqwuu0`](https://github.com/imrooki/council/tree/claude/fervent-meitner-eqwuu0)。
 - **审查方式**：按模块分 7 路逐文件读代码（turn+provider、store+conversation、serve、config+headless+mcp、cmd+localagent、repl+tui+app、desktop+前端+contrib+CI），在仓库副本里写临时测试、跑 `-race`、用假 CLI 脚本复现。每条都对过代码；标「疑似」的是缺 Windows 真机或真实 CLI 的证据。
 - **复现脚本不在仓库里**：它们写在云端容器的 `/tmp`，容器回收后就没了。每条都写了触发条件，照着在本地补一个回归用例即可——修复时**先写失败用例，再改代码**。
 - **没审完的**：看板（`internal/serve`）那一路中途中断，只完成了 Host 校验（S1）；导出、`/api/fs/dirs`、SSE / 长连接、设置页热加载还需要补审。前端 `index.html` 已由桌面那一路看过 XSS（没发现问题）。
@@ -43,12 +43,12 @@ cd contrib/dsh-subagent-council && npm test
 
 ### P0：安全 / 失控花钱 / 失控改文件（先修）
 
-- **S1 看板不校验 Host 头，DNS rebinding 可绕过全部写闸**（高）
+- **S1 看板不校验 Host 头，DNS rebinding 可绕过全部写闸**（高）（已修：`f9d3d0d`）
   - 位置：`internal/serve/handler.go:139`（所有路由无 Host 白名单），`internal/serve/write.go:1286-1306`（只比 Origin 与 `r.Host`）。
   - 后果：恶意网页把自己的域名重绑到 127.0.0.1 后，Origin 和 Host 都是它自己的域名，同源检查通过；`-rw` 下能改 provider command/env、跑 `full` 权限议会；只读模式下也能读全部会话和 `/api/settings` 里的 provider env（`settings.go:395`，可能含密钥）。
   - 方案：在 `logRequests` 外再包一层中间件，对**所有**请求（含 GET 和 `/`）要求 Host ∈ {`127.0.0.1:<实际端口>`、`localhost:<端口>`、`[::1]:<端口>`}，否则 421/403；`-addr 127.0.0.1:0` 时用 listener 的实际端口。加用例：伪造 Host 的 GET/POST 都被拒；桌面版与 `council who -server` 仍能用。
 
-- **S2 项目层配置可覆盖 providers / rules_file：不可信仓库即可执行任意命令**（高）
+- **S2 项目层配置可覆盖 providers / rules_file：不可信仓库即可执行任意命令**（高）（已修：`29c33b9`；设置页的 providers / local_agent 也改为只写用户配置层，否则会写进一个合并时被忽略的项目层却报成功）
   - 位置：`internal/config/merge.go:169-172`（rules_file）、`:194-197`（providers 整段覆盖），层来源 `:67-79`。
   - 后果：仓库里放 `.council/config.toml`，写 `[providers.claude] command = …` 或 `env = ['ANTHROPIC_BASE_URL=…']`，在该目录跑 `council` / `council ask` / 宿主拉起的 `council mcp` 就会执行它、或把 prompt 与凭据引走；`rules_file = '/abs/secret'` 能把本机任意文件塞进系统提示发给模型。data_dir 已经对项目层做了忽略，providers 却没有。
   - 方案：项目层只放行 `agents` / `teams` / `summary` / `language`；项目层出现 `providers`、`rules_file`、`local_agent` 时忽略并给 notice（照 data_dir 的写法）。另外 `rules_file` 要求落在配置文件目录内。补用例覆盖这几个键。
@@ -63,7 +63,7 @@ cd contrib/dsh-subagent-council && npm test
   - 后果：stdout/stderr 是 capWriter（不是文件），`cmd.Wait()` 要等管道 EOF；CLI 留下的后台子进程继承了管道就会卡住 Wait。同进程组时：CLI 正常 exit 0 也被记成超时，已付费的回答被丢；用 setsid 逃出进程组时：`<-waitErr` 无限阻塞，整轮、取消、headless 总超时全卡住。
   - 方案：`cmd.WaitDelay = 2*time.Second`，把 `exec.ErrWaitDelay` 当正常退出；超时分支的 `<-waitErr` 也加上限。用假 CLI 脚本（`sleep 6 &` / `setsid sleep 6 &`）写回归用例（非 Windows 加 build tag）。
 
-- **S5 provider 级 args 不过滤，可静默放大所有成员的权限**（中）
+- **S5 provider 级 args 不过滤，可静默放大所有成员的权限**（中）（已修：`fc06c90`）
   - 位置：`internal/turn/providerinvocation.go`（args 原样追加在权限 flag 之后）。
   - 例子：agy 加 `--dangerously-skip-permissions`，codex 加 `-c sandbox_mode=danger-full-access`，claude 加 `--add-dir`；READ 档成员也会受影响。设置页能改 args，S1 修好之前网页也能改。
   - 方案：在 `config.Validate` 里按 provider 维护权限类 flag 黑名单并拒绝；指纹变化提示保留。
@@ -91,7 +91,7 @@ cd contrib/dsh-subagent-council && npm test
 - **B14 `council ask -workspace … -conversation …` 追问必定失败**：`internal/headless/workspace.go:77-79` 副本路径只按 convID 拼，contrib 插件追问时正好这样传。方案：副本名加序号或时间戳。
 - **B15 桌面版版本检查与只读看板**：`desktop/main.js:1851` + `desktop/lib/version.js`，`--version` 失败时返回 `'(未知)'`，会被判成不同版本、拒绝 attach 并弹「旧版本」退出；`resolveCouncilExeSync`（`:1624`）不认 `COUNCIL_EXE`；primary-retry 那条 attach（`:1450-1456`）跳过版本检查。只读看板的 health 里没有 `writable` 键（omitempty），`:1271` 的 `writable === false` 是死代码，会静默挂到只读看板（例如 contrib `council_ui` 拉起的那个）。方案：未知版本放行；所有 attach 路径都做版本检查；`writable !== true` 时另起一个或明确提示。
 - **B16 `council-launch` 只看进程名判断看板在跑**：`cmd/council-launch/main.go:48-51, 116-122`，任何 council.exe（`council mcp`、TUI、`council who`）都会让它不起 serve，只开一个连不上的 8765 窗口；tasklist 失败又会重复起 serve 并静默撞锁。方案：照桌面版探测 `/api/health`。
-- **B18 相对路径的 rules_file 被解析到配置目录的上一级**：`internal/app/app.go:208`、`internal/serve/write.go:387` 把 `merged.RulesFileBase`（已经是目录，`config/merge.go:171`）传给 `config.LoadRules`，而它又取一次 `filepath.Dir`（`config/rules.go:96`）。把模板里的 `rules_file = 'COUNCIL.md'` 取消注释即可触发：启动时局部规则 found=false，被静默当成没有规则；在任何 `--apply` 之前，`/rules reload`（`internal/repl/rules.go:149-153`）回落用 ConfigPath（文件路径），又能读到规则，于是报全部会话漂移，`--rebuild` 还要付入场费；之后 `/config reload --apply` 或 `/add` 把 base 换成目录，规则又丢。方案：统一 LoadRules 的参数语义（改成接收目录并改名），三个调用点一起改，并加「rules_file 相对路径」的回归用例。
+- **B18 相对路径的 rules_file 被解析到配置目录的上一级**：`internal/app/app.go:208`、`internal/serve/write.go:387` 把 `merged.RulesFileBase`（已经是目录，`config/merge.go:171`）传给 `config.LoadRules`，而它又取一次 `filepath.Dir`（`config/rules.go:96`）。把模板里的 `rules_file = 'COUNCIL.md'` 取消注释即可触发：启动时局部规则 found=false，被静默当成没有规则；在任何 `--apply` 之前，`/rules reload`（`internal/repl/rules.go:149-153`）回落用 ConfigPath（文件路径），又能读到规则，于是报全部会话漂移，`--rebuild` 还要付入场费；之后 `/config reload --apply` 或 `/add` 把 base 换成目录，规则又丢。方案：统一 LoadRules 的参数语义（改成接收目录并改名），三个调用点一起改，并加「rules_file 相对路径」的回归用例。（已修：`3979fa4`，`LoadRules` 已改名为 `LoadRulesInDir`）
 - **B19 复制模式「列 → rune」的映射与渲染用的宽度算法不一致**：`internal/tui/copyscreen.go:443, 669, 688` 用 go-runewidth（东亚宽度随 `LANG` 或控制台代码页 936 变化），渲染（`:582` 的 `ansi.Truncate` 和 bubbletea）用 x/ansi（东亚宽度固定为 false）。`LANG=zh_CN.UTF-8` 下，行「“中”abc」拖选 ab，复制得到 `"”"`；带 VS16 的 emoji（如「⚠️abc」）在任何 locale 下都错位。方案：映射改用与渲染相同的 ansi 宽度算法，按字形簇遍历。
 - **B20 非 Windows 的 IsTerminal 把 /dev/null 当终端**：`internal/repl/console_other.go:19` 只看 `ModeCharDevice`。`council < /dev/null` 进入 TUI 后报「REPL 异常结束: bubbletea: could not create cancelable reader…」并退 1；Windows 下 NUL 走行式模式，正常退 0。方案：改用 `golang.org/x/term.IsTerminal`。
 - **B21 `/copy` 与复制屏加载期间不置 busy**：`internal/tui/copy.go:204-214`、`copyscreen.go:161, 271, 327`。`/copy` 回车后、或 Ctrl+G 加载中按 Esc 后马上提交别的命令，CopyRecent / CopyScreen 与 Submit 会并发读写 `r.cur` / `r.cfg`（`-race` 抓到 `repl/registry.go:149/156` 对 `commands.go:735/739`）；`/use` 之后可能复制到旧会话的内容；旧的加载结果没有代号，会被下一次 Ctrl+G 当成自己的结果；`copyDoneMsg` 在复制屏里被吞，剪贴板没写。方案：这两条路径置 busy 或串行执行，结果消息带代号。
@@ -128,9 +128,9 @@ cd contrib/dsh-subagent-council && npm test
 
 ### T：构建 / 测试可移植性
 
-- **T1** `cmd/council-launch/main.go` 用了 Windows 才有的 `SysProcAttr` 字段，缺 `//go:build windows`，`go build ./...` 在 Linux/macOS 失败，而 `docs/README.md` 写的就是 `go build ./...`。
-- **T2** Linux 上失败的测试（`cmd/council`、`internal/app`、`internal/config`、`internal/store`、`internal/turn`）：`.cmd` 假脚本没有执行位、写死 `C:\` / `E:\` / `D:\` 路径、依赖 Windows 的 ErrNotExist 语义。按平台加 build tag 或 `t.Skip`；`TestMergeProviderEnvOverridesCaseInsensitivelyOnWindows` 非 Windows 分支的期望本身写错（两条都是 `PATH`）。
-- **T3** CI 只在发版时跑，不跑 desktop / contrib 的测试，也从没跑过 `-race`。加一个 push/PR 触发的 Linux job：`go vet`、`go test -race ./...`、两处 `npm test`。contrib 测试在 Node 22 下有 13 个被 cancelled，原因是 `run.js:140/211` 对计时器调了 unref。
+- **T1** `cmd/council-launch/main.go` 用了 Windows 才有的 `SysProcAttr` 字段，缺 `//go:build windows`，`go build ./...` 在 Linux/macOS 失败，而 `docs/README.md` 写的就是 `go build ./...`。（已修：`6dd53a4`）
+- **T2** Linux 上失败的测试（`cmd/council`、`internal/app`、`internal/config`、`internal/store`、`internal/turn`）：`.cmd` 假脚本没有执行位、写死 `C:\` / `E:\` / `D:\` 路径、依赖 Windows 的 ErrNotExist 语义。按平台加 build tag 或 `t.Skip`；`TestMergeProviderEnvOverridesCaseInsensitivelyOnWindows` 非 Windows 分支的期望本身写错（两条都是 `PATH`）。（已修：`9c058d5`）
+- **T3** CI 只在发版时跑，不跑 desktop / contrib 的测试，也从没跑过 `-race`。加一个 push/PR 触发的 Linux job：`go vet`、`go test -race ./...`、两处 `npm test`。contrib 测试在 Node 22 下有 13 个被 cancelled，原因是 `run.js:140/211` 对计时器调了 unref。（已修：`18a6756`。补 `-race` 时另发现 TUI 根 ctx 取消路径会与 bubbletea 的 cancelreader 抢 fd，单独修在 `04e78d0`。）
 
 ### 修复顺序
 
