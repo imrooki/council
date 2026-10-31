@@ -26,7 +26,7 @@ func TestGui5bIndexExportPaginationMarkup(t *testing.T) {
 		`'/messages?after=' + after +`,
 		`'&limit=' + EXPORT_LIMIT;`,
 		`if (batch.length === 0) break;`,
-		`if (!Number.isFinite(lastSeq) || lastSeq <= after) break;`,
+		`if (!Number.isFinite(lastSeq) || lastSeq <= after) {`,
 		`if (batch.length < EXPORT_LIMIT) break;`,
 		// 上限：先装下剩余配额，跨页时标截断；正好到上限则探测一次。
 		`if (batch.length > room) {`,

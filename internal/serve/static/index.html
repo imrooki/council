@@ -7147,7 +7147,12 @@
 
       const last = batch[batch.length - 1];
       const lastSeq = Number(last && last.seq);
-      if (!Number.isFinite(lastSeq) || lastSeq <= after) break;
+      if (!Number.isFinite(lastSeq) || lastSeq <= after) {
+        // 坏响应 / 代理重放：分页没有前进，后面的内容我们无法确认。
+        // 不能静默 break：导出件必须自己写明「已截断」（服务补审）。
+        truncated = true;
+        break;
+      }
 
       const room = maxTotal - collected.length;
       if (batch.length > room) {
