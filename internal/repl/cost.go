@@ -238,7 +238,11 @@ func cmdCost(ctx context.Context, r *REPL, args cmdArgs) error {
 		// 过滤放在读回来之后，不另写一条 SQL。
 		// 多一条 SQL 就多一处会与主路径分叉的过滤：agent 空串、升序、不丢空用量行
 		// 都要在两条语句上各写一遍，写歪一条账就分叉。
-		rows = filterCostByRound(rows, roundID)
+		filtered, filterErr := filterCostByRound(rows, roundID)
+		if filterErr != nil {
+			return r.printf("%s\n", filterErr.Error())
+		}
+		rows = filtered
 	}
 	summary := summarizeCost(rows)
 	if len(summary) == 0 {
@@ -323,17 +327,32 @@ func parseCostArgs(fields []string) (agentID, roundID string, err error) {
 	}
 }
 
-// filterCostByRound 留下 RoundID 恰好相等的行，保持原顺序。
-// 原顺序已经是 created_at、turn_id 升序；summarizeCost 自己不排序输入，
-// 这里再排一次只会让同一成员内的先后在调用方看来被改过。
-func filterCostByRound(rows []conversation.TurnUsage, roundID string) []conversation.TurnUsage {
+// filterCostByRound 留下 RoundID 与 roundID 相等（或以其结尾）的行，保持原顺序。
+// 界面只显示 round_id 的末 6 位，允许后缀匹配；命中多个不同 round 时报错，
+// 不能把两轮账悄悄加在一起（P2）。
+func filterCostByRound(rows []conversation.TurnUsage, roundID string) ([]conversation.TurnUsage, error) {
 	out := make([]conversation.TurnUsage, 0)
 	for _, u := range rows {
 		if u.RoundID == roundID {
 			out = append(out, u)
 		}
 	}
-	return out
+	if len(out) > 0 {
+		return out, nil
+	}
+	matched := ""
+	for _, u := range rows {
+		if u.RoundID == "" || !strings.HasSuffix(u.RoundID, roundID) {
+			continue
+		}
+		if matched == "" {
+			matched = u.RoundID
+		} else if matched != u.RoundID {
+			return nil, fmt.Errorf("round_id 后缀 %q 命中多个轮次，请写完整 id", roundID)
+		}
+		out = append(out, u)
+	}
+	return out, nil
 }
 
 // costCellCount 在适用行里这一列一个数都没有时报 ?，否则印合计。
