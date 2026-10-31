@@ -92,9 +92,9 @@ func TestAsk_workspace副本与diff(t *testing.T) {
 	if len(res.Turns) != 2 {
 		t.Errorf("A8：read 与 workspace 两个成员都应发言，实际 turns=%d", len(res.Turns))
 	}
-	wantCopy := filepath.Join(cfg.DataDir, "workspaces", res.ConversationID)
-	if filepath.Clean(res.Workspace.Copy) != filepath.Clean(wantCopy) {
-		t.Errorf("A8：副本路径应为 %q，实际 %q", wantCopy, res.Workspace.Copy)
+	prefix := filepath.Join(cfg.DataDir, "workspaces", res.ConversationID+"-")
+	if !strings.HasPrefix(filepath.Clean(res.Workspace.Copy), prefix) {
+		t.Errorf("A8：副本路径应以 %q 开头，实际 %q", prefix, res.Workspace.Copy)
 	}
 
 	memberPath := filepath.Join(res.Workspace.Copy, memberFile)

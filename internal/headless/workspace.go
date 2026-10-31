@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,9 +64,9 @@ func workspaceRepoRoot(ctx context.Context, dir string) (string, error) {
 	return top, nil
 }
 
-// prepareWorkspace 在 <dataDir>\workspaces\<convID> 建一份 HEAD 的分离
-// worktree。路径已存在时先报错并让用户手动删：这里绝不 rm -rf 别人的
-// 东西，也不猜那份目录是不是上一次的副本。
+// prepareWorkspace 在 <dataDir>\workspaces\<convID>-<时间戳> 建一份 HEAD 的
+// 分离 worktree。每次调用都新建一个唯一目录：同一会话的追问（-conversation）
+// 会复用 convID，旧实现因此必然撞上上一次的副本并直接失败（B14）。
 func prepareWorkspace(ctx context.Context, repoDir, dataDir, convID string) (string, error) {
 	if strings.TrimSpace(dataDir) == "" {
 		return "", fmt.Errorf("data_dir 为空，无法放 workspace 副本")
@@ -74,9 +75,20 @@ func prepareWorkspace(ctx context.Context, repoDir, dataDir, convID string) (str
 		return "", fmt.Errorf("会话 id 为空，无法放 workspace 副本")
 	}
 	workspacesDir := filepath.Join(dataDir, "workspaces")
-	copyDir := filepath.Join(workspacesDir, convID)
+	suffix := time.Now().UTC().Format("20060102T150405.000000000")
+	copyDir := filepath.Join(workspacesDir, convID+"-"+suffix)
 	if _, err := os.Lstat(copyDir); err == nil {
-		return "", fmt.Errorf("workspace 副本已存在: %s；确认不再需要后手动删掉再重试", copyDir)
+		// 纳秒级时间戳理论上也可能撞；再补一个序号，绝不覆盖已有目录。
+		for i := 2; i < 100; i++ {
+			candidate := copyDir + "-" + strconv.Itoa(i)
+			if _, statErr := os.Lstat(candidate); errors.Is(statErr, fs.ErrNotExist) {
+				copyDir = candidate
+				break
+			}
+		}
+		if _, statErr := os.Lstat(copyDir); statErr == nil {
+			return "", fmt.Errorf("workspace 副本路径连续撞名: %s", copyDir)
+		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return "", fmt.Errorf("检查 workspace 副本路径 %s: %w", copyDir, err)
 	}
@@ -141,7 +153,7 @@ func (s *askState) collectWorkspace(runCtx context.Context) error {
 		return fmt.Errorf("收集 workspace 改动失败: %w", err)
 	}
 	if len(diff) > maxWorkspaceDiffBytes {
-		path := filepath.Join(s.deps.DataDir, "workspaces", s.convID+".diff")
+		path := filepath.Join(s.deps.DataDir, "workspaces", filepath.Base(s.copyDir)+".diff")
 		if err := os.WriteFile(path, []byte(diff), 0o644); err != nil {
 			return fmt.Errorf("写 workspace diff 文件 %s: %w", path, err)
 		}
