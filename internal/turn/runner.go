@@ -496,7 +496,7 @@ func (r *Runner) askUpToWith(ctx context.Context, convID, agentID string, upTo i
 	// 共用同一份计算，理由见它自己的注释：两处但凡有一处漏改，审计就会
 	// 报出一堆不存在的漂移，或者反过来漏报真实的漂移。
 	identity := renderIdentity(agentID, ac, rules)
-	fp, fpErr := identityFPAt(p, agentID, ac, dir, r.roleDirFor(agentID), tier, rules, providerExtras(r.cfg, ac.Provider)...)
+	fp, fpErr := identityFPAt(p, agentID, ac, dir, r.roleDirFor(agentID), tier, rules, providerExtras(cfg, ac.Provider)...)
 	if fpErr != nil {
 		// 探针组不出命令行（权限档不放行、agy 的规则文件把探针正文顶过
 		// MaxPromptBytes……）：与其它起进程之前的拒绝走同一条路，不吞。
