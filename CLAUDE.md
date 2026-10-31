@@ -34,7 +34,7 @@ cd contrib/dsh-subagent-council && npm test
 
 ### 交接说明（先读这一段）
 
-- **当前状态**：只做了审查，**一行产品代码都没改**。本文件是唯一产出，分支 `claude/fervent-meitner-eqwuu0`。
+- **当前状态**：只做了审查，**一行产品代码都没改**。本文件是唯一产出。仓库 <https://github.com/imrooki/council>，分支 [`claude/fervent-meitner-eqwuu0`](https://github.com/imrooki/council/tree/claude/fervent-meitner-eqwuu0)。
 - **审查方式**：按模块分 7 路逐文件读代码（turn+provider、store+conversation、serve、config+headless+mcp、cmd+localagent、repl+tui+app、desktop+前端+contrib+CI），在仓库副本里写临时测试、跑 `-race`、用假 CLI 脚本复现。每条都对过代码；标「疑似」的是缺 Windows 真机或真实 CLI 的证据。
 - **复现脚本不在仓库里**：它们写在云端容器的 `/tmp`，容器回收后就没了。每条都写了触发条件，照着在本地补一个回归用例即可——修复时**先写失败用例，再改代码**。
 - **没审完的**：看板（`internal/serve`）那一路中途中断，只完成了 Host 校验（S1）；导出、`/api/fs/dirs`、SSE / 长连接、设置页热加载还需要补审。前端 `index.html` 已由桌面那一路看过 XSS（没发现问题）。
@@ -91,6 +91,10 @@ cd contrib/dsh-subagent-council && npm test
 - **B14 `council ask -workspace … -conversation …` 追问必定失败**：`internal/headless/workspace.go:77-79` 副本路径只按 convID 拼，contrib 插件追问时正好这样传。方案：副本名加序号或时间戳。
 - **B15 桌面版版本检查与只读看板**：`desktop/main.js:1851` + `desktop/lib/version.js`，`--version` 失败时返回 `'(未知)'`，会被判成不同版本、拒绝 attach 并弹「旧版本」退出；`resolveCouncilExeSync`（`:1624`）不认 `COUNCIL_EXE`；primary-retry 那条 attach（`:1450-1456`）跳过版本检查。只读看板的 health 里没有 `writable` 键（omitempty），`:1271` 的 `writable === false` 是死代码，会静默挂到只读看板（例如 contrib `council_ui` 拉起的那个）。方案：未知版本放行；所有 attach 路径都做版本检查；`writable !== true` 时另起一个或明确提示。
 - **B16 `council-launch` 只看进程名判断看板在跑**：`cmd/council-launch/main.go:48-51, 116-122`，任何 council.exe（`council mcp`、TUI、`council who`）都会让它不起 serve，只开一个连不上的 8765 窗口；tasklist 失败又会重复起 serve 并静默撞锁。方案：照桌面版探测 `/api/health`。
+- **B18 相对路径的 rules_file 被解析到配置目录的上一级**：`internal/app/app.go:208`、`internal/serve/write.go:387` 把 `merged.RulesFileBase`（已经是目录，`config/merge.go:171`）传给 `config.LoadRules`，而它又取一次 `filepath.Dir`（`config/rules.go:96`）。把模板里的 `rules_file = 'COUNCIL.md'` 取消注释即可触发：启动时局部规则 found=false，被静默当成没有规则；在任何 `--apply` 之前，`/rules reload`（`internal/repl/rules.go:149-153`）回落用 ConfigPath（文件路径），又能读到规则，于是报全部会话漂移，`--rebuild` 还要付入场费；之后 `/config reload --apply` 或 `/add` 把 base 换成目录，规则又丢。方案：统一 LoadRules 的参数语义（改成接收目录并改名），三个调用点一起改，并加「rules_file 相对路径」的回归用例。
+- **B19 复制模式「列 → rune」的映射与渲染用的宽度算法不一致**：`internal/tui/copyscreen.go:443, 669, 688` 用 go-runewidth（东亚宽度随 `LANG` 或控制台代码页 936 变化），渲染（`:582` 的 `ansi.Truncate` 和 bubbletea）用 x/ansi（东亚宽度固定为 false）。`LANG=zh_CN.UTF-8` 下，行「“中”abc」拖选 ab，复制得到 `"”"`；带 VS16 的 emoji（如「⚠️abc」）在任何 locale 下都错位。方案：映射改用与渲染相同的 ansi 宽度算法，按字形簇遍历。
+- **B20 非 Windows 的 IsTerminal 把 /dev/null 当终端**：`internal/repl/console_other.go:19` 只看 `ModeCharDevice`。`council < /dev/null` 进入 TUI 后报「REPL 异常结束: bubbletea: could not create cancelable reader…」并退 1；Windows 下 NUL 走行式模式，正常退 0。方案：改用 `golang.org/x/term.IsTerminal`。
+- **B21 `/copy` 与复制屏加载期间不置 busy**：`internal/tui/copy.go:204-214`、`copyscreen.go:161, 271, 327`。`/copy` 回车后、或 Ctrl+G 加载中按 Esc 后马上提交别的命令，CopyRecent / CopyScreen 与 Submit 会并发读写 `r.cur` / `r.cfg`（`-race` 抓到 `repl/registry.go:149/156` 对 `commands.go:735/739`）；`/use` 之后可能复制到旧会话的内容；旧的加载结果没有代号，会被下一次 Ctrl+G 当成自己的结果；`copyDoneMsg` 在复制屏里被吞，剪贴板没写。方案：这两条路径置 busy 或串行执行，结果消息带代号。
 - **B17 便携版问题**（读源码核实，未在 Windows 实测）：`desktop/main.js:1813-1827` 把 `%TEMP%` 下会被删除的 exe 注册成 `council://` 处理程序，并覆盖安装版的注册；`:1889` 自动更新会给便携版装一份 Setup，便携版本身永远停在旧版。方案：检测 `PORTABLE_EXECUTABLE_DIR` 时跳过协议注册并禁用 updater。
 
 ### P2：小问题与文案
@@ -116,6 +120,11 @@ cd contrib/dsh-subagent-council && npm test
 - 桌面版：读回地址的正则不要求行尾，chunk 被切开会读错端口（`main.js:407`）；窗口只露底部 40px 就判可见（`:911-917`）；裸名 `taskkill` / `council` 在 Windows 上会先搜 cwd（`main.js:1211`、`contrib/.../run.js:73, 159`），改绝对路径。
 - 发版流水线（`.github/workflows/release.yml`）：dispatch 时没 checkout 指定 tag 却 `--clobber` 覆盖该 tag 的产物；concurrency 按 `github.ref` 分组，同一版本可能并发上传导致 latest.yml 与安装包不对应；签名密钥是 job 级环境变量。改为按 tag 分组、checkout `ref: <tag>`、latest.yml 最后上传、密钥只给打包步骤、`persist-credentials: false`。
 - 配置模板注释引用了已移走的 `docs/06_SECURITY_MODEL.md`（`internal/config/defaults.go:98`）。
+- `--config` 恰好指向自动探测到的项目层文件时，启动只读这一层，`reloadLayers` 却返回 [项目层, 全局层]（`internal/repl/configlayers.go:47`）：`/config reload` 报出全局层的假「新增」，`/add +编号` 的 DeepEqual 比较（`addmodel.go:479`）永远不等、一直拒绝，`--apply` 之后语义悄悄变成合并。把启动时的层列表传给 REPL，不要重算。
+- @ 补全时光标在 token 中间，右边的残余字符会留着：`hi @alice` 按两次 ← 再回车，得到 `hi @alice ce`（`internal/tui/model.go:826-838`）。
+- 命令只认半角 `/`（`internal/repl/commands.go:183`、`seam.go:68`）：全角 `／use 123` 被当成发言落库，TUI 默认开自动回复时还会问全员一轮、花钱。`/to` 的 id 列表也不认全角逗号（`commands.go:420`）。
+- `/cost --round` 要求完整 round_id，但界面只显示末 6 位（`repl/roundobs.go:190`），照抄一定得到「没有记账行」（`repl/cost.go:332`）。支持后缀匹配，或打印完整 id。
+- TUI 小问题：runCtx 正常结束时不调 cancel，子 context 一直挂在根 ctx 上（`tui/model.go:417, 898`）；复制屏底栏不按宽度截断，终端高度 ≤ 2 时帧高超出（`copyscreen.go:596`）；复制屏提示、`ErrCopyEmpty`、`ErrCopyUsage`、`repl/copyscreen.go:47`、`app/firstrun.go`、`app.go:178-179` 的文案没有走 i18n。
 
 ### T：构建 / 测试可移植性
 
@@ -129,7 +138,8 @@ cd contrib/dsh-subagent-council && npm test
 2. **S3 + S4 + B7**：进程生命周期。共同验收：任何退出路径（桌面退出、升级、超时、插件超时）之后，假 CLI 及其子进程都不残留。
 3. **B1 + B2**：费用与指纹，先在 Linux 上开 `-race`（T3）再动。
 4. **B3 + B4 + B5 + B6 + B10 + B11**：数据完整性。
-5. **B8 + B9 + B12 + B13 + B14 + B15 + B16 + B17** 与 P2 里的 CLI 文案。
-6. **T1–T3** 可以最先做（改动小、让后续每一步都能在 Linux CI 上验证），建议和第 1 步并行。
+5. **B18**：影响所有用相对路径 rules_file 的人，改动小，可以提前到第 1 步之后。
+6. **B8 + B9 + B12 + B13 + B14 + B15 + B16 + B17 + B19 + B20 + B21** 与 P2 里的 CLI / TUI 小问题。
+7. **T1–T3** 可以最先做（改动小、让后续每一步都能在 Linux CI 上验证），建议和第 1 步并行。
 
 每修一条，在这里把它划掉或删掉，并写上提交哈希。
