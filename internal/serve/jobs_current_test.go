@@ -342,3 +342,35 @@ func TestJobEventsResumeFromLastEventID(t *testing.T) {
 		t.Fatalf("Last-Event-ID: 2 之后的第一帧 id = %d，期望 3", next.ID)
 	}
 }
+
+// 过大的 Last-Event-ID 必须夹到历史末尾，不能永远等第 999999 帧。
+func TestJobEventsHugeLastEventIDStillReplays(t *testing.T) {
+	t.Setenv("COUNCIL_FAKE_CLI", "1")
+	t.Setenv("COUNCIL_FAKE_SLEEP_ALL_MS", "3000")
+	env := newWriteTestEnv(t)
+
+	jobID := postAsk(t, env, map[string]any{
+		"prompt":  "过大的 Last-Event-ID",
+		"members": []string{"c1"},
+		"rounds":  1,
+	})
+	j, ok := env.srv.jobs.get(jobID)
+	if !ok {
+		t.Fatalf("任务 %s 不在表里", jobID)
+	}
+	waitJobEventCount(t, j, 2)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reader := newSSEReaderWithLastEventID(t, ctx,
+		env.http.URL+"/api/jobs/"+jobID+"/events", "999999")
+	defer reader.close()
+
+	next, ok := reader.next(t)
+	if !ok {
+		t.Fatal("过大的 Last-Event-ID 让 SSE 直接结束，没有从历史末尾续传")
+	}
+	if next.ID <= 0 || next.ID > 10 {
+		t.Fatalf("夹取后的第一帧 id = %d，期望落在当前历史末尾附近", next.ID)
+	}
+}

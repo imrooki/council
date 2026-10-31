@@ -1007,6 +1007,14 @@ func (j *job) isFinished() bool {
 	return j.finished
 }
 
+// eventCount 返回当前已经产生的帧数。与 next 共用一把锁，SSE 用它把
+// 过大的 Last-Event-ID 夹到历史末尾。
+func (j *job) eventCount() int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return len(j.events)
+}
+
 // next 原子地取出第 i 帧：没有新帧时返回的 wait 与 finished 是同一把锁
 // 下的快照，SSE handler 不会在「查完没事件、还没开始等」的缝隙里丢掉一帧。
 func (j *job) next(i int) (ev jobEvent, ok, finished bool, wait <-chan struct{}) {
@@ -1992,6 +2000,11 @@ func (s *Server) handleJobEvents(w http.ResponseWriter, r *http.Request, id stri
 		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
 			start = n
 		}
+	}
+	// 头里的 id 可能来自重放代理或另一个 job。不能直接把它当下一帧下标：
+	// start 大于当前帧数时 next 永远等不到，历史帧一帧都不会发（服务补审）。
+	if count := j.eventCount(); start > count {
+		start = count
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
