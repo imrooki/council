@@ -50,6 +50,13 @@ func setTopLevelKey(content []byte, key, value string) ([]byte, bool, error) {
 	}
 	lines := splitFileLines(string(content))
 	eol := dominantEOL(lines)
+	// 首行的 BOM 只属于文件开头，不属于键名。不剥掉它，isKeyLine 认不出
+	// 已有的 language，于是会在 BOM 前面再插一行，写回后 TOML 报重复键（P2）。
+	bom := ""
+	if len(lines) > 0 && strings.HasPrefix(lines[0].text, "\ufeff") {
+		bom = "\ufeff"
+		lines[0].text = strings.TrimPrefix(lines[0].text, "\ufeff")
+	}
 
 	firstHeader := -1
 	existing := -1
@@ -83,7 +90,7 @@ func setTopLevelKey(content []byte, key, value string) ([]byte, bool, error) {
 		out = append(out, lines[:existing]...)
 		out = append(out, replacement)
 		out = append(out, lines[end+1:]...)
-		return []byte(joinFileLines(out)), true, nil
+		return []byte(bom + joinFileLines(out)), true, nil
 	}
 
 	keyLine := fileLine{text: key + ` = ` + tomlBasicString(value), eol: eol}
@@ -99,7 +106,7 @@ func setTopLevelKey(content []byte, key, value string) ([]byte, bool, error) {
 		// 加：那个空行现在位于 language 之前，键与表头仍需要分隔。
 		out = append(out, fileLine{eol: eol})
 		out = append(out, lines[firstHeader:]...)
-		return []byte(joinFileLines(out)), true, nil
+		return []byte(bom + joinFileLines(out)), true, nil
 	}
 
 	// 没有表：顶层键可以安全地追加到末尾。原文最后一个字节是不是换行
