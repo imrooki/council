@@ -263,6 +263,7 @@ flags:
 	"cli.who.observedMerged":      " merged=%s（turn %s）",
 	"cli.who.flag.server":         "改问正在跑的看板要一份快照（例如 http://127.0.0.1:8765）：只有它拿得到 PID 与合并结果",
 	"cli.who.serverFailed":        "council who: 问不到 %s 的快照：%v（地址就是看板启动时打印的那一行）\n",
+	"cli.who.serverOff":           "看板没有开启本机 agent（local_agent = \"off\"）：没有进程、轮次或租约可看。\n",
 	"cli.who.usage": `用法: council who [flags]
 
 只读列出三段本机事实，不拿 council.lock，可以在 TUI 或 serve -rw 开着的时候跑：
@@ -641,6 +642,7 @@ flags:
 	"cli.who.observedMerged":      " merged=%s (turn %s)",
 	"cli.who.flag.server":         "Ask the running dashboard for a snapshot (e.g. http://127.0.0.1:8765); only it has the PIDs and the merge result",
 	"cli.who.serverFailed":        "council who: cannot get a snapshot from %s: %v (the address is the line the dashboard prints at startup)\n",
+	"cli.who.serverOff":           "The dashboard has local agents off (local_agent = \"off\"): no processes, turns, or leases to show.\n",
 	"cli.who.usage": `Usage: council who [flags]
 
 Print three read-only local sections without taking council.lock, so it works while the TUI or serve -rw is running:

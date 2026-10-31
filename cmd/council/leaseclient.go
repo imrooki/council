@@ -313,6 +313,12 @@ func runWhoOverServer(out, errOut io.Writer, text func(key, fallback string, arg
 	if asJSON {
 		return writeWhoJSON(out, errOut, report)
 	}
+	if snapshot.LocalAgent == string(localagent.LevelOff) {
+		// 看板 off 档不是「本机很干净」：三段空列表会误导。直接说清楚它没开。
+		fmt.Fprint(out, text("cli.who.serverOff",
+			"看板没有开启本机 agent（local_agent = \"off\"）：没有进程、轮次或租约可看。\n"))
+		return exitOK
+	}
 	// 文本路径沿用同一个 writeWhoText：三段格式、空段提示、错误提示都只有
 	// 一份实现。错误在这里被折成 error，文本段按原样打印那些句子。
 	view := whoView{

@@ -316,6 +316,20 @@ func TestWhoOverServer(t *testing.T) {
 	}
 }
 
+// TestWhoOverServerOff 钉住看板 off 档：不能打印三段「没有…」假装本机干净。
+func TestWhoOverServerOff(t *testing.T) {
+	whoTestEnv(t)
+	snapshot := `{"local_agent":"off","managed":[],"observed":[],"leases":[],"leases_supported":false,"scanned_at":"2026-10-27T10:00:02Z"}`
+	_, url := newLeaseFakeDashboard(t, http.StatusOK, snapshot)
+	out, errOut, code := whoRun(t, whoPanicDeps(t), "-server", url)
+	if code != exitOK {
+		t.Fatalf("退出码 = %d，期望 0；stderr=%s", code, errOut)
+	}
+	if !strings.Contains(out, "没有开启") {
+		t.Errorf("off 档应明确说看板没开本机 agent，实际:\n%s", out)
+	}
+}
+
 // TestWhoOverServerJSON 钉住 -json：via=server，observed 行带 pid 与
 // merge_evidence，缺失的错误键不出现。
 func TestWhoOverServerJSON(t *testing.T) {
