@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/textarea"
@@ -837,8 +838,31 @@ func (m Model) atLines() []string {
 func (m Model) atAccept() (tea.Model, tea.Cmd) {
 	list := m.atMatches()
 	pick := list[min(max(m.at.sel, 0), len(list)-1)]
-	n := 1 + len([]rune(m.at.prefix))
 	var cmds []tea.Cmd
+
+	// 光标可能停在 @token 中间（用户按 ← 回来过）。先把光标右侧仍属于
+	// 这个 token 的残余删掉，再退掉 @ 与前缀；否则只按前缀退格，右边会
+	// 留下 "ce" 这类尾巴（P2）。
+	lines := strings.Split(m.ta.Value(), "\n")
+	row := m.ta.Line()
+	col := m.ta.Column()
+	if row >= 0 && row < len(lines) {
+		runes := []rune(lines[row])
+		if col < 0 || col > len(runes) {
+			col = min(max(col, 0), len(runes))
+		}
+		end := col
+		for end < len(runes) && !unicode.IsSpace(runes[end]) {
+			end++
+		}
+		for i := col; i < end; i++ {
+			var cmd tea.Cmd
+			m.ta, cmd = m.ta.Update(tea.KeyPressMsg{Code: tea.KeyDelete})
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	n := 1 + len([]rune(m.at.prefix))
 	for i := 0; i < n; i++ {
 		var cmd tea.Cmd
 		m.ta, cmd = m.ta.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
