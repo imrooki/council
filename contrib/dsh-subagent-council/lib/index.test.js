@@ -227,6 +227,28 @@ test('startCouncilRun: timeout issues taskkill and force-settles without a close
   assert.ok(Date.now() - startedAt < 1000, 'force-settle timer released the seam');
 });
 
+test('startCouncilRun: Unix timeout sends SIGINT then SIGKILL to the process group', async () => {
+  const harness = createHarness();
+  harness.deps.platform = 'linux';
+  harness.deps.killSettleMs = 500;
+  harness.deps.killGraceMs = 20;
+  const kills = [];
+  harness.deps.kill = (pid, signal) => {
+    kills.push([pid, signal]);
+  };
+  const { handle, child } = start(harness, { config: { timeoutMs: 10 } });
+
+  await waitFor(() => kills.length === 1);
+  assert.deepEqual(kills[0], [-4242, 'SIGINT'], 'graceful signal reaches the whole group');
+  await waitFor(() => kills.length === 2);
+  assert.deepEqual(kills[1], [-4242, 'SIGKILL'], 'SIGKILL is the fallback after the grace window');
+
+  child.close(1);
+  const result = await handle.result;
+  assert.equal(result.stopReason, 'error');
+  assert.match(result.diagnostic, /timed out after 10 ms/);
+});
+
 test('startCouncilRun: a dispose that cannot reap the child reports the force-settle failure', async () => {
   const harness = createHarness();
   const { handle } = start(harness);

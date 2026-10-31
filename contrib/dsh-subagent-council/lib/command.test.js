@@ -127,6 +127,18 @@ test('buildAskCommand: fixed arguments and the budget value', () => {
   assert.equal(valueAfter(argv, '-rounds'), '1');
 });
 
+test('buildAskCommand: -timeout reserves shutdown grace below the host timeout', () => {
+  const withTimeout = buildAskCommand(config({ timeoutMs: 60000 }), 'q', undefined);
+  assert.equal(valueAfter(withTimeout.argv, '-timeout'), '58000ms');
+
+  const noTimeout = buildAskCommand(config({ timeoutMs: 0 }), 'q', undefined);
+  assert.equal(valueAfter(noTimeout.argv, '-timeout'), undefined);
+
+  // 下限 1s：极小的时间预算不能被减成负数或 0。
+  const tiny = buildAskCommand(config({ timeoutMs: 500 }), 'q', undefined);
+  assert.equal(valueAfter(tiny.argv, '-timeout'), '1000ms');
+});
+
 test('buildAskCommand: rounds > 1 also selects round mode', () => {
   const { argv } = buildAskCommand(config({ rounds: 3, summary: 'judge' }), 'q', undefined);
   assert.equal(valueAfter(argv, '-rounds'), '3');

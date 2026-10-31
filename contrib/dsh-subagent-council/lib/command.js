@@ -156,6 +156,15 @@ export function buildAskCommand(config, task, cwd) {
 
   if (conversationId !== undefined) argv.push('-conversation', conversationId);
 
+  // Give Council a budget slightly below the plugin's own timeout: Council
+  // then cancels its providers and prints a partial result instead of being
+  // SIGKILLed by the host with no cleanup (B7). The 2 s reserve covers the
+  // walk from Council's budget check to process exit.
+  if (Number.isFinite(config.timeoutMs) && config.timeoutMs > 0) {
+    const councilTimeoutMs = Math.max(1000, Math.floor(config.timeoutMs) - 2000);
+    argv.push('-timeout', `${councilTimeoutMs}ms`);
+  }
+
   return { argv, note };
 }
 

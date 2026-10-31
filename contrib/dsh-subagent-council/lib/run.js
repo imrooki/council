@@ -24,12 +24,20 @@ const DIAGNOSTIC_LIMIT_BYTES = 4096;
 export const KILL_SETTLE_MS = 10_000;
 
 /**
+ * Unix 上先发 SIGINT 让 council ask 自己取消在跑的 provider CLI，再在宽限
+ * 到期后 SIGKILL 整个进程组。Windows 的 taskkill /F 没有「先礼后兵」这一步。
+ */
+export const KILL_GRACE_MS = 1_500;
+
+/**
  * Start one Council process and publish an out-of-process subagent handle.
  *
  * `deps` is injectable so tests can avoid real processes:
  *   - `spawn` (default `node:child_process.spawn`)
  *   - `platform` (default `process.platform`)
  *   - `killSettleMs` (default {@link KILL_SETTLE_MS})
+ *   - `killGraceMs` (default {@link KILL_GRACE_MS}; Unix SIGINT→SIGKILL gap)
+ *   - `kill` (default `process.kill`; injectable for tests)
  *   - `settleRunResult` and `subprocessRunHandle` (the dsh seam functions,
  *     supplied by `index.js`; tests supply faithful doubles)
  *
@@ -42,6 +50,8 @@ export function startCouncilRun(config, request, deps = {}) {
   const spawn = deps.spawn ?? nodeSpawn;
   const platform = deps.platform ?? process.platform;
   const killSettleMs = deps.killSettleMs ?? KILL_SETTLE_MS;
+  const killGraceMs = deps.killGraceMs ?? KILL_GRACE_MS;
+  const signalProcess = deps.kill ?? process.kill.bind(process);
   const settleRunResult = deps.settleRunResult;
   const subprocessRunHandle = deps.subprocessRunHandle;
   if (typeof settleRunResult !== 'function' || typeof subprocessRunHandle !== 'function') {
@@ -102,6 +112,7 @@ export function startCouncilRun(config, request, deps = {}) {
   let resolvedExit = false;
   let forceTimer;
   let timeoutTimer;
+  let killGraceTimer;
   let resolveExit;
   const exited = new Promise((resolve) => {
     resolveExit = resolve;
@@ -112,6 +123,7 @@ export function startCouncilRun(config, request, deps = {}) {
     resolvedExit = true;
     clearTimeout(timeoutTimer);
     clearTimeout(forceTimer);
+    clearTimeout(killGraceTimer);
     resolveExit();
   };
 
@@ -173,12 +185,26 @@ export function startCouncilRun(config, request, deps = {}) {
         });
         killer.unref?.();
       } else {
-        // `detached: true` makes the child a process-group leader, so a
-        // negative pid reaches grandchildren as well.
+        // `detached: true` makes the child a process-group leader. SIGINT
+        // gives council ask a chance to cancel the running provider CLIs and
+        // kill their own process groups; SIGKILL is the fallback for a child
+        // that ignores it. A bare SIGKILL on council's group never reaches a
+        // provider CLI that council put in its own Setpgid group (B7).
         try {
-          process.kill(-pid, 'SIGKILL');
+          signalProcess(-pid, 'SIGINT');
         } catch {
           tryChildKill(child);
+        }
+        if (killGraceTimer === undefined && !resolvedExit) {
+          killGraceTimer = setTimeout(() => {
+            killGraceTimer = undefined;
+            if (resolvedExit) return;
+            try {
+              signalProcess(-pid, 'SIGKILL');
+            } catch {
+              tryChildKill(child);
+            }
+          }, killGraceMs);
         }
       }
     } catch {
@@ -339,6 +365,7 @@ export function startCouncilRun(config, request, deps = {}) {
 
   const teardown = async () => {
     clearTimeout(timeoutTimer);
+    clearTimeout(killGraceTimer);
     if (!resolvedExit) {
       killTree();
       // requestCancel() normally armed this already; keep an explicit arm so
@@ -347,6 +374,7 @@ export function startCouncilRun(config, request, deps = {}) {
     }
     await exited;
     clearTimeout(forceTimer);
+    clearTimeout(killGraceTimer);
     signal.removeEventListener('abort', onAbort);
   };
 
