@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"council/internal/provider"
 )
@@ -156,6 +157,11 @@ func spawnProcess(ctx context.Context, c provider.Command) (stdout, stderr []byt
 	cmd := exec.Command(path, c.Args...)
 	cmd.Dir = c.Dir
 	cmd.Env = c.Env // nil = 原样继承；Step 6 一律 nil，不改 HOME（改了会把登录态一起隔离掉）
+	// S4：CLI 可能留下继承了 stdout/stderr 管道的后台子进程。os/exec 的
+	// Wait 会等这些管道 EOF；没有 WaitDelay 时，即使 CLI 已经正常退出，
+	// Wait 也会一直卡到那个后台进程结束，整轮被误判成超时。
+	// 2 秒是「主进程已经退出之后」的收尾上限，不影响还在跑的 CLI 本身。
+	cmd.WaitDelay = 2 * time.Second
 	prepareCmd(cmd)
 
 	var stdoutBuf, stderrBuf bytes.Buffer
@@ -203,7 +209,10 @@ func spawnProcess(ctx context.Context, c provider.Command) (stdout, stderr []byt
 	select {
 	case err = <-waitErr:
 		exitCode = exitCodeOf(cmd, err)
-		if isExitError(err) {
+		// ErrWaitDelay 只表示「主进程已经退出，但管道还被子进程占着」。
+		// 这是 CLI 正常结完账的形态，不能按启动失败处理；退出码仍由
+		// ProcessState 给出，失败轮次照旧靠 exitCode 分类。
+		if isExitError(err) || errors.Is(err, exec.ErrWaitDelay) {
 			err = nil
 		}
 		return stdoutBuf.Bytes(), stderrBuf.Bytes(), exitCode, false, err
@@ -214,9 +223,18 @@ func spawnProcess(ctx context.Context, c provider.Command) (stdout, stderr []byt
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		err = <-waitErr
-		exitCode = exitCodeOf(cmd, err)
-		return stdoutBuf.Bytes(), stderrBuf.Bytes(), exitCode, true, ctx.Err()
+		// 超时分支不能再无限等 Wait：逃出进程组的后台子进程可能继续
+		// 占着管道（S4）。WaitDelay 一般会在 2 秒内放掉；这里再加一道
+		// 3 秒硬上限，避免整轮、取消与 headless 总超时被一个孤儿拖死。
+		select {
+		case err = <-waitErr:
+			exitCode = exitCodeOf(cmd, err)
+			return stdoutBuf.Bytes(), stderrBuf.Bytes(), exitCode, true, ctx.Err()
+		case <-time.After(3 * time.Second):
+			// Wait 还没返回时不能读 buffer：copy goroutine 可能仍在写。
+			// 这一轮已经取消，宁可丢已缓存的输出，也不能制造数据竞争。
+			return nil, nil, 0, true, ctx.Err()
+		}
 	}
 }
 
