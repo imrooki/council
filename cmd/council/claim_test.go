@@ -359,7 +359,15 @@ func TestReleaseUnknownLeaseExitsThree(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "data")
 	cfgPath := whoTestConfig(t, dataDir, `local_agent = "coordinate"`)
 
-	// 先建库（release 会开库，没有库时 store.Open 会建一个空库）。
+	// 先建库：release 现在先只读探测，库不存在会按「没有可交还的租约」退 0。
+	seed, err := store.Open(context.Background(), dataDir)
+	if err != nil {
+		t.Fatalf("先建库失败: %v", err)
+	}
+	if err := seed.Close(); err != nil {
+		t.Fatalf("关闭种子库失败: %v", err)
+	}
+
 	_, errOut, code := releaseRun(t, realLeaseDeps(), "-config", cfgPath, "-lease", "no-such-lease")
 	if code != exitLeaseDenied {
 		t.Fatalf("退出码 = %d，期望 %d；stderr=%s", code, exitLeaseDenied, errOut)

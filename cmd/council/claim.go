@@ -48,6 +48,9 @@ const leaseTimeout = 15 * time.Second
 // 「层级未开启时连库都不开」。
 type leaseDeps struct {
 	Open func(context.Context, string) (*store.Store, error)
+	// OpenReadOnly 用来在 release 之前确认库存在：没有库时不要为了交还
+	// 一条不存在的租约去建库、建目录、拿 council.lock（B8）。
+	OpenReadOnly func(context.Context, string) (*store.Store, error)
 }
 
 // leaseRow 是 JSON 里的一行租约。时间用 UTC 的 RFC3339，与 council who 一致。
@@ -340,7 +343,7 @@ func printReleaseRows(out io.Writer, text func(key, fallback string, args ...any
 
 // runRelease 是 `council release` 的进程边界。
 func runRelease(args []string) int {
-	return runReleaseWith(args, leaseDeps{Open: store.Open}, os.Stdout, os.Stderr)
+	return runReleaseWith(args, leaseDeps{Open: store.Open, OpenReadOnly: store.OpenReadOnly}, os.Stdout, os.Stderr)
 }
 
 // runReleaseWith 是可测试的那一半。
@@ -434,9 +437,38 @@ func runReleaseWith(args []string, deps leaseDeps, out, errOut io.Writer) int {
 		fmt.Fprint(errOut, text("cli.lease.configBroken", "%s: 配置文件有问题: %v\n", "council release", err))
 		return exitConfigFailed
 	}
+	if strings.TrimSpace(dataDir) == "" {
+		fmt.Fprint(errOut, text("cli.release.noDataDir",
+			"council release: 配置里没有可用的 data_dir，无法定位租约库；先运行 council init 或补上 data_dir\n"))
+		return exitConfigFailed
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), leaseTimeout)
 	defer cancel()
+
+	// 先只读确认库存在。OpenReadOnly 不建目录、不建库、不碰 council.lock；
+	// 没有库就说明这个 data_dir 从来没跑过 council，没有租约可交还（B8）。
+	openReadOnly := deps.OpenReadOnly
+	if openReadOnly == nil {
+		openReadOnly = store.OpenReadOnly
+	}
+	probe, probeErr := openReadOnly(ctx, dataDir)
+	if probeErr != nil {
+		if errors.Is(probeErr, store.ErrReadOnlyDBMissing) {
+			notice := text("cli.release.noDatabase",
+				"数据目录里还没有库，没有可交还的租约：%s", dataDir)
+			if *asJSON {
+				return writeJSONReport(out, errOut, "council release",
+					releaseReport{LocalAgent: string(level), Released: []leaseRow{}, Notice: notice}, exitOK)
+			}
+			fmt.Fprintln(out, notice)
+			return exitOK
+		}
+		return reportLeaseOpenFailure(errOut, text, "council release", dataDir, probeErr)
+	}
+	if closeErr := probe.Close(); closeErr != nil {
+		return reportLeaseOpenFailure(errOut, text, "council release", dataDir, closeErr)
+	}
 
 	st, openErr := deps.Open(ctx, dataDir)
 	if openErr != nil {

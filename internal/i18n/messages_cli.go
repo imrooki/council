@@ -348,6 +348,8 @@ flags:
 	"cli.release.notFound":         "没有这条租约：%s（它可能已经被删掉，或 lease_id 抄错了）",
 	"cli.release.already":          "租约 %s 的状态是 %s，不需要再交还（没有改动，也没有写事件）。",
 	"cli.release.nothing":          "这个资源上没有 %s 的租约可交还（只释放 owner_id 完全相同的租约，没有 force）。",
+	"cli.release.noDataDir":        "council release: 配置里没有可用的 data_dir，无法定位租约库；先运行 council init 或补上 data_dir\n",
+	"cli.release.noDatabase":       "数据目录里还没有库，没有可交还的租约：%s",
 	"cli.release.released":         "已交还 %d 条租约\n",
 	"cli.release.usage": `用法: council release -lease <lease_id>
        council release -resource <目录|tcp:端口> [-owner <name>]
@@ -724,6 +726,8 @@ flags:
 	"cli.release.notFound":         "No such lease: %s (it may have been deleted, or the lease_id is mistyped)",
 	"cli.release.already":          "Lease %s is already %s; nothing to release (file untouched, no event written).",
 	"cli.release.nothing":          "No lease of %s to release on this resource (only leases with an exactly matching owner_id are released; there is no force).",
+	"cli.release.noDataDir":        "council release: the config has no usable data_dir, so the lease database cannot be located; run council init or add data_dir\n",
+	"cli.release.noDatabase":       "No database in this data directory yet; there is no lease to release: %s",
 	"cli.release.released":         "Released %d lease(s)\n",
 	"cli.release.usage": `Usage: council release -lease <lease_id>
        council release -resource <dir|tcp:port> [-owner <name>]
