@@ -259,7 +259,7 @@ func (s *Store) GrantedLeases(ctx context.Context) ([]Lease, error) {
 func (s *Store) LeaseEvents(ctx context.Context, leaseID string) ([]LeaseEvent, error) {
 	rows, err := s.read.QueryContext(ctx,
 		`SELECT id, lease_id, at, kind, detail FROM local_lease_events
-		 WHERE lease_id = ? ORDER BY at, id`, leaseID)
+		 WHERE lease_id = ? ORDER BY julianday(at), id`, leaseID)
 	if err != nil {
 		return nil, fmt.Errorf("list lease events %s: %w", leaseID, err)
 	}
@@ -472,7 +472,7 @@ func (t *Tx) releaseLeasesByOwner(ctx context.Context, resourceKey, ownerID stri
 	rows, err := t.tx.QueryContext(ctx,
 		`SELECT `+leaseColumns+` FROM local_leases
 		 WHERE state = 'granted' AND resource_key = ? AND owner_id = ?
-		 ORDER BY granted_at`, key, ownerID)
+		 ORDER BY julianday(granted_at)`, key, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("find granted leases on %s for %s: %w", key, ownerID, err)
 	}
@@ -516,7 +516,7 @@ func (t *Tx) grantedLeaseFor(ctx context.Context, resourceKey string, want Lease
 	if want == LeaseRead {
 		query += ` AND access_mode = 'write'`
 	}
-	query += ` ORDER BY granted_at`
+	query += ` ORDER BY julianday(granted_at)`
 
 	rows, err := t.tx.QueryContext(ctx, query)
 	if err != nil {

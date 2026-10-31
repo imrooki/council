@@ -145,7 +145,7 @@ func (s *Store) conversationListWhere(archived bool) string {
 // 「归档与工作区正交」这句话在 SQL 里就是两个独立的列，谁也不是谁的条件。
 func (s *Store) listConversations(ctx context.Context, where string) ([]conversation.Conversation, error) {
 	rows, err := s.read.QueryContext(ctx,
-		`SELECT `+s.conversationSelectColumns()+` FROM conversations WHERE `+where+` ORDER BY created_at DESC, id ASC`,
+		`SELECT `+s.conversationSelectColumns()+` FROM conversations WHERE `+where+` ORDER BY julianday(created_at) DESC, id ASC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
@@ -350,7 +350,7 @@ func (s *Store) AllInflight(ctx context.Context) ([]conversation.InflightTurn, e
 	rows, err := s.read.QueryContext(ctx, `
 SELECT turn_id, conv_id, agent_id, provider, planned_session_id, resume_session_id,
        cursor_seq, scanned_to, started_at, phase, tier, work_dir
-FROM inflight_turns ORDER BY started_at ASC`,
+FROM inflight_turns ORDER BY julianday(started_at) ASC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list inflight turns: %w", err)
@@ -405,7 +405,7 @@ SELECT turn_id, conv_id, agent_id, provider_session_id, seq, outcome,
        delivered_lo, delivered_hi, created_at, identity_fp, round_id
 FROM turn_usage
 WHERE agent_id = ? AND identity_fp = ? AND input_tokens IS NOT NULL
-ORDER BY created_at DESC, turn_id DESC`
+ORDER BY julianday(created_at) DESC, turn_id DESC`
 	var (
 		rows *sql.Rows
 		err  error
@@ -469,15 +469,15 @@ func (s *Store) TurnUsages(ctx context.Context, convID, agentID string, limit in
 SELECT ` + cols + `
 FROM turn_usage
 ` + where + `
-ORDER BY created_at DESC, turn_id DESC
+ORDER BY julianday(created_at) DESC, turn_id DESC
 LIMIT ?)
-ORDER BY created_at ASC, turn_id ASC`
+ORDER BY julianday(created_at) ASC, turn_id ASC`
 		args = append(args, limit)
 	} else {
 		q = `SELECT ` + cols + `
 FROM turn_usage
 ` + where + `
-ORDER BY created_at ASC, turn_id ASC`
+ORDER BY julianday(created_at) ASC, turn_id ASC`
 	}
 	rows, err := s.read.QueryContext(ctx, q, args...)
 	if err != nil {
