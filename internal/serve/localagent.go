@@ -293,7 +293,20 @@ func (s *Server) handleLocalAgentLease(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	ttl, err := localagent.NormalizeTTL(time.Duration(req.TTLSeconds) * time.Second)
+	// 先按秒判上下限，再乘 time.Second：18446744079 这样的值乘 1e9 会回绕成
+	// 5 秒左右，NormalizeTTL 看到的是一个合法的短 TTL（B11）。
+	seconds := int64(req.TTLSeconds)
+	if seconds < 0 {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("ttl 不能为负：%d 秒", seconds))
+		return
+	}
+	if seconds > int64(localagent.MaxLeaseTTL/time.Second) {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf(
+			"ttl 太长：%d 秒（最长 %s；租约只是提醒，不是永久锁）",
+			seconds, localagent.MaxLeaseTTL))
+		return
+	}
+	ttl, err := localagent.NormalizeTTL(time.Duration(seconds) * time.Second)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

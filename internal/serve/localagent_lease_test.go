@@ -137,6 +137,7 @@ func TestPostLeaseValidation(t *testing.T) {
 		{"模式写错", map[string]any{"resource": "x", "mode": "rw"}, "mode"},
 		{"ttl 太短", map[string]any{"resource": "x", "ttl_seconds": 1}, "ttl"},
 		{"ttl 太长", map[string]any{"resource": "x", "ttl_seconds": 100000}, "ttl"},
+		{"ttl 溢出", map[string]any{"resource": "x", "ttl_seconds": int64(18446744079)}, "ttl"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
