@@ -395,6 +395,11 @@ func unpackFingerprint(s string) (parts []string, ok bool) {
 			return nil, false
 		}
 		start := j + 1
+		if n > len(s)-start {
+			// 先判长度再相加：start+n 在 n 接近 MaxInt 时会溢出成负数，
+			// 随后 s[end] 直接 panic（P2）。
+			return nil, false
+		}
 		end := start + n
 		if end >= len(s) || s[end] != ';' {
 			return nil, false
