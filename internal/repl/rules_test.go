@@ -245,7 +245,7 @@ func TestRulesReloadWithoutRebuildDoesNotChangeState(t *testing.T) {
 	if err := os.WriteFile(localPath, []byte("旧的局部规则"), 0o644); err != nil {
 		t.Fatalf("写局部规则文件失败: %v", err)
 	}
-	loaded, err := config.LoadRules(filepath.Join(t.TempDir(), "council.toml"), localPath)
+	loaded, err := config.LoadRulesInDir(t.TempDir(), localPath)
 	if err != nil {
 		t.Fatalf("LoadRules 失败: %v", err)
 	}

@@ -205,7 +205,7 @@ func Run(ctx context.Context, opts Options) error {
 	// 写 Err、不进 REPL。把读失败当成空规则，会让一次 I/O 故障静默地把
 	// 成员的指令环境掏空，而下一轮照样花钱跑完、退出码 0（11 节 1.1）。
 	// 相对路径按定义 rules_file 的那一层解析，不是按最高优先层猜。
-	rules, err := config.LoadRules(merged.RulesFileBase, cfg.RulesFile)
+	rules, err := config.LoadRulesInDir(merged.RulesFileBase, cfg.RulesFile)
 	if err != nil {
 		fmt.Fprint(errOut, msg("cli.startup.rulesFailed", "规则文件读不出来: %v\n", err))
 		fmt.Fprint(errOut, msg("cli.startup.rulesHint", "全局规则找的是 %s（可用环境变量 %s 改），局部规则由配置里的 rules_file 指定。\n",

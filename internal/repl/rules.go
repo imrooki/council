@@ -10,6 +10,7 @@ package repl
 
 import (
 	"context"
+	"path/filepath"
 
 	"council/internal/config"
 	"council/internal/i18n"
@@ -148,9 +149,11 @@ func cmdRulesReload(ctx context.Context, r *REPL, rebuild bool) error {
 	// 单文件下两者本来就是同一个。
 	rulesBase := r.rulesFileBase
 	if rulesBase == "" {
-		rulesBase = r.rulesCtx.ConfigPath
+		// 零值时回落启动配置所在目录。rulesCtx.ConfigPath 是文件路径，
+		// 这里显式取 Dir，交给 LoadRulesInDir 的必须是目录（B18）。
+		rulesBase = filepath.Dir(r.rulesCtx.ConfigPath)
 	}
-	newRules, err := config.LoadRules(rulesBase, r.rulesCtx.RulesFile)
+	newRules, err := config.LoadRulesInDir(rulesBase, r.rulesCtx.RulesFile)
 	if err != nil {
 		return r.reportErr(r.t("tui.err.reloadRules", "重读规则文件失败"), err)
 	}

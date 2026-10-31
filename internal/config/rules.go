@@ -48,16 +48,18 @@ func ResolveGlobalRulesPath() (string, error) {
 	return filepath.Join(home, ".council", DefaultGlobalRulesName), nil
 }
 
-// LoadRules 读两份规则文件。
+// LoadRulesInDir 读两份规则文件。
 //
-// configPath 是生效的配置文件路径，只用来解析 rulesFile 的相对路径
-// （取它的 filepath.Dir），不读它本身。
+// rulesDir 是生效配置所在的目录，只用来解析 rulesFile 的相对路径，不读它
+// 本身。参数语义刻意收窄成「目录」而不是「配置文件路径」：调用方手里
+// 拿到的 RulesFileBase 已经是目录，错传成文件路径时这里不会再 Dir 一次，
+// 把相对规则甩到上一级（B18）。
 //
 // rulesFile 空串表示没有局部规则：LocalPath 留空串、LocalText 空串、
 // LocalFound 为 false。这是正常情况，不是错误。
 //
-// rulesFile 非空且是相对路径时，相对配置文件所在目录解析，不是相对
-// 当前工作目录 —— 按 cwd 解析会让入场费与行为随启动目录漂移、不可复现。
+// rulesFile 非空且是相对路径时，相对 rulesDir 解析，不是相对当前工作
+// 目录 —— 按 cwd 解析会让入场费与行为随启动目录漂移、不可复现。
 // 绝对路径原样用。解析后的结果放进 LocalPath。
 //
 // 全局那份的路径由 ResolveGlobalRulesPath 给出，恒填进 GlobalPath，
@@ -71,7 +73,7 @@ func ResolveGlobalRulesPath() (string, error) {
 // 退出码 0。
 //
 // Text 按 normalizeRulesText 的固定三步归一化后再写入。
-func LoadRules(configPath string, rulesFile string) (Rules, error) {
+func LoadRulesInDir(rulesDir string, rulesFile string) (Rules, error) {
 	globalPath, err := ResolveGlobalRulesPath()
 	if err != nil {
 		return Rules{}, err
@@ -94,7 +96,7 @@ func LoadRules(configPath string, rulesFile string) (Rules, error) {
 
 	localPath := rulesFile
 	if !filepath.IsAbs(rulesFile) {
-		localPath = filepath.Join(filepath.Dir(configPath), rulesFile)
+		localPath = filepath.Join(rulesDir, rulesFile)
 	}
 	r.LocalPath = localPath
 

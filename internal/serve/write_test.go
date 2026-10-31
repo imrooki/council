@@ -110,7 +110,7 @@ func newWriteTestEnv(t *testing.T) *writeTestEnv {
 	if err != nil {
 		t.Fatalf("加载测试配置失败: %v", err)
 	}
-	rules, err := config.LoadRules(cfgPath, cfg.RulesFile)
+	rules, err := config.LoadRulesInDir(filepath.Dir(cfgPath), cfg.RulesFile)
 	if err != nil {
 		t.Fatalf("加载测试规则失败: %v", err)
 	}

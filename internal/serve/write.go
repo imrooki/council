@@ -384,7 +384,7 @@ func loadWriteConfig(configPath string) (writeConfig, error) {
 	if err != nil {
 		return writeConfig{}, fmt.Errorf("加载配置失败 (%s): %w", primary, err)
 	}
-	rules, err := config.LoadRules(merged.RulesFileBase, merged.Config.RulesFile)
+	rules, err := config.LoadRulesInDir(merged.RulesFileBase, merged.Config.RulesFile)
 	if err != nil {
 		return writeConfig{}, fmt.Errorf("加载规则文件失败: %w", err)
 	}

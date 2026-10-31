@@ -107,10 +107,9 @@ func TestLoadRulesFileNotExist(t *testing.T) {
 	t.Run("局部规则文件不存在", func(t *testing.T) {
 		tstIsolateGlobalRules(t)
 		dir := t.TempDir()
-		configPath := filepath.Join(dir, "config.toml")
 		const missingName = "no-such-rules.md"
 
-		rules, err := LoadRules(configPath, missingName)
+		rules, err := LoadRulesInDir(dir, missingName)
 		if err != nil {
 			t.Fatalf("LoadRules 返回错误: %v", err)
 		}
@@ -131,7 +130,7 @@ func TestLoadRulesFileNotExist(t *testing.T) {
 		tstPinGlobalRulesEnv(t, globalPath)
 		dir := t.TempDir()
 
-		rules, err := LoadRules(filepath.Join(dir, "config.toml"), "")
+		rules, err := LoadRulesInDir(dir, "")
 		if err != nil {
 			t.Fatalf("LoadRules 返回错误: %v", err)
 		}
@@ -153,7 +152,7 @@ func TestLoadRulesEmptyRulesFileMeansNoLocal(t *testing.T) {
 	tstIsolateGlobalRules(t)
 	dir := t.TempDir()
 
-	rules, err := LoadRules(filepath.Join(dir, "config.toml"), "")
+	rules, err := LoadRulesInDir(dir, "")
 	if err != nil {
 		t.Fatalf("LoadRules 返回错误: %v", err)
 	}
@@ -179,7 +178,7 @@ func TestLoadRulesPathIsDirectory(t *testing.T) {
 			t.Fatalf("建目录失败: %v", err)
 		}
 
-		_, err := LoadRules(filepath.Join(dir, "config.toml"), "this-is-a-directory")
+		_, err := LoadRulesInDir(dir, "this-is-a-directory")
 		if err == nil {
 			t.Fatal("rules_file 指向一个目录时，LoadRules 应当返回错误，实际 nil")
 		}
@@ -193,7 +192,7 @@ func TestLoadRulesPathIsDirectory(t *testing.T) {
 		}
 		tstPinGlobalRulesEnv(t, subdir)
 
-		_, err := LoadRules(filepath.Join(t.TempDir(), "config.toml"), "")
+		_, err := LoadRulesInDir(t.TempDir(), "")
 		if err == nil {
 			t.Fatal("全局规则路径指向一个目录时，LoadRules 应当返回错误，实际 nil")
 		}
@@ -214,7 +213,7 @@ func tstLoadLocalRules(t *testing.T, raw []byte) string {
 	if err := os.WriteFile(filepath.Join(dir, name), raw, 0o644); err != nil {
 		t.Fatalf("写规则文件失败: %v", err)
 	}
-	rules, err := LoadRules(filepath.Join(dir, "config.toml"), name)
+	rules, err := LoadRulesInDir(dir, name)
 	if err != nil {
 		t.Fatalf("LoadRules 返回错误: %v", err)
 	}
@@ -325,7 +324,6 @@ func TestLoadRulesRelativePathResolvesAgainstConfigDirNotCWD(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dirA, "COUNCIL.md"), []byte("A-的规则正文"), 0o644); err != nil {
 		t.Fatalf("写 A 的规则文件失败: %v", err)
 	}
-	configPath := filepath.Join(dirA, "config.toml")
 
 	dirB := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dirB, "COUNCIL.md"), []byte("B-诱饵-绝不该被读到"), 0o644); err != nil {
@@ -333,7 +331,7 @@ func TestLoadRulesRelativePathResolvesAgainstConfigDirNotCWD(t *testing.T) {
 	}
 	t.Chdir(dirB) // 当前工作目录故意与配置文件所在目录不同
 
-	rules, err := LoadRules(configPath, "COUNCIL.md")
+	rules, err := LoadRulesInDir(dirA, "COUNCIL.md")
 	if err != nil {
 		t.Fatalf("LoadRules 返回错误: %v", err)
 	}
@@ -343,6 +341,44 @@ func TestLoadRulesRelativePathResolvesAgainstConfigDirNotCWD(t *testing.T) {
 	}
 	if rules.LocalText != "A-的规则正文" {
 		t.Errorf("LocalText = %q，期望 %q；读到诱饵内容说明按 cwd 解析了", rules.LocalText, "A-的规则正文")
+	}
+}
+
+// TestB18RulesFileRelativeToMergedBase 钉住 B18：LoadMerged 交回的
+// RulesFileBase 已经是「定义 rules_file 的那一层目录」，调用方不能再对它
+// 取一次 filepath.Dir，否则相对路径会解析到配置目录的上一级。
+//
+// 这条用例走的是生产调用链：LoadMerged -> RulesFileBase -> LoadRulesInDir，
+// 不是直接给 LoadRulesInDir 喂一个手写的目录。
+func TestB18RulesFileRelativeToMergedBase(t *testing.T) {
+	tstIsolateGlobalRules(t)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	rulesPath := filepath.Join(dir, "COUNCIL.md")
+	if err := os.WriteFile(rulesPath, []byte("项目里的局部规则"), 0o644); err != nil {
+		t.Fatalf("写规则文件失败: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("rules_file = 'COUNCIL.md'\n"), 0o644); err != nil {
+		t.Fatalf("写配置失败: %v", err)
+	}
+
+	merged, err := LoadMerged([]Layer{{Path: configPath}})
+	if err != nil {
+		t.Fatalf("LoadMerged 失败: %v", err)
+	}
+	if merged.RulesFileBase != dir {
+		t.Fatalf("RulesFileBase = %q，期望 %q", merged.RulesFileBase, dir)
+	}
+	rules, err := LoadRulesInDir(merged.RulesFileBase, merged.Config.RulesFile)
+	if err != nil {
+		t.Fatalf("LoadRulesInDir 失败: %v", err)
+	}
+	if rules.LocalPath != rulesPath {
+		t.Errorf("LocalPath = %q，期望 %q（不能再对目录取一次 Dir）", rules.LocalPath, rulesPath)
+	}
+	if !rules.LocalFound || rules.LocalText != "项目里的局部规则" {
+		t.Errorf("LocalFound/LocalText = %v/%q，期望 true/项目里的局部规则", rules.LocalFound, rules.LocalText)
 	}
 }
 

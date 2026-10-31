@@ -155,7 +155,7 @@ mode = "worker"
 	if err != nil {
 		t.Fatalf("加载合并配置失败: %v", err)
 	}
-	rules, err := config.LoadRules(merged.RulesFileBase, merged.Config.RulesFile)
+	rules, err := config.LoadRulesInDir(merged.RulesFileBase, merged.Config.RulesFile)
 	if err != nil {
 		t.Fatalf("加载规则失败: %v", err)
 	}
