@@ -9,9 +9,11 @@ import (
 )
 
 func TestBVolumeRootsCached(t *testing.T) {
-	oldOnce, oldCache, oldStat := volumeRootsOnce, volumeRootsCache, volumeRootsStat
+	oldStat := volumeRootsStat
 	defer func() {
-		volumeRootsOnce, volumeRootsCache, volumeRootsStat = oldOnce, oldCache, oldStat
+		volumeRootsStat = oldStat
+		volumeRootsOnce = sync.Once{}
+		volumeRootsCache = nil
 	}()
 	volumeRootsOnce = sync.Once{}
 	volumeRootsCache = nil
