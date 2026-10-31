@@ -76,18 +76,19 @@ func TestLocalAgentLoadNormalizesValues(t *testing.T) {
 	}
 }
 
-// TestLocalAgentMergeHighLayerWins 覆盖「高层定义才覆盖」：项目层压过全局层，
-// 项目层没写时继承全局层，两层都没写时是 off。
-func TestLocalAgentMergeHighLayerWins(t *testing.T) {
+// TestLocalAgentMergeIgnoresProjectLayer 覆盖 S2 后的口径：项目层来自
+// 不可信仓库，写 local_agent 一律忽略；只有非项目层能打开进程枚举/租约。
+// 项目层没写时照常继承全局层，两层都没写时是 off。
+func TestLocalAgentMergeIgnoresProjectLayer(t *testing.T) {
 	tests := []struct {
 		name    string
 		project string // 空串表示项目层不写 local_agent
 		global  string
 		want    string
 	}{
-		{name: "项目层 observe 压过全局 off", project: LocalAgentObserve, global: LocalAgentOff, want: LocalAgentObserve},
+		{name: "项目层 observe 被忽略，继承全局 off", project: LocalAgentObserve, global: LocalAgentOff, want: LocalAgentOff},
 		{name: "项目层不写时继承全局 observe", project: "", global: LocalAgentObserve, want: LocalAgentObserve},
-		{name: "项目层 off 压过全局 observe", project: LocalAgentOff, global: LocalAgentObserve, want: LocalAgentOff},
+		{name: "项目层 off 被忽略，继承全局 observe", project: LocalAgentOff, global: LocalAgentObserve, want: LocalAgentObserve},
 		{name: "两层都没写时默认 off", project: "", global: "", want: LocalAgentOff},
 	}
 	for _, tc := range tests {

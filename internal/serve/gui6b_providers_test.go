@@ -48,7 +48,6 @@ func providerSave(t *testing.T, env *gui6Env, payload map[string]any) (int, sett
 
 func TestGui6bAddProviderWritesOnlyTargetFile(t *testing.T) {
 	env := newGui6Env(t)
-	globalBefore := gui6Read(t, env.globalConfig)
 	projectBefore := gui6Read(t, env.projectConfig)
 
 	code, res, raw := providerSave(t, env, map[string]any{
@@ -58,8 +57,8 @@ func TestGui6bAddProviderWritesOnlyTargetFile(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("新增 provider = %d，期望 200；body=%s", code, raw)
 	}
-	if res.WriteTarget != env.projectConfig {
-		t.Errorf("write_target = %q，期望项目层 %q", res.WriteTarget, env.projectConfig)
+	if res.WriteTarget != env.globalConfig {
+		t.Errorf("write_target = %q，期望用户配置层 %q", res.WriteTarget, env.globalConfig)
 	}
 	if res.BackupPath == "" {
 		t.Errorf("没有生成备份")
@@ -70,31 +69,29 @@ func TestGui6bAddProviderWritesOnlyTargetFile(t *testing.T) {
 	if !strings.Contains(res.Note, "重启") {
 		t.Errorf("note = %q，期望说明需要重启", res.Note)
 	}
-	if got := gui6Read(t, env.globalConfig); got != globalBefore {
-		t.Errorf("全局层被改动了:\n%s", got)
+	if got := gui6Read(t, env.projectConfig); got != projectBefore {
+		t.Errorf("项目层被改动了:\n%s", got)
 	}
 
-	projectAfter := gui6Read(t, env.projectConfig)
+	projectAfter := gui6Read(t, env.globalConfig)
 	if !strings.Contains(projectAfter, "[providers.deepseek]") {
-		t.Fatalf("项目层里没有新增的 provider 段:\n%s", projectAfter)
+		t.Fatalf("用户配置层里没有新增的 provider 段:\n%s", projectAfter)
 	}
 	if !strings.Contains(projectAfter, `command = 'C:\Tools\deepseek\deepseek.cmd'`) {
 		t.Errorf("command 没有按单引号字面量写入:\n%s", projectAfter)
 	}
 	// 原有内容必须原样保留。
 	for _, want := range []string{
-		"# 项目层：只写这个项目自己的成员",
-		"[agents.p1]",
-		`display_name = "Project One"`,
-		"[agents.p2]",
-		`role = "待删除成员"`,
+		"[agents.g1]",
+		`display_name = "Global One"`,
+		`role = "全局层成员"`,
 	} {
 		if !strings.Contains(projectAfter, want) {
-			t.Errorf("项目层里丢了 %q:\n%s", want, projectAfter)
+			t.Errorf("用户配置层里丢了 %q:\n%s", want, projectAfter)
 		}
 	}
-	if strings.Count(projectAfter, "[agents.p1]") != 1 {
-		t.Errorf("p1 段被复制了:\n%s", projectAfter)
+	if strings.Count(projectAfter, "[agents.g1]") != 1 {
+		t.Errorf("g1 段被复制了:\n%s", projectAfter)
 	}
 
 	// 设置页马上能看到它，并且标成「可写」。
@@ -113,24 +110,23 @@ func TestGui6bAddProviderWritesOnlyTargetFile(t *testing.T) {
 		t.Errorf("agents = %v，期望空", p.Agents)
 	}
 
-	// 全局层的 claude 仍在，且不是可写的。
+	// claude 也在用户配置层里，所以同样可写；它被 p1/p2/g1 引用。
 	inherited := providerByID(t, settings.Providers, "claude")
-	if inherited.Writable {
-		t.Errorf("全局层的 provider 被标成了 writable")
+	if !inherited.Writable {
+		t.Errorf("用户配置层里的 provider 应当标成 writable")
 	}
 	if len(inherited.Agents) == 0 {
 		t.Errorf("claude 被 p1/p2/g1 引用，agents 不该是空的")
 	}
-	_ = projectBefore
 }
 
 func TestGui6bUpdateProviderKeepsComment(t *testing.T) {
 	env := newGui6Env(t)
-	// 先在项目层里放一段带行尾注释的 provider。
-	project := gui6Read(t, env.projectConfig)
-	project += "\n[providers.local]\ncommand = 'old-binary'  # 我这台机器上的路径\n"
-	if err := writeFileForTest(env.projectConfig, project); err != nil {
-		t.Fatalf("写项目配置失败: %v", err)
+	// 先在用户配置层里放一段带行尾注释的 provider——S2 之后设置页只写这一层。
+	global := gui6Read(t, env.globalConfig)
+	global += "\n[providers.local]\ncommand = 'old-binary'  # 我这台机器上的路径\n"
+	if err := writeFileForTest(env.globalConfig, global); err != nil {
+		t.Fatalf("写用户配置失败: %v", err)
 	}
 	reloadForTest(t, env)
 
@@ -144,7 +140,7 @@ func TestGui6bUpdateProviderKeepsComment(t *testing.T) {
 	if res.BackupPath == "" {
 		t.Errorf("没有生成备份")
 	}
-	after := gui6Read(t, env.projectConfig)
+	after := gui6Read(t, env.globalConfig)
 	if !strings.Contains(after, "command = 'new-binary'  # 我这台机器上的路径") {
 		t.Errorf("值改了但行尾注释被丢了:\n%s", after)
 	}
@@ -173,25 +169,25 @@ func TestGui6bDeleteProviderRefusesWhenReferenced(t *testing.T) {
 	}
 }
 
-func TestGui6bDeleteProviderInheritedIsConflict(t *testing.T) {
+// TestGui6bProviderOnlyInProjectLayerIsInvisible 覆盖 S2：项目层里的 provider
+// 被 LoadMerged 忽略，设置页既看不到它，也不能删它（它本来就不生效）。
+func TestGui6bProviderOnlyInProjectLayerIsInvisible(t *testing.T) {
 	env := newGui6Env(t)
-	// 全局层加一个没人引用的 provider：项目层删不掉它，因为它不在写目标里。
-	global := gui6Read(t, env.globalConfig)
-	global += "\n[providers.lonely]\ncommand = 'nobody-uses-me'\n"
-	if err := writeFileForTest(env.globalConfig, global); err != nil {
-		t.Fatalf("写全局配置失败: %v", err)
+	project := gui6Read(t, env.projectConfig)
+	project += "\n[providers.lonely]\ncommand = 'nobody-uses-me'\n"
+	if err := writeFileForTest(env.projectConfig, project); err != nil {
+		t.Fatalf("写项目配置失败: %v", err)
 	}
 	reloadForTest(t, env)
 
-	status, raw := gui6Post(t, env.http.URL+"/api/settings/providers/lonely/delete", "{}")
-	if status != http.StatusConflict {
-		t.Fatalf("删除继承来的 provider = %d，期望 409；body=%s", status, raw)
+	for _, p := range gui6Settings(t, env).Providers {
+		if p.ID == "lonely" {
+			t.Fatalf("项目层的 provider 不该出现在设置页: %+v", p)
+		}
 	}
-	// 消息要点名「它定义在哪份文件、本接口只写哪份」，用户才知道去改哪里。
-	// JSON 里反斜杠是转义的，直接搜原文会漏，先解出 error 字段再比。
-	msg := errorMessage(t, raw)
-	if !strings.Contains(msg, "定义在") || !strings.Contains(msg, env.globalConfig) {
-		t.Errorf("错误消息没有说明它定义在别的层: %s", msg)
+	status, raw := gui6Post(t, env.http.URL+"/api/settings/providers/lonely/delete", "{}")
+	if status != http.StatusNotFound {
+		t.Fatalf("删除只在项目层的 provider = %d，期望 404；body=%s", status, raw)
 	}
 }
 
@@ -207,11 +203,11 @@ func TestGui6bDeleteProviderRemovesSection(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("删除 provider = %d，期望 200；body=%s", status, raw)
 	}
-	after := gui6Read(t, env.projectConfig)
+	after := gui6Read(t, env.globalConfig)
 	if strings.Contains(after, "[providers.temp]") {
 		t.Errorf("删除后段还在:\n%s", after)
 	}
-	if !strings.Contains(after, "[agents.p1]") {
+	if !strings.Contains(after, "[agents.g1]") {
 		t.Errorf("删除 provider 时把别的段删掉了:\n%s", after)
 	}
 	for _, p := range gui6Settings(t, env).Providers {
@@ -232,7 +228,7 @@ func TestGui6bProviderArgsAndEnv(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("保存带参数的 provider = %d，期望 200；body=%s", code, raw)
 	}
-	after := gui6Read(t, env.projectConfig)
+	after := gui6Read(t, env.globalConfig)
 	for _, want := range []string{
 		"[providers.wrapped]",
 		`command = 'wrapped-cli'`,
@@ -276,7 +272,7 @@ func TestGui6bProviderArgsAndEnv(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("清空参数 = %d；body=%s", code, raw)
 	}
-	cleared := gui6Read(t, env.projectConfig)
+	cleared := gui6Read(t, env.globalConfig)
 	if strings.Contains(cleared, "args =") || strings.Contains(cleared, "env =") {
 		t.Errorf("清空之后 args/env 行还留着:\n%s", cleared)
 	}
@@ -295,7 +291,7 @@ func TestGui6bProviderModels(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("保存带模型的 provider = %d；body=%s", code, raw)
 	}
-	after := gui6Read(t, env.projectConfig)
+	after := gui6Read(t, env.globalConfig)
 	if !strings.Contains(after, `models = ['cpa-large', 'cpa-small']`) {
 		t.Errorf("models 没写进配置（空白与重复应被去掉）:\n%s", after)
 	}
@@ -319,13 +315,13 @@ func TestGui6bProviderModels(t *testing.T) {
 	}); code != http.StatusOK {
 		t.Fatalf("清空模型 = %d；body=%s", code, raw)
 	}
-	if strings.Contains(gui6Read(t, env.projectConfig), "models =") {
+	if strings.Contains(gui6Read(t, env.globalConfig), "models =") {
 		t.Errorf("清空后 models 行还在")
 	}
 }
 func TestGui6bProviderEnvValidation(t *testing.T) {
 	env := newGui6Env(t)
-	before := gui6Read(t, env.projectConfig)
+	before := gui6Read(t, env.globalConfig)
 	for _, entry := range []string{"NOEQUALS", "1ABC=x", "A B=x", "=x"} {
 		code, _, raw := providerSave(t, env, map[string]any{
 			"provider_id": "bad-env",
@@ -340,7 +336,7 @@ func TestGui6bProviderEnvValidation(t *testing.T) {
 			t.Errorf("env %q 的错误消息不友好: %s", entry, raw)
 		}
 	}
-	if got := gui6Read(t, env.projectConfig); got != before {
+	if got := gui6Read(t, env.globalConfig); got != before {
 		t.Errorf("校验失败却改了文件:\n%s", got)
 	}
 }
@@ -358,7 +354,7 @@ func TestGui6bProviderValidation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			before := gui6Read(t, env.projectConfig)
+			before := gui6Read(t, env.globalConfig)
 			code, _, raw := providerSave(t, env, tc.payload)
 			if code != http.StatusBadRequest {
 				t.Fatalf("= %d，期望 400；body=%s", code, raw)
@@ -366,7 +362,7 @@ func TestGui6bProviderValidation(t *testing.T) {
 			if !strings.Contains(raw, tc.want) {
 				t.Errorf("错误消息 = %s，期望包含 %q", raw, tc.want)
 			}
-			if got := gui6Read(t, env.projectConfig); got != before {
+			if got := gui6Read(t, env.globalConfig); got != before {
 				t.Errorf("校验失败却改了文件:\n%s", got)
 			}
 		})

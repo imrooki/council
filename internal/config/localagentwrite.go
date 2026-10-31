@@ -28,11 +28,16 @@ func LocalAgentValue(level string) string {
 	return value
 }
 
-// WriteLocalAgent 把 local_agent 写进 layers[0]，返回与其它设置写盘相同的
-// 结果形状。
+// WriteLocalAgent 把 local_agent 写进用户配置层（第一个非项目层），返回与
+// 其它设置写盘相同的结果形状。项目层的 local_agent 会被 LoadMerged 忽略，
+// 所以不能写在那里（S2）。
 func WriteLocalAgent(layers []Layer, level string) (AgentWriteResult, error) {
 	value := LocalAgentValue(level)
-	return writeSettingsFile(layers, errors.New("settings: local_agent 键不在写目标里"), func(orig []byte) ([]byte, bool, error) {
+	idx, err := trustedSettingsLayer(layers)
+	if err != nil {
+		return AgentWriteResult{}, err
+	}
+	return writeSettingsFileAt(layers, idx, errors.New("settings: local_agent 键不在写目标里"), func(orig []byte) ([]byte, bool, error) {
 		return setTopLevelKey(orig, "local_agent", value)
 	})
 }

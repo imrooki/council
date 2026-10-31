@@ -1059,9 +1059,13 @@ func (s *Server) handleSettingsProviderDelete(w http.ResponseWriter, r *http.Req
 	res, err := config.RemoveProviderSection(layers, id)
 	if errors.Is(err, config.ErrProviderSectionMissing) {
 		where := config.ProviderDefinedIn(layers, id)
-		hint := "它定义在低优先级的配置层里，本接口只写第一层"
+		target, targetErr := config.SettingsWriteTarget(layers)
+		if targetErr != nil {
+			target = layers[0].Path
+		}
+		hint := "它定义在低优先级的配置层里，本接口只写用户配置层"
 		if len(where) > 0 {
-			hint = "它定义在 " + strings.Join(where, "、") + "，本接口只写 " + layers[0].Path
+			hint = "它定义在 " + strings.Join(where, "、") + "，本接口只写 " + target
 		}
 		writeError(w, http.StatusConflict,
 			fmt.Sprintf("不能删除 %s：%s。请直接改那份文件，删掉对应的 [providers.%s] 段", id, hint, id))
@@ -1093,10 +1097,14 @@ func (s *Server) handleSettingsProviderDelete(w http.ResponseWriter, r *http.Req
 func (s *Server) writableProviderIDs() map[string]bool {
 	out := map[string]bool{}
 	layers, err := s.settingsLayers()
-	if err != nil || len(layers) == 0 || layers[0].Path == "" {
+	if err != nil {
 		return out
 	}
-	cfg, err := config.Load(layers[0].Path)
+	target, err := config.SettingsWriteTarget(layers)
+	if err != nil || target == "" {
+		return out
+	}
+	cfg, err := config.Load(target)
 	if err != nil || cfg == nil {
 		return out
 	}

@@ -30,11 +30,12 @@ func gui10SaveLocal(t *testing.T, env *gui6Env, level string) (int, []byte) {
 	return gui6Post(t, env.http.URL+"/api/settings/local-agent", string(body))
 }
 
-// TestGui10SaveLocalAgentWritesTopLevelKey 是主用例：写进项目层（layers[0]）、
-// 只动那一行、备份等于原文、全局层一个字节不变、GET 立刻读到新值。
+// TestGui10SaveLocalAgentWritesTopLevelKey 是主用例：S2 之后 local_agent 必须
+// 写进用户配置层（全局层），不能写进项目层——项目层写它会被 LoadMerged
+// 忽略，设置页却会报成功。只动那一行、备份等于原文、项目层一个字节不变。
 func TestGui10SaveLocalAgentWritesTopLevelKey(t *testing.T) {
 	env := newGui6Env(t)
-	before := gui6Read(t, env.projectConfig)
+	projectBefore := gui6Read(t, env.projectConfig)
 	globalBefore := gui6Read(t, env.globalConfig)
 
 	if got := gui6Settings(t, env).LocalAgent; got != config.LocalAgentOff {
@@ -49,14 +50,14 @@ func TestGui10SaveLocalAgentWritesTopLevelKey(t *testing.T) {
 	if err := json.Unmarshal(raw, &res); err != nil {
 		t.Fatalf("响应不是合法 JSON: %v；%s", err, raw)
 	}
-	if res.WriteTarget != env.projectConfig {
-		t.Errorf("write_target = %q，期望只写第一层 %q", res.WriteTarget, env.projectConfig)
+	if res.WriteTarget != env.globalConfig {
+		t.Errorf("write_target = %q，期望用户配置层 %q", res.WriteTarget, env.globalConfig)
 	}
 	if res.BackupPath == "" {
 		t.Error("没有备份路径：写盘必须留一份原文")
 	} else if backup, err := os.ReadFile(res.BackupPath); err != nil {
 		t.Errorf("读备份失败: %v", err)
-	} else if string(backup) != before {
+	} else if string(backup) != globalBefore {
 		t.Error("备份内容与写前原文不一致")
 	}
 	if !res.Reloaded {
@@ -68,16 +69,16 @@ func TestGui10SaveLocalAgentWritesTopLevelKey(t *testing.T) {
 		}
 	}
 
-	after := gui6Read(t, env.projectConfig)
+	after := gui6Read(t, env.globalConfig)
 	if !strings.Contains(after, `local_agent = "observe"`) {
 		t.Fatalf("目标文件里没有新层级:\n%s", after)
 	}
 	// 顶层键必须写在第一个表头之前，否则它会被解析成某个 agent 的字段。
-	if strings.Index(after, "local_agent =") > strings.Index(after, "[agents.p1]") {
+	if strings.Index(after, "local_agent =") > strings.Index(after, "[agents.g1]") {
 		t.Errorf("local_agent 被写进了表里:\n%s", after)
 	}
-	if got := gui6Read(t, env.globalConfig); got != globalBefore {
-		t.Error("写 local_agent 改动了全局层")
+	if got := gui6Read(t, env.projectConfig); got != projectBefore {
+		t.Error("写 local_agent 改动了项目层")
 	}
 	if got := gui6Settings(t, env).LocalAgent; got != config.LocalAgentObserve {
 		t.Errorf("保存后 /api/settings.local_agent = %q，期望 observe", got)
@@ -87,7 +88,7 @@ func TestGui10SaveLocalAgentWritesTopLevelKey(t *testing.T) {
 	if status, raw := gui10SaveLocal(t, env, config.LocalAgentOff); status != http.StatusOK {
 		t.Fatalf("保存 off = %d；body=%s", status, raw)
 	}
-	final := gui6Read(t, env.projectConfig)
+	final := gui6Read(t, env.globalConfig)
 	if got := strings.Count(final, "local_agent ="); got != 1 {
 		t.Errorf("local_agent 出现 %d 次，期望 1 次:\n%s", got, final)
 	}
@@ -120,7 +121,8 @@ func TestGui10SaveLocalAgentCoordinate(t *testing.T) {
 // 文件不改、不生成备份、不留临时文件。三档之外的名字（register 等）必须被拒。
 func TestGui10SaveLocalAgentInvalidLeavesFileUntouched(t *testing.T) {
 	env := newGui6Env(t)
-	before := gui6Read(t, env.projectConfig)
+	projectBefore := gui6Read(t, env.projectConfig)
+	globalBefore := gui6Read(t, env.globalConfig)
 
 	for _, bad := range []string{"register", "collaborate", "on", "true"} {
 		status, raw := gui10SaveLocal(t, env, bad)
@@ -141,10 +143,13 @@ func TestGui10SaveLocalAgentInvalidLeavesFileUntouched(t *testing.T) {
 		t.Errorf("空 level 的说明不对: %s", raw)
 	}
 
-	if got := gui6Read(t, env.projectConfig); got != before {
-		t.Error("被拒的保存改动了配置文件")
+	if got := gui6Read(t, env.projectConfig); got != projectBefore {
+		t.Error("被拒的保存改动了项目层")
 	}
-	backups, _ := filepath.Glob(env.projectConfig + ".bak-*")
+	if got := gui6Read(t, env.globalConfig); got != globalBefore {
+		t.Error("被拒的保存改动了用户配置层")
+	}
+	backups, _ := filepath.Glob(env.globalConfig + ".bak-*")
 	if len(backups) != 0 {
 		t.Errorf("被拒的保存生成了备份: %v", backups)
 	}

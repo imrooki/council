@@ -123,17 +123,51 @@ func AgentDefinedIn(layers []Layer, id string) []string {
 	return out
 }
 
+// ErrNoTrustedWriteLayer 表示配置里只有项目层，没有可写的用户层。
+// providers / rules_file / local_agent 这些安全相关键不能写进项目层（S2），
+// 所以设置页在只有项目层时只能拒绝，并让用户先建一份全局配置。
+var ErrNoTrustedWriteLayer = errors.New("settings: 只有项目层配置，安全相关键必须写进用户配置（~/.council/config.toml）；先运行 council init 或手动建一份")
+
+// trustedSettingsLayer 返回第一个非项目层的下标。providers / local_agent
+// 只能写这里：写进项目层会被 LoadMerged 忽略，设置页却会报成功（S2）。
+func trustedSettingsLayer(layers []Layer) (int, error) {
+	for i, layer := range layers {
+		if layer.Path != "" && !layer.Project {
+			return i, nil
+		}
+	}
+	return 0, ErrNoTrustedWriteLayer
+}
+
+// SettingsWriteTarget 返回 providers / local_agent 这类安全相关键该写进
+// 哪一份文件。serve 用它决定「可写」标记与错误提示里的目标路径。
+func SettingsWriteTarget(layers []Layer) (string, error) {
+	i, err := trustedSettingsLayer(layers)
+	if err != nil {
+		return "", err
+	}
+	return layers[i].Path, nil
+}
+
 // writeSettingsFile 是设置页所有写入共用的外壳：读原文 -> mutate -> 临时文件
 // -> 合并校验 -> 备份 -> Rename。mutate 返回 found=false 表示「目标文件里
 // 没有要动的东西」（只有删除会这样），此时原样返回 missing。
 //
 // agent、provider、语言、本机 agent 层级都走这一条路：备份与「先校验再替换」
-// 的纪律只有一份实现。
+// 的纪律只有一份实现。默认写最高优先层（layers[0]）；安全相关键走
+// writeSettingsFileAt，目标由 trustedSettingsLayer 决定。
 func writeSettingsFile(layers []Layer, missing error, mutate func([]byte) ([]byte, bool, error)) (AgentWriteResult, error) {
-	if len(layers) == 0 || layers[0].Path == "" {
+	return writeSettingsFileAt(layers, 0, missing, mutate)
+}
+
+// writeSettingsFileAt 是 writeSettingsFile 指定目标层的那一半。targetIndex
+// 同时决定「读哪份原文」与「临时文件替换哪一层」；probe 里其它层原样保留，
+// 所以校验看到的是下一次启动真正会合并出来的配置。
+func writeSettingsFileAt(layers []Layer, targetIndex int, missing error, mutate func([]byte) ([]byte, bool, error)) (AgentWriteResult, error) {
+	if len(layers) == 0 || targetIndex < 0 || targetIndex >= len(layers) || layers[targetIndex].Path == "" {
 		return AgentWriteResult{}, errors.New("settings: 没有可写入的配置层")
 	}
-	target := layers[0].Path
+	target := layers[targetIndex].Path
 	info, err := os.Stat(target)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -175,7 +209,7 @@ func writeSettingsFile(layers []Layer, missing error, mutate func([]byte) ([]byt
 	// 一遍，与下一次 serve 启动读到的结果一致。目标文件此时还没被替换。
 	probe := make([]Layer, len(layers))
 	copy(probe, layers)
-	probe[0].Path = tmpName
+	probe[targetIndex].Path = tmpName
 	merged, mergeErr := LoadMerged(probe)
 	if mergeErr != nil {
 		// 校验错误里可能出现临时文件名（多层合并会给错误补「来自 <文件>」）。

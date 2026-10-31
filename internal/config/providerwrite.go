@@ -18,24 +18,33 @@ var ErrProviderSectionMissing = errors.New("settings: provider section not found
 // agentSectionKeys：同一份配置改两次不该出现不同字节。
 var providerSectionKeys = []string{"command", "args", "env", "models"}
 
-// WriteProviderSection 把 [providers.<id>] 写进 layers[0]：已有这一段就
-// 原地改 command，没有就在文件末尾追加一段。
+// WriteProviderSection 把 [providers.<id>] 写进用户配置层（第一个非项目层）：
+// 已有这一段就原地改 command，没有就在文件末尾追加一段。项目层来自不可信
+// 仓库，写进去会被 LoadMerged 忽略，所以设置页绝不能把 provider 写到那里（S2）。
 //
 // 校验、备份、替换的顺序与 WriteAgentSection 完全一致（见那里的注释）：
 // 新内容过不了 LoadMerged + Validate 时，目标文件一个字节都不会动。
 func WriteProviderSection(layers []Layer, id string, provider ProviderConfig) (AgentWriteResult, error) {
-	return writeSettingsFile(layers, ErrProviderSectionMissing, func(orig []byte) ([]byte, bool, error) {
+	idx, err := trustedSettingsLayer(layers)
+	if err != nil {
+		return AgentWriteResult{}, err
+	}
+	return writeSettingsFileAt(layers, idx, ErrProviderSectionMissing, func(orig []byte) ([]byte, bool, error) {
 		return upsertProviderSection(orig, id, provider)
 	})
 }
 
-// RemoveProviderSection 从 layers[0] 删掉 [providers.<id>] 这一段。
+// RemoveProviderSection 从用户配置层删掉 [providers.<id>] 这一段。
 //
 // 文件里本来没有这一段（provider 继承自低优先级层）时返回
 // ErrProviderSectionMissing；删掉之后若还有 agent 引用它，Validate 会拒绝，
 // 返回 InvalidConfigError，文件不变 —— 调用方应当先把引用列给用户看。
 func RemoveProviderSection(layers []Layer, id string) (AgentWriteResult, error) {
-	return writeSettingsFile(layers, ErrProviderSectionMissing, func(orig []byte) ([]byte, bool, error) {
+	idx, err := trustedSettingsLayer(layers)
+	if err != nil {
+		return AgentWriteResult{}, err
+	}
+	return writeSettingsFileAt(layers, idx, ErrProviderSectionMissing, func(orig []byte) ([]byte, bool, error) {
 		return removeProviderSection(orig, id)
 	})
 }

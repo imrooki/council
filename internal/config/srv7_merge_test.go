@@ -105,11 +105,13 @@ agent = "b"
 	if cfg.DataDir != dataDir {
 		t.Errorf("data_dir = %q，期望继承全局层的 %q", cfg.DataDir, dataDir)
 	}
-	if cfg.RulesFile != "project-rules.md" {
-		t.Errorf("rules_file = %q，期望项目层的 project-rules.md", cfg.RulesFile)
+	// S2 之后项目层的 rules_file 整条忽略：不可信仓库不能把任意文件塞进
+	// 系统提示。全局层没写 rules_file，所以合并结果是空串。
+	if cfg.RulesFile != "" {
+		t.Errorf("rules_file = %q，项目层写它必须被忽略", cfg.RulesFile)
 	}
 	if merged.RulesFileBase != dir {
-		t.Errorf("RulesFileBase = %q，期望定义 rules_file 的那一层目录 %q", merged.RulesFileBase, dir)
+		t.Errorf("RulesFileBase = %q，没有任何一层写 rules_file 时取最高优先层目录 %q", merged.RulesFileBase, dir)
 	}
 
 	if len(cfg.Providers) != 2 {
@@ -208,15 +210,26 @@ model = "opus"
 	if merged.Config.DataDir != globalData {
 		t.Errorf("data_dir = %q，期望忽略项目层后取全局的 %q", merged.Config.DataDir, globalData)
 	}
-	if len(merged.Notices) != 1 {
-		t.Fatalf("应当恰好一条「项目 data_dir 被忽略」的提示，实际 %v", merged.Notices)
+	// 项目层还写了 [providers.claude]，S2 之后也会多一条「providers 被忽略」。
+	// 这里只找 data_dir 那一条，不要求总数恰好一。
+	var dataDirNotice string
+	for _, note := range merged.Notices {
+		if strings.Contains(note, projectPath) && strings.Contains(note, "data_dir") {
+			dataDirNotice = note
+			break
+		}
 	}
-	if !strings.Contains(merged.Notices[0], projectPath) || !strings.Contains(merged.Notices[0], "data_dir") {
-		t.Errorf("提示里应当有项目文件路径与 data_dir，实际 %q", merged.Notices[0])
+	if dataDirNotice == "" {
+		t.Fatalf("应当有一条「项目 data_dir 被忽略」的提示，实际 %v", merged.Notices)
 	}
 
 	// 只合并项目层：data_dir 被忽略后是空串，不是项目里那个值。
-	only, err := LoadMerged([]Layer{{Path: projectPath, Project: true}})
+	// 这里不能再带 [providers.claude] + agent：S2 之后项目层的 providers
+	// 整段忽略，agent 会因 provider 未定义而校验失败（这正是我们想要的
+	// 失败方式）。data_dir 的用例只留这一个键。
+	onlyPath := filepath.Join(dir, "only-project.toml")
+	srv7Write(t, onlyPath, `data_dir = '`+projectData+`'`)
+	only, err := LoadMerged([]Layer{{Path: onlyPath, Project: true}})
 	if err != nil {
 		t.Fatalf("只合并项目层失败: %v", err)
 	}
@@ -226,15 +239,7 @@ model = "opus"
 
 	// 相对路径的 data_dir 在项目层里是非法的，但既然要忽略，就不该影响校验。
 	invalidPath := filepath.Join(dir, "invalid-project.toml")
-	srv7Write(t, invalidPath, `data_dir = "relative-data"
-
-[providers.claude]
-command = "claude"
-
-[agents.b]
-provider = "claude"
-model = "opus"
-`)
+	srv7Write(t, invalidPath, `data_dir = "relative-data"`)
 	if _, err := LoadMerged([]Layer{{Path: invalidPath, Project: true}}); err != nil {
 		t.Errorf("项目层里被忽略的非法 data_dir 不该让合并失败: %v", err)
 	}

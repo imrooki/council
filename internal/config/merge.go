@@ -167,8 +167,17 @@ func LoadMerged(layers []Layer) (MergedConfig, error) {
 			}
 		}
 		if d.md.IsDefined("rules_file") {
-			merged.RulesFile = d.cfg.RulesFile
-			owner.rulesFileBase = filepath.Dir(path)
+			if d.layer.Project {
+				// S2：项目层来自不可信仓库。rules_file 能把本机任意文件塞进
+				// 系统提示，所以它和 providers 一样只认用户自己的配置层。
+				notices = append(notices, fmt.Sprintf(
+					"项目配置 %s 里的 rules_file 被忽略：局部规则文件只能由 --config、环境变量 %s 或 ~/.council/config.toml 指定",
+					path, EnvConfigPath))
+			} else {
+				merged.RulesFile = d.cfg.RulesFile
+				owner.rulesFileBase = filepath.Dir(path)
+				owner.rulesFilePath = path
+			}
 		}
 		if d.md.IsDefined("store_thought") {
 			merged.StoreThought = d.cfg.StoreThought
@@ -179,21 +188,36 @@ func LoadMerged(layers []Layer) (MergedConfig, error) {
 			merged.Language = d.cfg.Language
 			owner.language = path
 		}
-		// local_agent 与 language 同一段纪律：高优先级层写了才覆盖。
-		// 这一行漏掉的话，合并结果永远是上面预置的 off —— 用户把项目层
-		// 写成 observe 也会静默无效，而且没有任何报错（LoadMerged 不校验
-		// 「这个键有没有被合并」）。所以它必须与字段同批落地。
+		// local_agent 是进程枚举与租约的总开关。项目层来自不可信仓库，
+		// 不能靠一份 .council/config.toml 就把用户的机器打开（S2）。
 		if d.md.IsDefined("local_agent") {
-			merged.LocalAgent = d.cfg.LocalAgent
-			owner.localAgent = path
+			if d.layer.Project {
+				notices = append(notices, fmt.Sprintf(
+					"项目配置 %s 里的 local_agent 被忽略：本机 agent 开关只能由 --config、环境变量 %s 或 ~/.council/config.toml 指定",
+					path, EnvConfigPath))
+			} else {
+				merged.LocalAgent = d.cfg.LocalAgent
+				owner.localAgent = path
+			}
 		}
 		if d.md.IsDefined("summary", "agent") {
 			merged.Summary.Agent = d.cfg.Summary.Agent
 			owner.summary = path
 		}
-		for id, provider := range d.cfg.Providers {
-			merged.Providers[id] = provider
-			owner.providers[id] = path
+		// providers 决定起哪个可执行文件、带什么 argv/env。项目层写它等于
+		// 「克隆一个仓库，跑一次 council 就执行仓库指定的命令」，因此整段
+		// 忽略；项目层的 agents 仍可引用用户自己配置里的 provider（S2）。
+		if d.layer.Project {
+			if len(d.cfg.Providers) > 0 {
+				notices = append(notices, fmt.Sprintf(
+					"项目配置 %s 里的 providers 被忽略：provider 的 command/args/env 只能由 --config、环境变量 %s 或 ~/.council/config.toml 指定",
+					path, EnvConfigPath))
+			}
+		} else {
+			for id, provider := range d.cfg.Providers {
+				merged.Providers[id] = provider
+				owner.providers[id] = path
+			}
 		}
 		for id, agent := range d.cfg.Agents {
 			merged.Agents[id] = agent
@@ -202,6 +226,15 @@ func LoadMerged(layers []Layer) (MergedConfig, error) {
 		for id, team := range d.cfg.Teams {
 			merged.Teams[id] = team
 			owner.teams[id] = path
+		}
+	}
+
+	// rules_file 必须是「配置文件目录里的文件」：绝对路径原样接受，但落在
+	// 目录之外一律拒绝。项目层已经整条忽略，这一道是给 --config / 全局配置
+	// 的兜底：一份从别处拷来的配置也不能把 /etc/passwd 送进系统提示。
+	if merged.RulesFile != "" {
+		if err := checkRulesFileInside(owner.rulesFilePath, merged.RulesFile); err != nil {
+			return MergedConfig{}, err
 		}
 	}
 
@@ -248,6 +281,30 @@ type provenance struct {
 	language      string
 	localAgent    string
 	rulesFileBase string
+	// rulesFilePath 是定义 rules_file 的那份配置文件本身。rulesFileBase 是
+	// 它所在目录，只用于解析相对路径；报「越界」错误时要指出是哪一份配置。
+	rulesFilePath string
+}
+
+// checkRulesFileInside 只放行落在配置文件目录内的 rules_file。
+//
+// 相对路径按配置文件目录解析，绝对路径原样；两种最终都必须仍在同一目录树里。
+// 不 EvalSymlinks：rules_file 可以暂时不存在（缺文件是正常状态），Eval 会
+// 因此失败；目录穿越（..）在字符串层面就能判掉。
+func checkRulesFileInside(configPath, rulesFile string) error {
+	if configPath == "" {
+		return nil
+	}
+	base := filepath.Dir(configPath)
+	resolved := rulesFile
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(base, resolved)
+	}
+	rel, err := filepath.Rel(base, filepath.Clean(resolved))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("配置 %s 的 rules_file 必须落在配置文件所在目录内: %q", configPath, rulesFile)
+	}
+	return nil
 }
 
 // sourceFor 找 path 指向的那个值来自哪份文件。找不到时返回空串（错误原样输出）。
