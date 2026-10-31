@@ -543,10 +543,16 @@ func (m Model) copyScreenScrollTo(first int) (Model, tea.Cmd) {
 }
 
 // copyBodyHeight 是正文区的行数：整屏去掉顶栏与页脚各一行。
+// 终端高度 ≤ 2 时返回 0：此时连顶栏+页脚都只勉强放得下，不能再硬塞一行
+// 正文，否则帧高会超出终端（P2）。
 func (m Model) copyBodyHeight() int {
-	h := m.height - 2
-	if h < 1 {
-		h = 1
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+	h -= 2
+	if h < 0 {
+		h = 0
 	}
 	return h
 }
@@ -601,7 +607,13 @@ func (m Model) copyScreenContent() string {
 	if total > 0 {
 		a, b = first+1, last
 	}
-	parts = append(parts, m.t("tui.copyscreen.range", "第 %d–%d 行 / 共 %d 行", a, b, total))
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+	if height > 1 {
+		parts = append(parts, m.t("tui.copyscreen.range", "第 %d–%d 行 / 共 %d 行", a, b, total))
+	}
 	return strings.Join(parts, "\n")
 }
 

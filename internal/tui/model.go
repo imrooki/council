@@ -426,6 +426,11 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.ctrlCClear()
 		m.members = msg.members
 		m.busy = false
+		if m.cancel != nil {
+			// 正常结束也要释放子 context，否则每轮都在根 ctx 上挂一个
+			// 永远不会取消的 child（P2）。
+			m.cancel()
+		}
 		m.cancel = nil
 		m.run = roundRun{}
 		if m.sub.IsQuit(msg.err) {
