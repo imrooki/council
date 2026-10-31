@@ -7294,6 +7294,21 @@
   // 系统事件（成员加入、轮次开始等）在归档材料里往往只是噪声，但默认
   // 仍包含——「谁在第几轮参与」本身是有价值的信息，由用户自己选。
   // options.truncated 为 true 时在标题下方写明已截断（B3）。
+  // exportMarkdownText 把用户/模型正文里的 HTML 元字符转成实体。导出的 .md
+  // 常被支持内嵌 HTML 的查看器打开，原样写入 <script> 会执行（服务补审 P2）。
+  // 只转 & < >，Markdown 语法（列表、强调、代码）保持原样；实体在查看器里
+  // 仍显示成原来的字符。
+  function exportMarkdownText(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function exportMarkdownCell(value) {
+    return exportMarkdownText(value).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+  }
+
   function buildMarkdown(detail, page, usage, now, options) {
     const entries = exportMemberEntries(detail, usage);
     const rows = exportAccountRows(entries);
@@ -7305,7 +7320,7 @@
       ? allMessages.filter((message) => message.kind !== 'system')
       : allMessages;
     const lines = [];
-    lines.push('# ' + ((detail && detail.title) || t('ui.conversation.untitled', '(无标题)')));
+    lines.push('# ' + exportMarkdownText((detail && detail.title) || t('ui.conversation.untitled', '(无标题)')));
     lines.push('');
     if (truncated) {
       lines.push(t('ui.export.truncated',
@@ -7314,11 +7329,11 @@
       lines.push('');
     }
     lines.push(t('ui.export.conversationLabel', '- 会话：{id}',
-      { id: (detail && detail.id) || '' }));
+      { id: exportMarkdownText((detail && detail.id) || '') }));
     lines.push(t('ui.export.directoryLabel', '- 目录：{path}',
-      { path: (detail && detail.cwd) || t('ui.export.unbound', '未绑定') }));
+      { path: exportMarkdownText((detail && detail.cwd) || t('ui.export.unbound', '未绑定')) }));
     lines.push(t('ui.export.membersLabel', '- 成员：{members}',
-      { members: exportMemberLine(entries) }));
+      { members: exportMarkdownText(exportMemberLine(entries)) }));
     if (dialogueOnly) {
       // 让文件自己说清它是哪一个版本：同一场会话的两份导出放在一起时，
       // 只看文件名之外还能从正文核对筛选口径。
@@ -7329,9 +7344,9 @@
     lines.push('---');
     lines.push('');
     for (const message of messages) {
-      lines.push('**' + exportSenderName(entries, message.sender_id) + '** · ' +
+      lines.push('**' + exportMarkdownText(exportSenderName(entries, message.sender_id)) + '** · ' +
         formatTime(message.created_at, now));
-      lines.push(message.text || '');
+      lines.push(exportMarkdownText(message.text || ''));
       lines.push('');
     }
     if (messages.length === 0) {
@@ -7357,7 +7372,7 @@
       const cost = stat.cost_reported === false
         ? t('ui.common.notReported', '不报')
         : formatUSD(stat.cost_usd || 0);
-      lines.push('| ' + entry.name + ' | ' + String(stat.turns || 0) + ' | ' +
+      lines.push('| ' + exportMarkdownCell(entry.name) + ' | ' + String(stat.turns || 0) + ' | ' +
         formatNumber(stat.in) + ' | ' + formatNumber(stat.out) + ' | ' + cost + ' |');
     }
     if (rows.length === 0) {
