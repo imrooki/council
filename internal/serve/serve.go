@@ -255,6 +255,11 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, brow
 		return fmt.Errorf("监听 %s 失败: %w", addr, err)
 	}
 
+	// S1：在 logRequests 之外再包一层 Host 白名单，所有路由（含 GET 与 `/`）
+	// 都先过它。必须放在拿到 listener 之后：-addr 127.0.0.1:0 时只有
+	// ln.Addr() 知道内核分到的真实端口。
+	handler = requireLoopbackHost(handler, ln.Addr())
+
 	url := listenURL(ln.Addr())
 	fmt.Fprintf(out, "council serve: %s\n", url)
 	// -app 的 profile 只增不减，启动时顺手清一次（B5）。放在打开窗口之前：
