@@ -439,6 +439,23 @@ func TestAsk_round两轮与汇总(t *testing.T) {
 	}
 }
 
+// 单成员 round 也要跑汇总，不能因为「只有一个成员」静默 partial。
+func TestAsk_singleMemberRoundStillSummarizes(t *testing.T) {
+	cfgPath, _ := writeAskConfig(t, "[summary]\nagent = \"s1\"\n")
+	out, errOut, err := runAskForTest(t, context.Background(), cfgPath,
+		[]string{"-p", "q", "-members", "c1", "-mode", "round", "-rounds", "1", "-json"}, "")
+	if err != nil {
+		t.Fatalf("单成员 round 应当成功返回 nil，实际 %v；Err:\n%s\nOut:\n%s", err, errOut, out)
+	}
+	res, _ := decodeSingleResult(t, out)
+	if res.Status != "ok" {
+		t.Errorf("status 应为 ok，实际 %q；Out:\n%s", res.Status, out)
+	}
+	if res.Summary == "" {
+		t.Errorf("单成员 round 也应产出 summary；Err:\n%s", errOut)
+	}
+}
+
 // TestAsk_预算被成员触线 是复审第 2 条指定的形状：两个成员一轮就跨过
 // 0.5（0.3 × 2），turns 保留、summary 为空、status=budget_exceeded、退 1。
 func TestAsk_预算被成员触线(t *testing.T) {

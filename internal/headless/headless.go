@@ -553,7 +553,8 @@ func (s *askState) addTurn(rec turn.Record, round int) {
 }
 
 // runSummary 照 internal/repl/summary.go 的既有判据问一次汇总成员：
-// 少于两个不同成员问过、没人真正回复、ctx 已经取消，都不总结。
+// 没人真正回复、ctx 已经取消，都不总结。单成员显式配了 summary 时也允许：
+// 只跑一个成员是合法用法，静默跳过汇总会让 status 永远停在 partial（P2）。
 // 已退出的汇总成员不拉回（/leave 是用户的明确意图）；没入过会的才 Join。
 //
 // 唯一与 REPL 不同的地方是去向：结果只进 Result.Summary，不写屏幕。
@@ -573,7 +574,7 @@ func (s *askState) runSummary(ctx context.Context) error {
 			replied = true
 		}
 	}
-	if len(order) < 2 || !replied {
+	if len(order) == 0 || !replied {
 		return nil
 	}
 	if ctx.Err() != nil {
