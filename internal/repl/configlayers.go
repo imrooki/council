@@ -34,7 +34,15 @@ import (
 // ResolveConfigLayers 失败（取不到用户主目录）时回落到单文件：那是一次
 // 环境探测失败，不该让一份本来读得动的配置文件跟着读不了。回落之后的行为
 // 与改动前完全相同，是这里能给出的最保守的答案。
-func reloadLayers(configPath string) []config.Layer {
+func reloadLayers(rulesCtx RulesContext) []config.Layer {
+	if len(rulesCtx.Layers) > 0 {
+		// 启动时的层列表是唯一权威：显式 --config 只读一层，自动探测才有多层。
+		// 不再按默认位置重算，避免「启动只读项目层、reload 却读出全局层」。
+		out := make([]config.Layer, len(rulesCtx.Layers))
+		copy(out, rulesCtx.Layers)
+		return out
+	}
+	configPath := rulesCtx.ConfigPath
 	if configPath == "" {
 		// 空路径原样交下去，由 LoadMerged 的「配置层路径为空」报出来。
 		// 不为它造一条错误，免得同一件事有两套措辞。

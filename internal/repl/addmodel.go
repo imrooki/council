@@ -440,7 +440,7 @@ func addDiscoveredModel(ctx context.Context, r *REPL, m provider.DiscoveredModel
 	// 结果整体落盘——那会把全局层的 providers 抄进项目文件。reloadLayers
 	// 保证第一项就是那份文件，且与启动时生效的规则同一套（见
 	// configlayers.go）。不在这里另拼路径：路径只有一个出处。
-	layers := reloadLayers(path)
+	layers := reloadLayers(r.rulesCtx)
 	writePath := layers[0].Path
 	// 守卫写之前重读同一组层（合并版），与 r.cfg 比，分两支，顺序冻结。
 	//

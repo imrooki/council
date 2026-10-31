@@ -165,8 +165,12 @@ type RulesContext struct {
 	// /rules reload 在没有 RulesFileBase 时拿它的目录当相对 rules_file
 	// 的基准。
 	ConfigPath string
-	RulesFile  string       // 配置里写的 rules_file 原值（可能是相对路径），转交给 config.LoadRules
-	Rules      config.Rules // 启动时读到的那一份
+	// Layers 是启动时实际读的层，高优先级在前。非空时 /config reload 与
+	// /add 直接用它，不再按默认位置重算：显式 --config 恰好指向自动探测到的
+	// 项目层时，启动只读这一层，重算却会多出全局层（P2）。
+	Layers    []config.Layer
+	RulesFile string       // 配置里写的 rules_file 原值（可能是相对路径），转交给 config.LoadRules
+	Rules     config.Rules // 启动时读到的那一份
 }
 
 // New 构造一个 REPL。out 是唯一的输出出口。

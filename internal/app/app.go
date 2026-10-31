@@ -364,7 +364,7 @@ func Run(ctx context.Context, opts Options) error {
 			}
 		}
 	}
-	rulesCtx := repl.RulesContext{ConfigPath: primaryPath, RulesFile: cfg.RulesFile, Rules: rules}
+	rulesCtx := repl.RulesContext{ConfigPath: primaryPath, Layers: layers, RulesFile: cfg.RulesFile, Rules: rules}
 	// headless 分支必须在 TUI / 行式 REPL 之前：它复用上面已经打开的库与
 	// 构造好的 Runner，只把控制权交给一次 ask，不再进任何读循环。
 	// rn 在 svc 为 nil 时是 nil，headless.Run 会把它报成错误退 1。

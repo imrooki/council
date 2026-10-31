@@ -71,7 +71,7 @@ func (r *REPL) knownConfigLayers() []string {
 	if len(r.cfgLayers) > 0 {
 		return r.cfgLayers
 	}
-	layers := reloadLayers(r.rulesCtx.ConfigPath)
+	layers := reloadLayers(r.rulesCtx)
 	if len(layers) < 2 {
 		return nil
 	}
@@ -116,7 +116,7 @@ func cmdConfigReload(ctx context.Context, r *REPL, apply bool) error {
 	// 配置是多层合并的：这次读哪几层见 configlayers.go。用户显式用
 	// -config / COUNCIL_CONFIG 点名一份文件时，这里退回单层，行为与改动前
 	// 逐字节一致；默认位置下才是「项目层 + 全局层」。
-	layers := reloadLayers(r.rulesCtx.ConfigPath)
+	layers := reloadLayers(r.rulesCtx)
 	merged, err := config.LoadMerged(layers)
 	if err != nil {
 		// 校验失败与读/解析失败分开处置：reload 是唯一一条让一份非法配置
