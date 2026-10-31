@@ -282,6 +282,12 @@ func (s *server) handleLine(line string) {
 			s.writeResult(req.ID, map[string]any{"tools": toolDefinitions()})
 		}
 	case "tools/call":
+		if !hasID {
+			// tools/call 是 request，不是 notification。没有 id 就执行等于
+			// 悄悄花一轮钱却无处回包；直接忽略（P2）。
+			s.logf("tools/call without id ignored")
+			return
+		}
 		s.handleToolCall(req, hasID)
 	case "notifications/cancelled":
 		s.handleCancelled(req.Params)

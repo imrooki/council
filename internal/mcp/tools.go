@@ -221,7 +221,11 @@ func decodeToolArgs(raw json.RawMessage, target any) error {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
-	return json.Unmarshal(raw, target)
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	// schema 写了 additionalProperties:false，解析也要一致：未知字段不能
+	// 静默丢掉，否则调用方以为参数生效了（P2）。
+	dec.DisallowUnknownFields()
+	return dec.Decode(target)
 }
 
 type askArgs struct {

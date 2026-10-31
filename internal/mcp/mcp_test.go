@@ -764,6 +764,32 @@ tools: Read
 	}
 }
 
+// TestToolsCallWithoutIDDoesNotExecute：没有 id 的 tools/call 是非法
+// request，不能真的花一轮钱。
+func TestToolsCallWithoutIDDoesNotExecute(t *testing.T) {
+	cfgPath, dataDir := writeMCPConfig(t, true)
+	line := `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"council_ask","arguments":{"prompt":"no id","members":["a1"]}}}`
+	stdout, stderr, err := runServerWithLines(t, cfgPath, line)
+	if err != nil {
+		t.Fatalf("app.Run 返回错误: %v\nstderr:\n%s", err, stderr)
+	}
+	if responses := parseResponses(t, stdout); len(responses) != 0 {
+		t.Fatalf("没有 id 的 tools/call 不应有响应，实际 %d 条: %s", len(responses), stdout)
+	}
+	ro, err := store.OpenReadOnly(context.Background(), dataDir)
+	if err != nil {
+		t.Fatalf("OpenReadOnly: %v", err)
+	}
+	defer ro.Close()
+	convs, err := ro.Conversations(context.Background())
+	if err != nil {
+		t.Fatalf("Conversations: %v", err)
+	}
+	if len(convs) != 0 {
+		t.Fatalf("没有 id 的 tools/call 仍然建了会话: %+v", convs)
+	}
+}
+
 // Test参数校验 覆盖第 5 条：未知成员、预算 0.1、轮数 0 都是 isError，而且
 // 文案点名了问题。
 func Test参数校验(t *testing.T) {
@@ -775,13 +801,14 @@ func Test参数校验(t *testing.T) {
 		toolCallLine(4, "council_ask", `{"prompt":"   "}`),
 		toolCallLine(5, "council_ask", `{"prompt":"hi","lang":"fr"}`),
 		toolCallLine(6, "council_ask", `{"prompt":"hi","cwd":"relative\\dir"}`),
+		toolCallLine(7, "council_ask", `{"prompt":"hi","bogus":1}`),
 	)
 	if err != nil {
 		t.Fatalf("app.Run 返回错误: %v\nstderr:\n%s", err, stderr)
 	}
 	responses := parseResponses(t, stdout)
-	if len(responses) != 6 {
-		t.Fatalf("应当有 6 条 tools/call 响应，实际 %d: %s", len(responses), stdout)
+	if len(responses) != 7 {
+		t.Fatalf("应当有 7 条 tools/call 响应，实际 %d: %s", len(responses), stdout)
 	}
 
 	cases := []struct {
@@ -795,6 +822,7 @@ func Test参数校验(t *testing.T) {
 		{4, "prompt"},
 		{5, "lang"},
 		{6, "cwd"},
+		{7, "unknown field"},
 	}
 	for _, tc := range cases {
 		result := decodeToolResult(t, responseByID(t, responses, tc.id))
