@@ -476,7 +476,10 @@ ON CONFLICT (conv_id, agent_id) DO UPDATE SET
 
 func (t *Tx) requireConversation(ctx context.Context, id string) error {
 	var dummy string
-	err := t.tx.QueryRowContext(ctx, `SELECT id FROM conversations WHERE id = ?`, id).Scan(&dummy)
+	// 软删的会话在事务外已经会被读路径过滤；写路径这里也必须过滤，
+	// 否则「事务外查到、事务内用户软删」的窗口里正文仍会落进去（P2）。
+	err := t.tx.QueryRowContext(ctx,
+		`SELECT id FROM conversations WHERE id = ? AND deleted_at IS NULL`, id).Scan(&dummy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("conversation %s: %w", id, conversation.ErrConversationNotFound)
 	}
