@@ -117,7 +117,7 @@ cd contrib/dsh-subagent-council && npm test
 - grok/agy 首轮正文以问题开头，问题以 `-` 开头时会被当成 flag（`provider/grok.go:100`、`agy.go:104`，未用真 CLI 复现）。
 - READ 档 `council-role.txt` 在 serve 并发 job 下被并发截断重写（疑似，`turn/spawn.go:140-148`）。（已修：f917541）
 - 疑似：claude 的 `total_cost_usd` 在共用 cwd、交错续接多个会话时是否仍是会话累计值，需真机验证（`provider/claude.go:325`）。
-- 桌面版：读回地址的正则不要求行尾，chunk 被切开会读错端口（`main.js:407`）；窗口只露底部 40px 就判可见（`:911-917`）；裸名 `taskkill` / `council` 在 Windows 上会先搜 cwd（`main.js:1211`、`contrib/.../run.js:73, 159`），改绝对路径。（地址正则/窗口可见已修：7cb99fe；裸名 council 仍未解析）
+- 桌面版：读回地址的正则不要求行尾，chunk 被切开会读错端口（`main.js:407`）；窗口只露底部 40px 就判可见（`:911-917`）；裸名 `taskkill` / `council` 在 Windows 上会先搜 cwd（`main.js:1211`、`contrib/.../run.js:73, 159`），改绝对路径。（地址正则/窗口可见已修：7cb99fe；contrib 裸名 council 已按 PATH 解析：eea51ee）
 - 发版流水线（`.github/workflows/release.yml`）：dispatch 时没 checkout 指定 tag 却 `--clobber` 覆盖该 tag 的产物；concurrency 按 `github.ref` 分组，同一版本可能并发上传导致 latest.yml 与安装包不对应；签名密钥是 job 级环境变量。改为按 tag 分组、checkout `ref: <tag>`、latest.yml 最后上传、密钥只给打包步骤、`persist-credentials: false`。（已修：431d919）
 - 配置模板注释引用了已移走的 `docs/06_SECURITY_MODEL.md`（`internal/config/defaults.go:98`）。（已修：45e39f6）
 - `--config` 恰好指向自动探测到的项目层文件时，启动只读这一层，`reloadLayers` 却返回 [项目层, 全局层]（`internal/repl/configlayers.go:47`）：`/config reload` 报出全局层的假「新增」，`/add +编号` 的 DeepEqual 比较（`addmodel.go:479`）永远不等、一直拒绝，`--apply` 之后语义悄悄变成合并。把启动时的层列表传给 REPL，不要重算。（已修：5476b72）
@@ -155,6 +155,6 @@ cd contrib/dsh-subagent-council && npm test
 
 ### 2026-11-01 收尾状态
 
-- Windows `go test ./... -count=1` 全绿；Linux Docker `golang:1.27` 全绿；`internal/turn ./internal/tui ./internal/repl` 的 `-race` 全绿；desktop 28 项、contrib 51 项全绿。
-- 未修/未验证：B3 按设计冲突保留；grok/agy 首行以 `-` 开头未用真 CLI 复现；claude `total_cost_usd` 仍需真机确认；桌面裸名 `council` 未解析成绝对路径；只读 Store 的 v1–v4 面板依赖与打开时一次 schema 探测未改；TUI 剩余文案 i18n 未动。
+- Windows `go test ./... -count=1` 全绿；Linux Docker `golang:1.27` 全绿；`internal/turn ./internal/tui ./internal/repl` 的 `-race` 全绿；desktop 28 项、contrib 89 项全绿。
+- 未修/未验证：B3 按设计冲突保留；grok/agy 首行以 `-` 开头未用真 CLI 复现；claude `total_cost_usd` 仍需真机确认；只读 Store 的 v1–v4 面板依赖与打开时一次 schema 探测未改；TUI 剩余文案 i18n 未动。
 - 本批提交未推送。
