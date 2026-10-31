@@ -23,6 +23,9 @@ var _ conversation.Tx = (*Tx)(nil)
 // fn 返回非 nil 就整体回滚并把该错误原样返回。
 // fn 发生 panic 时也会回滚，然后继续抛出 panic。
 func (s *Store) WriteTx(ctx context.Context, fn func(context.Context, conversation.Tx) error) error {
+	if s.write == nil {
+		return fmt.Errorf("begin write tx: %w", ErrReadOnlyStore)
+	}
 	sqlTx, err := s.write.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin write tx: %w", err)

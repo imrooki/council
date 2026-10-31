@@ -26,6 +26,10 @@ import (
 // 要能把这条错误和「库里没数据」分开，调用方才知道该让用户去终端跑一次 council。
 var ErrReadOnlyDBMissing = errors.New("库文件不存在，先跑一次 council")
 
+// ErrReadOnlyStore 表示在只读句柄上尝试写事务。只读 Store 没有 write 句柄，
+// 直接调用 WriteTx 会 nil panic；这里改成可识别的错误。
+var ErrReadOnlyStore = errors.New("只读 Store 不支持写操作")
+
 // ErrSchemaVersionMismatch 表示库的 schema 版本超出了本二进制能读的范围。
 //
 // 只读模式只拒绝两种：库比二进制新（actual > expected），以及版本号是 0
