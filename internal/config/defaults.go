@@ -95,7 +95,7 @@ func DefaultTOML() string {
 # mode         = 'discussion'
 # model 与 effort 由对应的工具解释，council 不做枚举校验；effort 可以不写。
 # permissions: read / workspace / full，缺省 read。
-# 注意：full 档能写进配置并通过校验，不等于编排器可以自动使用它，见 docs/06_SECURITY_MODEL.md 第 2 节。
+# 注意：full 档能写进配置并通过校验，不等于编排器可以自动使用它；本仓库不提供自动提权路径。
 # mode: discussion / worker / discussion_and_worker / judge / manager，缺省 discussion。
 #
 # 总结成员：多个成员回复之后，由 [summary] 指定的成员出一段总结，只给你看。
