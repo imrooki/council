@@ -82,57 +82,57 @@ cd contrib/dsh-subagent-council && npm test
 - **B5 设置页按行改 TOML 时不跟踪多行字符串**：`internal/config/agentwrite.go:347-361, 478-489`。role 里有 `[输出格式]` 或 `model = …` 这样的行时，新值会被插进字符串里，返回成功但改动没生效，role 也坏了。多行数组的 args/env/models 也存不了（`:419-440`）。方案：扫描维护多行字符串 / 数组状态；写后解析比对结构，不一致就拒绝写入。（已修：`59d8d82`；`insideMultilineString` 同时用于找段与改键，`TestB5MultilineRoleKeepsSectionBoundary` 覆盖 `[输出格式]` + `model = …` 的 role。）
 - **B6 原子写把符号链接换成普通文件**：`internal/config/append.go:244`、`agentwrite.go:192`。方案：先 `EvalSymlinks` 再写。（已修：`9b6d1a6`；`resolveWriteTarget` 在临时文件、备份、Rename 之前解析链接；`TestB6AppendBlockKeepsSymlink` / `TestB6WriteAgentSectionKeepsSymlink`。）
 - **B7 contrib 插件超时杀不到 provider CLI**：`contrib/dsh-subagent-council/lib/run.js:176` 只杀 council 的进程组，而 CLI 是 `Setpgid` 起在另一个组里（`internal/turn/killtree_other.go:15`）；默认 570s 比 council 自身 10 分钟超时还短，又没传 `-timeout`。方案：先 SIGINT 宽限再 SIGKILL，并传略小于 timeoutMs 的 `-timeout`。（已修：`8467f03`）
-- **B8 `council release` 在 off 档会建库、跑迁移、拿锁**：`cmd/council/claim.go:432-441`，违反 off 零行为。方案：先 OpenReadOnly，库不存在就答「无可交还」；dataDir 为空时单独报错。
-- **B9 租约冲突只按 key 全等**：`internal/localagent/lease.go:84-119`、`internal/store/localagent.go:494`。`/repo` 与 `/repo/sub` 能同时拿写租约；`tcp:8765` / `tcp:localhost:8765` / `tcp:[::1]:8765` 是不同的 key，`tcp:not a host!:80` 也能通过。方案：claim 时做路径重叠检查；tcp 用 SplitHostPort/ParseIP 校验，回环别名归一。
+- **B8 `council release` 在 off 档会建库、跑迁移、拿锁**：`cmd/council/claim.go:432-441`，违反 off 零行为。方案：先 OpenReadOnly，库不存在就答「无可交还」；dataDir 为空时单独报错。（已修：ee66f46）
+- **B9 租约冲突只按 key 全等**：`internal/localagent/lease.go:84-119`、`internal/store/localagent.go:494`。`/repo` 与 `/repo/sub` 能同时拿写租约；`tcp:8765` / `tcp:localhost:8765` / `tcp:[::1]:8765` 是不同的 key，`tcp:not a host!:80` 也能通过。方案：claim 时做路径重叠检查；tcp 用 SplitHostPort/ParseIP 校验，回环别名归一。（已修：96269dd）
 - **B10 租约事件 detail 用 `%q` 拼 JSON**：`internal/store/localagent.go:408-410, 567`，控制字符会生成非法 JSON。方案：`json.Marshal`。（已修：`305326c`；`TestB10LeaseEventDetailIsValidJSON` 用含 NUL/控制字符的 owner_id 验证。）
 - **B11 租约 TTL 先乘后校验会溢出**：`internal/serve/localagent.go:296`，`ttl_seconds=18446744079` 变成 5 秒左右并被接受。方案：先按秒比较上下限。（已修：`744ab70`；`TestPostLeaseValidation/ttl_溢出`。）
-- **B12 默认数据目录写死 `E:\council-data`**：`internal/config/schema.go:11`。README 的最小配置不带 data_dir，在没有 E 盘的 Windows 和所有 Linux/macOS 上直接起不来。方案：默认改为配置文件旁的 `data/`，或 `os.UserConfigDir()/council`。
-- **B13 `init` 的目标可能落到项目层**：`cmd/council/init.go:156-161` 取 `layers[0].Path`，cwd 下有 `.council/config.toml` 时指向它，全局配置永远建不出来，桌面向导以为已配好。方案：改用 `config.ResolveConfigPath`。同类问题：`WriteDataDir`（`internal/config/teamwrite.go:52-56`）会写进项目层，而合并时项目层 data_dir 被忽略。
-- **B14 `council ask -workspace … -conversation …` 追问必定失败**：`internal/headless/workspace.go:77-79` 副本路径只按 convID 拼，contrib 插件追问时正好这样传。方案：副本名加序号或时间戳。
-- **B15 桌面版版本检查与只读看板**：`desktop/main.js:1851` + `desktop/lib/version.js`，`--version` 失败时返回 `'(未知)'`，会被判成不同版本、拒绝 attach 并弹「旧版本」退出；`resolveCouncilExeSync`（`:1624`）不认 `COUNCIL_EXE`；primary-retry 那条 attach（`:1450-1456`）跳过版本检查。只读看板的 health 里没有 `writable` 键（omitempty），`:1271` 的 `writable === false` 是死代码，会静默挂到只读看板（例如 contrib `council_ui` 拉起的那个）。方案：未知版本放行；所有 attach 路径都做版本检查；`writable !== true` 时另起一个或明确提示。
-- **B16 `council-launch` 只看进程名判断看板在跑**：`cmd/council-launch/main.go:48-51, 116-122`，任何 council.exe（`council mcp`、TUI、`council who`）都会让它不起 serve，只开一个连不上的 8765 窗口；tasklist 失败又会重复起 serve 并静默撞锁。方案：照桌面版探测 `/api/health`。（2026-10-31 Windows 实测：`council mcp` 在 tasklist 里就是 `council.exe`，同时 8765 无监听；`running()` 会返回 true。）
+- **B12 默认数据目录写死 `E:\council-data`**：`internal/config/schema.go:11`。README 的最小配置不带 data_dir，在没有 E 盘的 Windows 和所有 Linux/macOS 上直接起不来。方案：默认改为配置文件旁的 `data/`，或 `os.UserConfigDir()/council`。（已修：41eb5b6）
+- **B13 `init` 的目标可能落到项目层**：`cmd/council/init.go:156-161` 取 `layers[0].Path`，cwd 下有 `.council/config.toml` 时指向它，全局配置永远建不出来，桌面向导以为已配好。方案：改用 `config.ResolveConfigPath`。同类问题：`WriteDataDir`（`internal/config/teamwrite.go:52-56`）会写进项目层，而合并时项目层 data_dir 被忽略。（已修：d8f5729）
+- **B14 `council ask -workspace … -conversation …` 追问必定失败**：`internal/headless/workspace.go:77-79` 副本路径只按 convID 拼，contrib 插件追问时正好这样传。方案：副本名加序号或时间戳。（已修：9746fab）
+- **B15 桌面版版本检查与只读看板**：`desktop/main.js:1851` + `desktop/lib/version.js`，`--version` 失败时返回 `'(未知)'`，会被判成不同版本、拒绝 attach 并弹「旧版本」退出；`resolveCouncilExeSync`（`:1624`）不认 `COUNCIL_EXE`；primary-retry 那条 attach（`:1450-1456`）跳过版本检查。只读看板的 health 里没有 `writable` 键（omitempty），`:1271` 的 `writable === false` 是死代码，会静默挂到只读看板（例如 contrib `council_ui` 拉起的那个）。方案：未知版本放行；所有 attach 路径都做版本检查；`writable !== true` 时另起一个或明确提示。（已修：04d82d0）
+- **B16 `council-launch` 只看进程名判断看板在跑**：`cmd/council-launch/main.go:48-51, 116-122`，任何 council.exe（`council mcp`、TUI、`council who`）都会让它不起 serve，只开一个连不上的 8765 窗口；tasklist 失败又会重复起 serve 并静默撞锁。方案：照桌面版探测 `/api/health`。（2026-10-31 Windows 实测：`council mcp` 在 tasklist 里就是 `council.exe`，同时 8765 无监听；`running()` 会返回 true。）（已修：6ac9ce3）
 - **B18 相对路径的 rules_file 被解析到配置目录的上一级**：`internal/app/app.go:208`、`internal/serve/write.go:387` 把 `merged.RulesFileBase`（已经是目录，`config/merge.go:171`）传给 `config.LoadRules`，而它又取一次 `filepath.Dir`（`config/rules.go:96`）。把模板里的 `rules_file = 'COUNCIL.md'` 取消注释即可触发：启动时局部规则 found=false，被静默当成没有规则；在任何 `--apply` 之前，`/rules reload`（`internal/repl/rules.go:149-153`）回落用 ConfigPath（文件路径），又能读到规则，于是报全部会话漂移，`--rebuild` 还要付入场费；之后 `/config reload --apply` 或 `/add` 把 base 换成目录，规则又丢。方案：统一 LoadRules 的参数语义（改成接收目录并改名），三个调用点一起改，并加「rules_file 相对路径」的回归用例。（已修：`3979fa4`，`LoadRules` 已改名为 `LoadRulesInDir`）
-- **B19 复制模式「列 → rune」的映射与渲染用的宽度算法不一致**：`internal/tui/copyscreen.go:443, 669, 688` 用 go-runewidth（东亚宽度随 `LANG` 或控制台代码页 936 变化），渲染（`:582` 的 `ansi.Truncate` 和 bubbletea）用 x/ansi（东亚宽度固定为 false）。`LANG=zh_CN.UTF-8` 下，行「“中”abc」拖选 ab，复制得到 `"”"`；带 VS16 的 emoji（如「⚠️abc」）在任何 locale 下都错位。方案：映射改用与渲染相同的 ansi 宽度算法，按字形簇遍历。
-- **B20 非 Windows 的 IsTerminal 把 /dev/null 当终端**：`internal/repl/console_other.go:19` 只看 `ModeCharDevice`。`council < /dev/null` 进入 TUI 后报「REPL 异常结束: bubbletea: could not create cancelable reader…」并退 1；Windows 下 NUL 走行式模式，正常退 0。方案：改用 `golang.org/x/term.IsTerminal`。
-- **B21 `/copy` 与复制屏加载期间不置 busy**：`internal/tui/copy.go:204-214`、`copyscreen.go:161, 271, 327`。`/copy` 回车后、或 Ctrl+G 加载中按 Esc 后马上提交别的命令，CopyRecent / CopyScreen 与 Submit 会并发读写 `r.cur` / `r.cfg`（`-race` 抓到 `repl/registry.go:149/156` 对 `commands.go:735/739`）；`/use` 之后可能复制到旧会话的内容；旧的加载结果没有代号，会被下一次 Ctrl+G 当成自己的结果；`copyDoneMsg` 在复制屏里被吞，剪贴板没写。方案：这两条路径置 busy 或串行执行，结果消息带代号。
-- **B17 便携版问题**：`desktop/main.js:1858-1872` 把 `%TEMP%` 下会被删除的 exe 注册成 `council://` 处理程序，并覆盖安装版的注册；`:1934-1936` 的 `updatesSupported` 只看 `app.isPackaged`，自动更新会给便携版装一份 Setup，便携版本身永远停在旧版。方案：检测 `PORTABLE_EXECUTABLE_DIR` 时跳过协议注册并禁用 updater。（2026-10-31 Windows 实测：给已打包 exe 设置 `PORTABLE_EXECUTABLE_DIR` 后，它仍然把 `council://` 改成自己的路径；便携包包装器本身在自动化里没拉起。）
+- **B19 复制模式「列 → rune」的映射与渲染用的宽度算法不一致**：`internal/tui/copyscreen.go:443, 669, 688` 用 go-runewidth（东亚宽度随 `LANG` 或控制台代码页 936 变化），渲染（`:582` 的 `ansi.Truncate` 和 bubbletea）用 x/ansi（东亚宽度固定为 false）。`LANG=zh_CN.UTF-8` 下，行「“中”abc」拖选 ab，复制得到 `"”"`；带 VS16 的 emoji（如「⚠️abc」）在任何 locale 下都错位。方案：映射改用与渲染相同的 ansi 宽度算法，按字形簇遍历。（已修：6696ad0）
+- **B20 非 Windows 的 IsTerminal 把 /dev/null 当终端**：`internal/repl/console_other.go:19` 只看 `ModeCharDevice`。`council < /dev/null` 进入 TUI 后报「REPL 异常结束: bubbletea: could not create cancelable reader…」并退 1；Windows 下 NUL 走行式模式，正常退 0。方案：改用 `golang.org/x/term.IsTerminal`。（已修：4ba623d）
+- **B21 `/copy` 与复制屏加载期间不置 busy**：`internal/tui/copy.go:204-214`、`copyscreen.go:161, 271, 327`。`/copy` 回车后、或 Ctrl+G 加载中按 Esc 后马上提交别的命令，CopyRecent / CopyScreen 与 Submit 会并发读写 `r.cur` / `r.cfg`（`-race` 抓到 `repl/registry.go:149/156` 对 `commands.go:735/739`）；`/use` 之后可能复制到旧会话的内容；旧的加载结果没有代号，会被下一次 Ctrl+G 当成自己的结果；`copyDoneMsg` 在复制屏里被吞，剪贴板没写。方案：这两条路径置 busy 或串行执行，结果消息带代号。（已修：cc8d750）
+- **B17 便携版问题**：`desktop/main.js:1858-1872` 把 `%TEMP%` 下会被删除的 exe 注册成 `council://` 处理程序，并覆盖安装版的注册；`:1934-1936` 的 `updatesSupported` 只看 `app.isPackaged`，自动更新会给便携版装一份 Setup，便携版本身永远停在旧版。方案：检测 `PORTABLE_EXECUTABLE_DIR` 时跳过协议注册并禁用 updater。（2026-10-31 Windows 实测：给已打包 exe 设置 `PORTABLE_EXECUTABLE_DIR` 后，它仍然把 `council://` 改成自己的路径；便携包包装器本身在自动化里没拉起。）（已修：1db39c4）
 
 ### P2：小问题与文案
 
-- `council claim <资源> -mode …`：帮助写资源在前，Go flag 遇到位置参数就停，按帮助敲会退 2（`claim.go:152-166, 549`）。改帮助为 `[flags] <资源>` 或支持交错。
-- claim 成功 / 冲突提示写 `council release <id>`，实际要 `-lease <id>`（`claim.go:314, 327`，`messages_cli.go` 中英各两处）。
-- `-server` 路径与本地路径并不「完全一样」（`cmd/council/leaseclient.go`）：owner_kind 写死 `dashboard`、冲突 JSON 没有 holder、英文模式中英混排；release `-server` 把任何 404 当「没有这条租约」。要么对齐，要么改 README:96。
-- `who -server` 在看板 off 档时打印三段「没有…」，像「本机很干净」（`leaseclient.go:301-334`）。
-- `init -config my.toml`（相对路径）写出 `data_dir = "data"` 后校验失败（`init.go:173, 356`）；文本模式总打印「已存在，不会被覆盖」（`:215`）；用法错误退 1 而不是 2。
-- 显式 `-config` 指向不存在的文件时被当成 off（`who.go:294-297`）。
-- MCP：不带 id 的 `tools/call` 被当 notification 照样执行、花钱、不回包（`internal/mcp/server.go:263, 348-352`）；工具参数未知字段被静默忽略，与 schema 的 `additionalProperties:false` 不符（`tools.go:224`）。
-- 单成员 `-mode round` 必然 partial，汇总被静默跳过（`headless.go:543-575`）。
-- `git status --porcelain` 未处理引号与重命名（`headless/workspace.go:114-131`），改用 `-z`。
-- 首行带 BOM 的顶层键会被重复插入（`config/langwrite.go:61`）。
-- 时间列按 TEXT 排序，`RFC3339Nano` 去尾零导致顺序错（`store/open.go:301-303` 等），改定宽格式并迁移旧数据。
-- 只读 Store 只在打开时探测一次 schema（`store/open_readonly.go:92-102`）；OpenReadOnly 接受 v1–v4 但部分面板依赖 v5；`WriteTx` 在只读 Store 上 nil panic。
-- `RecordTurn` 在事务外用会过滤软删的读路径预检（`store/service.go:348`），轮次中会话被软删时回复正文丢失；`requireConversation` 不判 `deleted_at`（`store/tx.go:145-147`）。
-- UNC / `\\?\` 形式的 data_dir 打不开库（疑似，`store/open.go:108-114`）。（2026-10-31 Windows 实测：`\\?\D:\...` 报 `invalid uri authority: %3F`；`\\localhost\C$\...` 报 `unable to open database file`，锁文件已建在共享目录。两个都不是「疑似」了。）
-- `unpackFingerprint` 中 `start+n` 溢出导致 panic（`turn/session.go:397-399`），先判 `n > len(s)-start`。
+- `council claim <资源> -mode …`：帮助写资源在前，Go flag 遇到位置参数就停，按帮助敲会退 2（`claim.go:152-166, 549`）。改帮助为 `[flags] <资源>` 或支持交错。（已修：f45b994）
+- claim 成功 / 冲突提示写 `council release <id>`，实际要 `-lease <id>`（`claim.go:314, 327`，`messages_cli.go` 中英各两处）。（已修：f45b994）
+- `-server` 路径与本地路径并不「完全一样」（`cmd/council/leaseclient.go`）：owner_kind 写死 `dashboard`、冲突 JSON 没有 holder、英文模式中英混排；release `-server` 把任何 404 当「没有这条租约」。要么对齐，要么改 README:96。（部分：README 已对齐：32c234d；owner_kind 仍为 dashboard）
+- `who -server` 在看板 off 档时打印三段「没有…」，像「本机很干净」（`leaseclient.go:301-334`）。（已修：32c234d）
+- `init -config my.toml`（相对路径）写出 `data_dir = "data"` 后校验失败（`init.go:173, 356`）；文本模式总打印「已存在，不会被覆盖」（`:215`）；用法错误退 1 而不是 2。（已修：9a92b46；用法错误仍退 2，与全局 exitUsage 一致）
+- 显式 `-config` 指向不存在的文件时被当成 off（`who.go:294-297`）。（已修：0a87f37）
+- MCP：不带 id 的 `tools/call` 被当 notification 照样执行、花钱、不回包（`internal/mcp/server.go:263, 348-352`）；工具参数未知字段被静默忽略，与 schema 的 `additionalProperties:false` 不符（`tools.go:224`）。（已修：9a4d250）
+- 单成员 `-mode round` 必然 partial，汇总被静默跳过（`headless.go:543-575`）。（已修：d6074cb）
+- `git status --porcelain` 未处理引号与重命名（`headless/workspace.go:114-131`），改用 `-z`。（已修：5669306）
+- 首行带 BOM 的顶层键会被重复插入（`config/langwrite.go:61`）。（已修：fae4ff4）
+- 时间列按 TEXT 排序，`RFC3339Nano` 去尾零导致顺序错（`store/open.go:301-303` 等），改定宽格式并迁移旧数据。（已改用 julianday 排序：c8f5f5a；未改定宽格式，旧数据无需迁移）
+- 只读 Store 只在打开时探测一次 schema（`store/open_readonly.go:92-102`）；OpenReadOnly 接受 v1–v4 但部分面板依赖 v5；`WriteTx` 在只读 Store 上 nil panic。（WriteTx 已修：9f2f403；schema 探测与 v1–v4 面板依赖仍未动）
+- `RecordTurn` 在事务外用会过滤软删的读路径预检（`store/service.go:348`），轮次中会话被软删时回复正文丢失；`requireConversation` 不判 `deleted_at`（`store/tx.go:145-147`）。（已修：69a80a7）
+- UNC / `\\?\` 形式的 data_dir 打不开库（疑似，`store/open.go:108-114`）。（2026-10-31 Windows 实测：`\\?\D:\...` 报 `invalid uri authority: %3F`；`\\localhost\C$\...` 报 `unable to open database file`，锁文件已建在共享目录。两个都不是「疑似」了。）（已修：85c5349）
+- `unpackFingerprint` 中 `start+n` 溢出导致 panic（`turn/session.go:397-399`），先判 `n > len(s)-start`。（已修：711c821）
 - grok/agy 首轮正文以问题开头，问题以 `-` 开头时会被当成 flag（`provider/grok.go:100`、`agy.go:104`，未用真 CLI 复现）。
-- READ 档 `council-role.txt` 在 serve 并发 job 下被并发截断重写（疑似，`turn/spawn.go:140-148`）。
+- READ 档 `council-role.txt` 在 serve 并发 job 下被并发截断重写（疑似，`turn/spawn.go:140-148`）。（已修：f917541）
 - 疑似：claude 的 `total_cost_usd` 在共用 cwd、交错续接多个会话时是否仍是会话累计值，需真机验证（`provider/claude.go:325`）。
-- 桌面版：读回地址的正则不要求行尾，chunk 被切开会读错端口（`main.js:407`）；窗口只露底部 40px 就判可见（`:911-917`）；裸名 `taskkill` / `council` 在 Windows 上会先搜 cwd（`main.js:1211`、`contrib/.../run.js:73, 159`），改绝对路径。
-- 发版流水线（`.github/workflows/release.yml`）：dispatch 时没 checkout 指定 tag 却 `--clobber` 覆盖该 tag 的产物；concurrency 按 `github.ref` 分组，同一版本可能并发上传导致 latest.yml 与安装包不对应；签名密钥是 job 级环境变量。改为按 tag 分组、checkout `ref: <tag>`、latest.yml 最后上传、密钥只给打包步骤、`persist-credentials: false`。
-- 配置模板注释引用了已移走的 `docs/06_SECURITY_MODEL.md`（`internal/config/defaults.go:98`）。
-- `--config` 恰好指向自动探测到的项目层文件时，启动只读这一层，`reloadLayers` 却返回 [项目层, 全局层]（`internal/repl/configlayers.go:47`）：`/config reload` 报出全局层的假「新增」，`/add +编号` 的 DeepEqual 比较（`addmodel.go:479`）永远不等、一直拒绝，`--apply` 之后语义悄悄变成合并。把启动时的层列表传给 REPL，不要重算。
-- @ 补全时光标在 token 中间，右边的残余字符会留着：`hi @alice` 按两次 ← 再回车，得到 `hi @alice ce`（`internal/tui/model.go:826-838`）。
-- 命令只认半角 `/`（`internal/repl/commands.go:183`、`seam.go:68`）：全角 `／use 123` 被当成发言落库，TUI 默认开自动回复时还会问全员一轮、花钱。`/to` 的 id 列表也不认全角逗号（`commands.go:420`）。
-- `/cost --round` 要求完整 round_id，但界面只显示末 6 位（`repl/roundobs.go:190`），照抄一定得到「没有记账行」（`repl/cost.go:332`）。支持后缀匹配，或打印完整 id。
-- TUI 小问题：runCtx 正常结束时不调 cancel，子 context 一直挂在根 ctx 上（`tui/model.go:417, 898`）；复制屏底栏不按宽度截断，终端高度 ≤ 2 时帧高超出（`copyscreen.go:596`）；复制屏提示、`ErrCopyEmpty`、`ErrCopyUsage`、`repl/copyscreen.go:47`、`app/firstrun.go`、`app.go:178-179` 的文案没有走 i18n。
+- 桌面版：读回地址的正则不要求行尾，chunk 被切开会读错端口（`main.js:407`）；窗口只露底部 40px 就判可见（`:911-917`）；裸名 `taskkill` / `council` 在 Windows 上会先搜 cwd（`main.js:1211`、`contrib/.../run.js:73, 159`），改绝对路径。（地址正则/窗口可见已修：7cb99fe；裸名 council 仍未解析）
+- 发版流水线（`.github/workflows/release.yml`）：dispatch 时没 checkout 指定 tag 却 `--clobber` 覆盖该 tag 的产物；concurrency 按 `github.ref` 分组，同一版本可能并发上传导致 latest.yml 与安装包不对应；签名密钥是 job 级环境变量。改为按 tag 分组、checkout `ref: <tag>`、latest.yml 最后上传、密钥只给打包步骤、`persist-credentials: false`。（已修：431d919）
+- 配置模板注释引用了已移走的 `docs/06_SECURITY_MODEL.md`（`internal/config/defaults.go:98`）。（已修：45e39f6）
+- `--config` 恰好指向自动探测到的项目层文件时，启动只读这一层，`reloadLayers` 却返回 [项目层, 全局层]（`internal/repl/configlayers.go:47`）：`/config reload` 报出全局层的假「新增」，`/add +编号` 的 DeepEqual 比较（`addmodel.go:479`）永远不等、一直拒绝，`--apply` 之后语义悄悄变成合并。把启动时的层列表传给 REPL，不要重算。（已修：5476b72）
+- @ 补全时光标在 token 中间，右边的残余字符会留着：`hi @alice` 按两次 ← 再回车，得到 `hi @alice ce`（`internal/tui/model.go:826-838`）。（已修：1e319d9）
+- 命令只认半角 `/`（`internal/repl/commands.go:183`、`seam.go:68`）：全角 `／use 123` 被当成发言落库，TUI 默认开自动回复时还会问全员一轮、花钱。`/to` 的 id 列表也不认全角逗号（`commands.go:420`）。（已修：0f7746b）
+- `/cost --round` 要求完整 round_id，但界面只显示末 6 位（`repl/roundobs.go:190`），照抄一定得到「没有记账行」（`repl/cost.go:332`）。支持后缀匹配，或打印完整 id。（已修：f5ac84a）
+- TUI 小问题：runCtx 正常结束时不调 cancel，子 context 一直挂在根 ctx 上（`tui/model.go:417, 898`）；复制屏底栏不按宽度截断，终端高度 ≤ 2 时帧高超出（`copyscreen.go:596`）；复制屏提示、`ErrCopyEmpty`、`ErrCopyUsage`、`repl/copyscreen.go:47`、`app/firstrun.go`、`app.go:178-179` 的文案没有走 i18n。（runCtx/高度已修：0276c5e；剩余文案 i18n 未动）
 
 看板补审（2026-10-31，导出 / `/api/fs/dirs` / SSE / 设置页热加载）：
 
-- **设置页热加载会把 language / local_agent 的改动误判成「需要重启」**：`internal/serve/settings_reload.go:145` 用 `configWithoutAgents`（`:343`）整份比较顶层配置，其中包含 `Language` 与 `LocalAgent`。这两个键分别由 `/api/settings/language` 与 `/api/settings/local-agent` 热更，只更新展示配置 `Cfg`，不更新 `RunCfg`。之后第一次保存 agent / team / summary 时，`settingsRestartReasons` 会看到这两个旧值，报「配置的其它部分变了」，把本来能热更的成员改动退化成重启。方案：比较时把 UI 专用键归零，或在这两个保存端点里同步 `RunCfg` 的对应字段；补一条「先改语言，再改 mode，仍应 reloaded=true」的用例。
-- **导出的 Markdown 原样写入标题与正文，HTML 不转义**：`internal/serve/static/index.html:7308`（标题）、`7332-7334`（发言人 + 正文）。成员或用户消息里出现 `<script>` / `<img onerror=…>` 时，导出的 `.md` 在会渲染 HTML 的 Markdown 查看器里可执行。方案：导出时把 `<`/`>` 转义（尤其标题），或在文档里明确只支持纯文本查看器；纯文本模式保留正文原样。
-- **SSE `Last-Event-ID` 大于已有帧数时永远等不到重放**：`internal/serve/write.go:1990-1995` 直接把头里的数字当下一帧下标；`job.next`（`:1012-1018`）只在 `i < len(events)` 时返回事件。客户端若带一个过大/损坏的 id（代理重放、旧连接跨了别的 job），`start` 会永远大于当前长度，历史帧一帧都不发，直到任务结束才返回。方案：把 `start` 夹到 `len(events)`，或对 `n > len` 回 400/从头重放。
-- **`GET /api/fs/dirs` 每个请求都探测 A–Z 盘符**：`internal/serve/fs.go:85` 无条件调用 `volumeRoots()`；`:122-133` 对 26 个字母逐个 `os.Stat`。映射的网络盘断开时 Stat 会卡住，整个目录选择器跟着卡。方案：只在 `path` 为空的开屏请求里算 Roots，Windows 上改用 `GetLogicalDrives`，或按进程缓存一次。
-- **导出分页在 `lastSeq` 不前进时静默截断**：`internal/serve/static/index.html:7148-7150` 的防御分支直接 `break`，没有把 `truncated` 置 true。坏响应 / 代理重放导致 `lastSeq <= after` 时，用户拿到一份缺了后半段、却没有任何「已截断」提示的导出件。方案：这条分支置 `truncated = true`，或直接报错让用户重试。
+- **设置页热加载会把 language / local_agent 的改动误判成「需要重启」**：`internal/serve/settings_reload.go:145` 用 `configWithoutAgents`（`:343`）整份比较顶层配置，其中包含 `Language` 与 `LocalAgent`。这两个键分别由 `/api/settings/language` 与 `/api/settings/local-agent` 热更，只更新展示配置 `Cfg`，不更新 `RunCfg`。之后第一次保存 agent / team / summary 时，`settingsRestartReasons` 会看到这两个旧值，报「配置的其它部分变了」，把本来能热更的成员改动退化成重启。方案：比较时把 UI 专用键归零，或在这两个保存端点里同步 `RunCfg` 的对应字段；补一条「先改语言，再改 mode，仍应 reloaded=true」的用例。（已修：edfe145）
+- **导出的 Markdown 原样写入标题与正文，HTML 不转义**：`internal/serve/static/index.html:7308`（标题）、`7332-7334`（发言人 + 正文）。成员或用户消息里出现 `<script>` / `<img onerror=…>` 时，导出的 `.md` 在会渲染 HTML 的 Markdown 查看器里可执行。方案：导出时把 `<`/`>` 转义（尤其标题），或在文档里明确只支持纯文本查看器；纯文本模式保留正文原样。（已修：bc694d8）
+- **SSE `Last-Event-ID` 大于已有帧数时永远等不到重放**：`internal/serve/write.go:1990-1995` 直接把头里的数字当下一帧下标；`job.next`（`:1012-1018`）只在 `i < len(events)` 时返回事件。客户端若带一个过大/损坏的 id（代理重放、旧连接跨了别的 job），`start` 会永远大于当前长度，历史帧一帧都不发，直到任务结束才返回。方案：把 `start` 夹到 `len(events)`，或对 `n > len` 回 400/从头重放。（已修：0847a28）
+- **`GET /api/fs/dirs` 每个请求都探测 A–Z 盘符**：`internal/serve/fs.go:85` 无条件调用 `volumeRoots()`；`:122-133` 对 26 个字母逐个 `os.Stat`。映射的网络盘断开时 Stat 会卡住，整个目录选择器跟着卡。方案：只在 `path` 为空的开屏请求里算 Roots，Windows 上改用 `GetLogicalDrives`，或按进程缓存一次。（已修：bb49056）
+- **导出分页在 `lastSeq` 不前进时静默截断**：`internal/serve/static/index.html:7148-7150` 的防御分支直接 `break`，没有把 `truncated` 置 true。坏响应 / 代理重放导致 `lastSeq <= after` 时，用户拿到一份缺了后半段、却没有任何「已截断」提示的导出件。方案：这条分支置 `truncated = true`，或直接报错让用户重试。（已修：6cdee17）
 
 ### T：构建 / 测试可移植性
 
@@ -151,3 +151,10 @@ cd contrib/dsh-subagent-council && npm test
 7. **T1–T3** 可以最先做（改动小、让后续每一步都能在 Linux CI 上验证），建议和第 1 步并行。
 
 每修一条，在这里把它划掉或删掉，并写上提交哈希。
+
+
+### 2026-11-01 收尾状态
+
+- Windows `go test ./... -count=1` 全绿；Linux Docker `golang:1.27` 全绿；`internal/turn ./internal/tui ./internal/repl` 的 `-race` 全绿；desktop 28 项、contrib 51 项全绿。
+- 未修/未验证：B3 按设计冲突保留；grok/agy 首行以 `-` 开头未用真 CLI 复现；claude `total_cost_usd` 仍需真机确认；桌面裸名 `council` 未解析成绝对路径；只读 Store 的 v1–v4 面板依赖与打开时一次 schema 探测未改；TUI 剩余文案 i18n 未动。
+- 本批提交未推送。
