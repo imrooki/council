@@ -75,8 +75,8 @@ cd contrib/dsh-subagent-council && npm test
 
 ### P1：钱算错 / 数据损坏 / 承诺不成立
 
-- **B1 预算少算**：`internal/turn/runner.go:816-829, 1533-1537`、`internal/headless/headless.go:836-841`。claude 的 delta 为 nil（失败轮、基线可疑后的下一轮、续接旧会话继承的可疑状态）时按 0 计，预算看到的比实际花的少。spawn 失败（进程根本没起来，`runner.go:810-814 → 1121-1125`）也会把基线标成可疑。方案：预算单独一个保守口径（累计 − 最后可信基线）；没 Start 的失败不标可疑。另外 ask 模式预算只在轮后检查，工具描述写的 "Hard cost cap" 要改口径或改实现。
-- **B2 身份指纹读 `r.cfg` 而不是本轮快照**：`runner.go:499`、`budget.go:117`、`drift.go:150`。这是数据竞争（`-race` 已抓到），而且 argv 用的是快照、指纹用的是新配置，provider args 改了会话照样续。方案：三处都传快照 cfg。
+- **B1 预算少算**：`internal/turn/runner.go:816-829, 1533-1537`、`internal/headless/headless.go:836-841`。claude 的 delta 为 nil（失败轮、基线可疑后的下一轮、续接旧会话继承的可疑状态）时按 0 计，预算看到的比实际花的少。spawn 失败（进程根本没起来，`runner.go:810-814 → 1121-1125`）也会把基线标成可疑。方案：预算单独一个保守口径（累计 − 最后可信基线）；没 Start 的失败不标可疑。另外 ask 模式预算只在轮后检查，工具描述写的 "Hard cost cap" 要改口径或改实现。（已修：`a6e9ef1`；预算改用 `budgetTracker` 的保守累计口径，`ErrProcessNotStarted` 不再污染基线；`-budget-usd` 与 MCP 描述改为「每轮结束后检查，单轮可能超线」。）
+- **B2 身份指纹读 `r.cfg` 而不是本轮快照**：`runner.go:499`、`budget.go:117`、`drift.go:150`。这是数据竞争（`-race` 已抓到），而且 argv 用的是快照、指纹用的是新配置，provider args 改了会话照样续。方案：三处都传快照 cfg。（已修：`09824e7`；新增 `TestB2FingerprintUsesRoundSnapshot`，修复前 `-race` 稳定报 `SetConfig` 与指纹读的竞争。）
 - **B3 旧版程序能以写模式打开新版库**：`internal/store/schema.go:752` 只跳过 `version <= current`，不判 `current > expected`，而只读路径会拒绝，口径相反。方案：`migrate` 遇到 `current > expected` 返回 `ErrSchemaVersionMismatch`。
 - **B4 Unix 上删掉 `council.lock` 后排他失效**：`internal/store/lock_other.go:34-39` flock 锁的是文件 inode。方案：改为 flock data_dir 目录 fd；文案写明不要删锁文件。
 - **B5 设置页按行改 TOML 时不跟踪多行字符串**：`internal/config/agentwrite.go:347-361, 478-489`。role 里有 `[输出格式]` 或 `model = …` 这样的行时，新值会被插进字符串里，返回成功但改动没生效，role 也坏了。多行数组的 args/env/models 也存不了（`:419-440`）。方案：扫描维护多行字符串 / 数组状态；写后解析比对结构，不一致就拒绝写入。
