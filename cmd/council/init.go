@@ -153,12 +153,13 @@ func runInitWith(args []string, stdin io.Reader, out, errOut io.Writer) int {
 		return i18n.TF(lang, key, fallback, args...)
 	}
 
-	layers, err := config.ResolveConfigLayers(*configPath)
+	// 目标必须是用户配置，不是 cwd 下的项目层：项目层的 data_dir 在合并时
+	// 会被忽略（S2），init 写进那里等于“写成功了但永远不生效”（B13）。
+	target, err := config.ResolveConfigPath(*configPath)
 	if err != nil {
 		fmt.Fprint(errOut, text("cli.init.error.layers", "无法确定配置文件位置: %v\n", err))
 		return exitConfigFailed
 	}
-	target := layers[0].Path
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

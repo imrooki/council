@@ -49,8 +49,15 @@ func WriteSummaryAgent(layers []Layer, agentID string) (AgentWriteResult, error)
 
 // WriteDataDir 改顶层 data_dir。与语言键同一条路（setTopLevelKey），
 // 下次启动生效。
+//
+// 写第一个非项目层：项目层的 data_dir 在 LoadMerged 里被忽略，写进去会
+// 返回成功但永远不生效（B13）。
 func WriteDataDir(layers []Layer, dir string) (AgentWriteResult, error) {
-	return writeSettingsFile(layers, ErrWriteTargetMissing, func(orig []byte) ([]byte, bool, error) {
+	i, err := trustedSettingsLayer(layers)
+	if err != nil {
+		return AgentWriteResult{}, err
+	}
+	return writeSettingsFileAt(layers, i, ErrWriteTargetMissing, func(orig []byte) ([]byte, bool, error) {
 		return setTopLevelKey(orig, "data_dir", dir)
 	})
 }
