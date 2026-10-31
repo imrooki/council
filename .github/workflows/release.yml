@@ -24,23 +24,20 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   windows:
     runs-on: windows-latest
     timeout-minutes: 45
-    env:
-      # 有证书就签，没有就跳过（electron-builder 会打一行 signing is skipped）。
-      # 这两个 secret 为空时，构建行为与本地完全一致。
-      CSC_LINK: ${{ secrets.CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
     steps:
       - name: 取源码
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: 装 Go
         uses: actions/setup-go@v5
@@ -80,6 +77,15 @@ jobs:
           "tag=$tag" >> $env:GITHUB_OUTPUT
           Write-Host "build $tag (version $version)"
 
+      - name: 切到目标 tag
+        if: ${{ steps.meta.outputs.tag != github.ref_name }}
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+          git checkout --detach "$tag"
+          git rev-parse HEAD
+
       - name: 静态检查与测试
         run: |
           go vet ./...
@@ -100,6 +106,9 @@ jobs:
         working-directory: desktop
         env:
           COUNCIL_EXE: ${{ github.workspace }}\council.exe
+          # 签名密钥只给打包这一步，不放到 job 级环境里。
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         # dist:ci 与本地 dist 的唯一区别是 --publish never：CI 里（CI=true）
         # electron-builder 看到 build.publish 会自己试着往 GitHub 传，而发布
         # 由下面那一步用 gh 负责。latest.yml 仍然会生成 —— 那正是要的产物。
@@ -151,25 +160,32 @@ jobs:
         run: |
           $tag = "${{ steps.meta.outputs.tag }}"
           $version = "${{ steps.meta.outputs.version }}"
-          $assets = @(
+          # latest.yml 单独最后传：它里面的 sha512 指向本次安装包，先传它会让
+          # 已经在检查更新的客户端拿到一个尚未上传完的包。SHA256SUMS 同理。
+          $main = @(
             "desktop\dist\Council-Setup-$version.exe",
             "desktop\dist\Council-$version-portable.exe",
-            "council.exe",
+            "council.exe"
+          )
+          $tail = @(
             "desktop\dist\latest.yml",
             "SHA256SUMS.txt"
           )
           $notes = ".github\release-notes\$tag.md"
           gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
-          if ($LASTEXITCODE -eq 0) {
-            # 已经发过（例如重建资产）：只覆盖文件，不动说明。
-            gh release upload $tag @assets --repo $env:GITHUB_REPOSITORY --clobber
-          } elseif (Test-Path $notes) {
-            gh release create $tag @assets --repo $env:GITHUB_REPOSITORY `
-              --title "Council $version" --notes-file $notes
-          } else {
-            gh release create $tag @assets --repo $env:GITHUB_REPOSITORY `
-              --title "Council $version" --generate-notes
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path $notes) {
+              gh release create $tag --repo $env:GITHUB_REPOSITORY `
+                --title "Council $version" --notes-file $notes
+            } else {
+              gh release create $tag --repo $env:GITHUB_REPOSITORY `
+                --title "Council $version" --generate-notes
+            }
+            if ($LASTEXITCODE -ne 0) { throw "创建 release 失败（exit $LASTEXITCODE）" }
           }
-          if ($LASTEXITCODE -ne 0) { throw "发布失败（exit $LASTEXITCODE）" }
+          gh release upload $tag @main --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { throw "上传主产物失败（exit $LASTEXITCODE）" }
+          gh release upload $tag @tail --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { throw "上传 latest.yml/校验和失败（exit $LASTEXITCODE）" }
           gh release view $tag --repo $env:GITHUB_REPOSITORY --json assets `
             --jq '.assets[] | "\(.name) \(.size)"'
