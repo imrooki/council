@@ -18,12 +18,16 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const dashboard = "http://127.0.0.1:8765"
@@ -47,10 +51,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	if running() {
+	if dashboardRunning() {
 		// 已有实例：只补一个窗口。用户在任务栏点回来时不该看到「又起了一个」。
 		openWindow()
 		return
+	}
+	if dashboardPortBusy() {
+		// 8765 被别的程序占着，起 serve 只会撞端口后静默退出；说清楚。
+		message("端口 8765 已被其他程序占用，但它不是 Council 看板。\n请先关掉占用的程序再重试。")
+		os.Exit(1)
 	}
 
 	args := []string{"serve", "-app"}
@@ -113,14 +122,41 @@ func isDir(p string) bool {
 	return err == nil && st.IsDir()
 }
 
-// running 用进程名判断。同名但不同路径的旧构建也算「在跑」——
-// 那台机器上本来就已经占着 8765，再起一个只会撞端口。
-func running() bool {
-	out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq council.exe", "/FO", "CSV", "/NH").Output()
+// dashboardRunning 探测 /api/health，而不是看进程名（B16）。
+//
+// 旧实现只要 tasklist 里有 council.exe 就认为看板在跑；`council mcp`、TUI、
+// `council who` 都会让它不起 serve，只开一个连不上的 8765 窗口。
+func dashboardRunning() bool {
+	return dashboardRunningAt(dashboard)
+}
+
+func dashboardRunningAt(base string) bool {
+	client := http.Client{Timeout: 1500 * time.Millisecond}
+	resp, err := client.Get(strings.TrimRight(base, "/") + "/api/health")
 	if err != nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(string(out)), "council.exe")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var health struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		return false
+	}
+	return health.OK
+}
+
+// dashboardPortBusy 只用来区分「Council 正在启动/卡住」与「别人占了端口」。
+func dashboardPortBusy() bool {
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:8765", 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 // start 以无控制台方式启动子进程。
