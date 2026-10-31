@@ -160,6 +160,9 @@ func runInitWith(args []string, stdin io.Reader, out, errOut io.Writer) int {
 		fmt.Fprint(errOut, text("cli.init.error.layers", "无法确定配置文件位置: %v\n", err))
 		return exitConfigFailed
 	}
+	if abs, absErr := filepath.Abs(target); absErr == nil {
+		target = abs
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -172,7 +175,11 @@ func runInitWith(args []string, stdin io.Reader, out, errOut io.Writer) int {
 
 // initDataDir 是首次运行要写进配置的 data_dir：配置文件旁边的 data（与 TUI 一致）。
 func initDataDir(target string) string {
-	return filepath.Join(filepath.Dir(target), "data")
+	dir := filepath.Join(filepath.Dir(target), "data")
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
 }
 
 // runInitDetect 检测四家并打印（--json 时给结构化结果）。
@@ -213,8 +220,12 @@ func runInitDetect(ctx context.Context, target string, out, errOut io.Writer,
 		fmt.Fprintf(out, "  %-6s  %s  %s  %s\n", p.ID, p.Path,
 			text("cli.init.modelCount", "识别到 %d 个模型", len(p.Models)), p.LoginText)
 	}
+	stateKey, stateFallback := "cli.init.configMissing", "不存在，还没有写入"
+	if report.ConfigExists {
+		stateKey, stateFallback = "cli.init.configExists", "已存在，不会被覆盖"
+	}
 	fmt.Fprintf(out, "  %s\n", text("cli.init.configPath", "配置文件：%s（%s）", target,
-		text("cli.init.configExists", "已存在，不会被覆盖")))
+		text(stateKey, stateFallback)))
 	if found == 0 {
 		fmt.Fprint(out, text("cli.init.noneFound",
 			"一个都没找到。至少装一个（claude / codex / grok / agy）并在终端里登录，再回来。\n"))

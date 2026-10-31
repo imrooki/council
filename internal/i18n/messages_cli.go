@@ -217,6 +217,7 @@ Flags:
 	"cli.init.modelCount":            "识别到 %d 个模型",
 	"cli.init.configPath":            "配置文件：%s（%s）",
 	"cli.init.configExists":          "已存在，不会被覆盖",
+	"cli.init.configMissing":         "不存在，还没有写入",
 	"cli.init.noneFound":             "一个都没找到。至少装一个（claude / codex / grok / agy）并在终端里登录，再回来。\n",
 	"cli.init.written":               "已生成配置文件：%s\n  provider：%s\n  成员：%s\n接下来：council serve -rw 打开看板，或直接 council 进终端界面。\n",
 	"cli.init.usage": `用法: council init [flags]
@@ -593,6 +594,7 @@ Flags:
 	"cli.init.modelCount":            "%d models detected",
 	"cli.init.configPath":            "config file: %s (%s)",
 	"cli.init.configExists":          "already exists, will not be overwritten",
+	"cli.init.configMissing":         "missing, nothing written yet",
 	"cli.init.noneFound":             "Nothing found. Install at least one (claude / codex / grok / agy), log in from a terminal, then come back.\n",
 	"cli.init.written":               "wrote the config file: %s\n  providers: %s\n  agents: %s\nNext: council serve -rw for the dashboard, or just council for the terminal UI.\n",
 	"cli.init.usage": `Usage: council init [flags]
