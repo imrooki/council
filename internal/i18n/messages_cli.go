@@ -301,16 +301,16 @@ flags:
   lease   %s
   代数    %d
   到期    %s（%s 之后）
-交还：council release %s。租约只写库，不扫描进程、不调用任何模型。
+交还：council release -lease %s。租约只写库，不扫描进程、不调用任何模型。
 `,
 	"cli.claim.busy": `资源被占用，没有拿到租约
   资源    %s
   持有者  %s/%s（%s 租约）
   lease   %s
   到期    %s
-先等它到期，或请持有者 council release %s 之后再申请。租约是自愿遵守的提醒，不会阻止任何进程写文件。
+先等它到期，或请持有者 council release -lease %s 之后再申请。租约是自愿遵守的提醒，不会阻止任何进程写文件。
 `,
-	"cli.claim.usage": `用法: council claim <目录|tcp:端口> [flags]
+	"cli.claim.usage": `用法: council claim [flags] <目录|tcp:端口>
 
 在 council.db（schema v10）里申请一条资源租约。租约是**自愿遵守的提醒**，
 不是文件锁：它不阻止任何进程写文件，只是让下一个 agent 知道这个资源有人占着。
@@ -678,16 +678,16 @@ flags:
   lease      %s
   generation %d
   expires    %s (in %s)
-Release it with: council release %s. A lease only touches the database: no process scan, no model call.
+Release it with: council release -lease %s. A lease only touches the database: no process scan, no model call.
 `,
 	"cli.claim.busy": `The resource is taken; no lease was granted
   resource   %s
   holder     %s/%s (%s lease)
   lease      %s
   expires    %s
-Wait for it to expire, or ask the holder to run council release %s and try again. Leases are voluntary reminders; they never stop a process from writing files.
+Wait for it to expire, or ask the holder to run council release -lease %s and try again. Leases are voluntary reminders; they never stop a process from writing files.
 `,
-	"cli.claim.usage": `Usage: council claim <dir|tcp:port> [flags]
+	"cli.claim.usage": `Usage: council claim [flags] <dir|tcp:port>
 
 Take a resource lease in council.db (schema v10). A lease is a voluntary reminder,
 not a file lock: it never stops a process from writing, it only tells the next agent
