@@ -233,15 +233,42 @@ func writeBackupWithSuffix(path, suffix string, orig []byte, now time.Time) (str
 	return "", fmt.Errorf("backup names %s and %s-2..%d all taken", base, base, maxBackupAttempts)
 }
 
+// resolveWriteTarget 把符号链接解析成它指向的真实文件，防止 Rename 把链接
+// 本身替换成普通文件（B6）。目标不存在时返回原路径（新建场景）；目标是
+// 断链时报错，不悄悄用普通文件覆盖链接。
+func resolveWriteTarget(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return path, nil
+		}
+		return "", err
+	}
+	if info.Mode()&fs.ModeSymlink == 0 {
+		return path, nil
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("解析符号链接 %s: %w", path, err)
+	}
+	return resolved, nil
+}
+
 // writeFileAtomic 在 path 的同一目录建 <名字>.tmp-add-*，写完、Sync、关闭、
 // 按 perm Chmod，再 Rename 覆盖 path。Windows 上 os.Rename 会替换已存在的目标。
 // 任何一步失败都删掉临时文件；成功之后临时文件已经改名为 path，不再删。
+//
+// path 是符号链接时写它指向的真实文件，链接本身保留（B6）。
 func writeFileAtomic(path string, data []byte, perm fs.FileMode) error {
-	tmpName, err := writeTempFile(filepath.Dir(path), filepath.Base(path)+".tmp-add-*", data, perm)
+	target, err := resolveWriteTarget(path)
 	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	tmpName, err := writeTempFile(filepath.Dir(target), filepath.Base(target)+".tmp-add-*", data, perm)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, target); err != nil {
 		_ = os.Remove(tmpName)
 		return err
 	}

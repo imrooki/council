@@ -168,6 +168,10 @@ func writeSettingsFileAt(layers []Layer, targetIndex int, missing error, mutate 
 		return AgentWriteResult{}, errors.New("settings: 没有可写入的配置层")
 	}
 	target := layers[targetIndex].Path
+	writeTarget, err := resolveWriteTarget(target)
+	if err != nil {
+		return AgentWriteResult{}, fmt.Errorf("解析目标配置 %s: %w", target, err)
+	}
 	info, err := os.Stat(target)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -194,7 +198,7 @@ func writeSettingsFileAt(layers []Layer, targetIndex int, missing error, mutate 
 	}
 
 	perm := info.Mode().Perm()
-	tmpName, err := writeTempFile(filepath.Dir(target), filepath.Base(target)+".tmp-edit-*", next, perm)
+	tmpName, err := writeTempFile(filepath.Dir(writeTarget), filepath.Base(writeTarget)+".tmp-edit-*", next, perm)
 	if err != nil {
 		return AgentWriteResult{}, fmt.Errorf("写临时文件: %w", err)
 	}
@@ -219,11 +223,11 @@ func writeSettingsFileAt(layers []Layer, targetIndex int, missing error, mutate 
 		return AgentWriteResult{}, &InvalidConfigError{err: errors.New(message)}
 	}
 
-	backup, err := writeBackupWithSuffix(target, ".bak-", orig, time.Now())
+	backup, err := writeBackupWithSuffix(writeTarget, ".bak-", orig, time.Now())
 	if err != nil {
 		return AgentWriteResult{}, fmt.Errorf("备份目标配置: %w", err)
 	}
-	if err := os.Rename(tmpName, target); err != nil {
+	if err := os.Rename(tmpName, writeTarget); err != nil {
 		// 备份已经在了，目标文件没有被替换。把备份路径交回去：调用方至少
 		// 能告诉用户原件在哪。
 		return AgentWriteResult{BackupPath: backup, WriteTarget: target}, fmt.Errorf("替换目标配置: %w", err)
