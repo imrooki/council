@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -103,8 +102,7 @@ func TestResolveConfigPath(t *testing.T) {
 	}
 }
 
-func TestResolveDataDir(t *testing.T) {
-	tests := []struct {
+func TestResolveDataDir(t *testing.T) {	tests := []struct {
 		name string
 		// setup 返回传给 ResolveDataDir 的配置值与期望结果。
 		setup func(t *testing.T) (cfgDataDir, want string)
@@ -150,20 +148,6 @@ func TestResolveDataDir(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfgDataDir, want := tc.setup(t)
 			got, err := ResolveDataDir(cfgDataDir)
-			if tc.fromDefault && !filepath.IsAbs(DefaultDataDir) {
-				// DefaultDataDir 是 D-9 给那台 Windows 机器定的值，别的平台上它不是绝对路径：
-				// 这时没有默认数据目录，必须响亮失败并点名来源，而不是拿一个相对路径去建库。
-				// Windows 上走不到这一支，下面的断言与原来逐字相同。
-				// 连带钉住返回值为空、错误里带着默认值原文：只查「DefaultDataDir」几个字的话，
-				// 空串环境变量没回落、默认值被改成别的都照样绿（2026-09-25 验证者实测四个变异活下来）。
-				if err == nil || got != "" ||
-					!strings.Contains(err.Error(), "DefaultDataDir") ||
-					!strings.Contains(err.Error(), strconv.Quote(DefaultDataDir)) {
-					t.Fatalf("非 Windows 上 ResolveDataDir(%q) 应当返回空串、报错并点名 DefaultDataDir 与它的值 %q，实际 got=%q err=%v",
-						cfgDataDir, DefaultDataDir, got, err)
-				}
-				return
-			}
 			if err != nil {
 				t.Fatalf("ResolveDataDir(%q) 返回错误: %v", cfgDataDir, err)
 			}
@@ -210,5 +194,24 @@ func TestResolveDataDirRejectsRelative(t *testing.T) {
 					tc.cfgDataDir, EnvDataDir, tc.envDataDir)
 			}
 		})
+	}
+}
+
+func TestB12DefaultDataDirIsPortable(t *testing.T) {
+	if strings.EqualFold(DefaultDataDir, `E:\council-data`) {
+		t.Fatal("默认 data_dir 仍然是那台机器的 E:\\council-data（B12）")
+	}
+	if !filepath.IsAbs(DefaultDataDir) {
+		t.Fatalf("默认 data_dir 不是绝对路径: %q", DefaultDataDir)
+	}
+	if !strings.HasSuffix(filepath.ToSlash(DefaultDataDir), "/council/data") {
+		t.Errorf("默认 data_dir = %q，期望落在用户配置目录的 council/data 下", DefaultDataDir)
+	}
+	got, err := ResolveDataDir("")
+	if err != nil {
+		t.Fatalf("没有配置 data_dir 时应能回落到默认值: %v", err)
+	}
+	if got != DefaultDataDir {
+		t.Errorf("ResolveDataDir(\"\") = %q，期望 %q", got, DefaultDataDir)
 	}
 }

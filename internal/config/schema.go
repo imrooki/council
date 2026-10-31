@@ -2,13 +2,27 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
 
-// DefaultDataDir 是 D-9 定的默认数据目录。这是一个机器相关的值，
-// 本项目当前只在一台机器上跑；将来跨机器时改这里，不要在调用处散落判断。
-const DefaultDataDir = `E:\council-data`
+// DefaultDataDir 是没写 data_dir、也没设 COUNCIL_DATA_DIR 时的回落值。
+//
+// 不再写死某台机器的 `E:\council-data`（B12）：那个值在没有 E 盘的 Windows
+// 和所有 Linux/macOS 上都不是合法绝对路径，会直接让 council 起不来。放到
+// 用户配置目录下，两个平台都能用；取不到用户配置目录时返回空串，交给
+// ResolveDataDir 响亮失败，不拿一个相对路径去建库。
+var DefaultDataDir = defaultDataDir()
+
+func defaultDataDir() string {
+	dir, err := os.UserConfigDir()
+	if err != nil || dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "council", "data")
+}
 
 const (
 	// EnvConfigPath 是覆盖配置文件路径的环境变量名。
