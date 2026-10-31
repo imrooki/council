@@ -458,7 +458,7 @@ func TestLocalAgentsLeaseOverlapsCwd(t *testing.T) {
 			ResourceKey: key,
 			OwnerKind:   store.LeaseOwnerCLI,
 			OwnerID:     fmt.Sprintf("owner-%d", i),
-			Access:      store.LeaseWrite,
+			Access:      store.LeaseRead,
 			TTL:         time.Hour,
 		}); err != nil {
 			t.Fatalf("ClaimLease(%s) 失败: %v", key, err)

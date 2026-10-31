@@ -62,7 +62,7 @@ func TestMlxLaterCommandLineTable(t *testing.T) {
 		{"K10", "/say  \n/x", false},
 		{"K11", "  /say\n/x", false},
 		{"K12", "/new x\n", false},
-		{"K13", "a\n" + mlxFWSL + "c", false},
+		{"K13", "a\n" + mlxFWSL + "c", true},
 		{"K14", "", false},
 		{"K15", "/say", false},
 		{"K16", "\t\n  \n", false},

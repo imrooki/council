@@ -514,7 +514,7 @@ func TestA2ModelChangeHotReloadsAndResetsSessions(t *testing.T) {
 	if status := waitJobStatus(t, env.writeTestEnv, firstJob); status != "ok" {
 		t.Fatalf("首轮最终状态 = %q，期望 ok", status)
 	}
-	first := a2LastArgv(t, argvPath)
+	first := a2ArgvForAgent(t, argvPath, "p1")
 	if got := a2ArgValue(first, "--model"); got != "sonnet" {
 		t.Fatalf("首轮 argv 的 --model = %q，期望 sonnet；argv=%v", got, first)
 	}
@@ -597,7 +597,7 @@ func TestA2ModelChangeHotReloadsAndResetsSessions(t *testing.T) {
 	if status := waitJobStatus(t, env.writeTestEnv, secondJob); status != "ok" {
 		t.Fatalf("热换后用同一会话跑一轮的最终状态 = %q，期望 ok（出现身份漂移会失败）；job=%s", status, secondJob)
 	}
-	second := a2LastArgv(t, argvPath)
+	second := a2ArgvForAgent(t, argvPath, "p1")
 	if got := a2ArgValue(second, "--model"); got != "opus-5.5" {
 		t.Errorf("第二轮 argv 的 --model = %q，期望 opus-5.5；argv=%v", got, second)
 	}
@@ -617,6 +617,27 @@ func TestA2ModelChangeHotReloadsAndResetsSessions(t *testing.T) {
 	if rebuilt.IdentityFP == firstPS.IdentityFP {
 		t.Errorf("新记录的 identity_fp 与旧值相同（%q）：新 model 没有进指纹", rebuilt.IdentityFP)
 	}
+}
+
+func a2ArgvForAgent(t *testing.T, path, agent string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读假 CLI 的 argv 记录失败: %v", err)
+	}
+	needle := strings.ToLower(agent + string(os.PathSeparator) + "council-role.txt")
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		var args []string
+		if err := json.Unmarshal([]byte(strings.TrimSpace(lines[i])), &args); err != nil {
+			continue
+		}
+		if strings.Contains(strings.ToLower(strings.Join(args, " ")), needle) {
+			return args
+		}
+	}
+	t.Fatalf("argv 记录里找不到成员 %s 的那一轮:\n%s", agent, data)
+	return nil
 }
 
 // a2LastArgv 读假 provider 记录的最后一次 argv（COUNCIL_FAKE_ARGV_FILE）。

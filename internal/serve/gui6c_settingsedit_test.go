@@ -155,28 +155,30 @@ func TestGui6cTeamValidation(t *testing.T) {
 
 func TestGui6cDataDirIsEditable(t *testing.T) {
 	env := newGui6Env(t)
+	projectBefore := gui6Read(t, env.projectConfig)
 	target := filepath.Join(t.TempDir(), "data2")
 	status, raw := postSettings(t, env, "/api/settings/data-dir", map[string]any{"data_dir": target})
 	if status != http.StatusOK {
 		t.Fatalf("改数据目录 = %d；body=%s", status, raw)
 	}
-	project := gui6Read(t, env.projectConfig)
-	if !strings.Contains(project, "data_dir = ") {
-		t.Errorf("项目层里没有 data_dir:\n%s", project)
+	// data_dir 在项目层会被合并时忽略，必须写进受信任的用户配置层。
+	global := gui6Read(t, env.globalConfig)
+	if !strings.Contains(global, "data_dir = ") {
+		t.Errorf("用户配置层里没有 data_dir:\n%s", global)
 	}
-	if !strings.Contains(strings.ToLower(project), strings.ToLower(strings.ReplaceAll(target, `\`, `\\`))) &&
-		!strings.Contains(project, target) {
-		t.Errorf("data_dir 的值不是新路径:\n%s", project)
+	if !strings.Contains(strings.ToLower(global), strings.ToLower(strings.ReplaceAll(target, `\`, `\\`))) &&
+		!strings.Contains(global, target) {
+		t.Errorf("data_dir 的值不是新路径:\n%s", global)
 	}
-	// 全局层不能被动。
-	if strings.Contains(gui6Read(t, env.globalConfig), target) {
-		t.Errorf("写到了全局层")
+	if got := gui6Read(t, env.projectConfig); got != projectBefore {
+		t.Errorf("项目层被改动了:\n%s", got)
 	}
 }
 
 func TestGui6cDataDirValidation(t *testing.T) {
 	env := newGui6Env(t)
 	before := gui6Read(t, env.projectConfig)
+	globalBefore := gui6Read(t, env.globalConfig)
 	filePath := filepath.Join(t.TempDir(), "a-file")
 	if err := os.WriteFile(filePath, []byte("x"), 0o644); err != nil {
 		t.Fatalf("建测试文件: %v", err)
@@ -196,6 +198,9 @@ func TestGui6cDataDirValidation(t *testing.T) {
 		}
 	}
 	if gui6Read(t, env.projectConfig) != before {
-		t.Errorf("校验失败却改了文件")
+		t.Errorf("校验失败却改了项目层")
+	}
+	if gui6Read(t, env.globalConfig) != globalBefore {
+		t.Errorf("校验失败却改了用户配置层")
 	}
 }
