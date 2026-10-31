@@ -215,9 +215,10 @@ func runServe(args []string) int {
 
 	// hardExit 与 ask 同体例：第二次 Ctrl-C 直接 130，不陪 http.Server
 	// 等那 5 秒的 Shutdown 上限。第一次 Ctrl-C 走 NotifyContext，serve 收到
-	// ctx.Done 之后走优雅关闭。
+	// ctx.Done 之后走优雅关闭。桌面版另外用 stdin EOF 触发同一个 stop（S3）。
 	ctx, stop := newRootContext(true)
 	defer stop()
+	watchServeStdinEOF(stop)
 
 	if err := serve.Run(ctx, opts, version); err != nil {
 		fmt.Fprintf(os.Stderr, "council serve: %v\n", err)
@@ -297,10 +298,10 @@ func runCommands(args []string) int {
 // 顺序上先 NotifyContext 再 Notify：万一信号恰好落在两次注册之间，
 // 也是 NotifyContext 先收到，优雅退出这条路不会丢。
 func newRootContext(hardExit bool) (context.Context, context.CancelFunc) {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), terminationSignals()...)
 	if hardExit {
 		hard := make(chan os.Signal, 2)
-		signal.Notify(hard, os.Interrupt)
+		signal.Notify(hard, terminationSignals()...)
 		go func() {
 			<-hard
 			<-hard

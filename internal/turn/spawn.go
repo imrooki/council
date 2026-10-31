@@ -81,6 +81,12 @@ func longestArgLabel(args []string) (label string, size int) {
 	return fmt.Sprintf("args[%d]", idx), size
 }
 
+// processJobCloser 是 Job Object 的收尾句柄：Close 之后仍然属于该 job 的
+// 进程会被内核杀掉。Windows 实现在 jobobject_windows.go，其它平台返回 nil。
+type processJobCloser interface {
+	Close()
+}
+
 // spawnProcess 是 Spawner 的生产实现。
 //
 // 三条硬约束（09a Spawner 注释）：
@@ -180,6 +186,12 @@ func spawnProcess(ctx context.Context, c provider.Command) (stdout, stderr []byt
 	if pid > 0 {
 		if notify := processIDObserverFrom(ctx); notify != nil {
 			notify(pid)
+		}
+		// S3：Windows 上把子进程挂进 kill-on-close job。父进程被
+		// TerminateProcess 时，句柄随进程消失，内核负责带走整棵树。
+		// 失败不改变这一轮的结果：没有 job 仍有 killProcessTree 兜底。
+		if job, jobErr := attachKillOnCloseJob(pid); jobErr == nil && job != nil {
+			defer job.Close()
 		}
 	}
 

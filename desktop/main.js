@@ -35,6 +35,10 @@ const READY_TIMEOUT_MS = 20000;
 const POLL_INTERVAL_MS = 400;
 const OUTPUT_TAIL_CHARS = 64 * 1024;
 const DIALOG_TAIL_CHARS = 6000;
+// 退出时先关 stdin 让 serve 优雅收尾（S3）。serve 的 Shutdown 上限 5s、
+// drainJobs 上限 10s，12s 足够它把在跑的一轮取消并杀掉 provider 进程树；
+// 超过这个窗口才走 taskkill 兜底，避免用户点退出之后无限等。
+const STOP_GRACE_MS = 12000;
 // portable 的自解压目录可能正被上一个实例清理：找不到 exe 时按短间隔重试。
 const EXE_RESOLVE_TIMEOUT_MS = 2000;
 const EXE_RESOLVE_INTERVAL_MS = 150;
@@ -372,8 +376,10 @@ async function startCouncil(port) {
       cwd,
       detached: false,
       windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: process.env,
+      // stdin 是生命周期管道，不是输入：退出时关掉它，serve 读到 EOF
+      // 会走 http.Server.Shutdown + drainJobs + 杀 provider 进程树（S3）。
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, COUNCIL_SERVE_EXIT_ON_STDIN_EOF: '1' },
     });
   } catch (error) {
     throw new StartupFailure(
@@ -1197,30 +1203,69 @@ function stopOwnedChild() {
 
     child.once('exit', finish);
 
+    // 第一选择是让 serve 自己收尾：关 stdin，它走 Shutdown + drain。
+    // 不再先 child.kill()：Windows 上那是 TerminateProcess，serve 没有
+    // 任何机会 drain，provider CLI 会成孤儿（S3）。
     try {
-      child.kill();
+      child.stdin?.end();
     } catch {
-      /* 已经退出时 taskkill 也不会成功，下面的兜底会收尾。 */
+      /* 管道已经关了；继续等或走兜底。 */
     }
 
-    // Windows 上 child.kill() 是强制结束；2 秒还活着就用 taskkill 连同这个
-    // 子进程自己的进程树一起收掉（只针对我们自己启动的 pid）。
     timer = setTimeout(() => {
-      if (child.exitCode === null) {
-        try {
-          spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
-            windowsHide: true,
-            stdio: 'ignore',
-            timeout: 5000,
-          });
-        } catch {
-          /* 尽力而为。 */
-        }
+      if (child.exitCode !== null) {
+        setTimeout(finish, 300);
+        return;
       }
-      setTimeout(finish, 300);
-    }, 2000);
+      logEvent(`forcing owned council pid=${child.pid} after ${STOP_GRACE_MS}ms`);
+      forceKillOwnedChild(child);
+      // taskkill /T 会同时结束父进程；给它一点时间让 exit 事件到达。
+      setTimeout(finish, 1000);
+    }, STOP_GRACE_MS);
     if (typeof timer.unref === 'function') timer.unref();
   });
+}
+
+// forceKillOwnedChild 是优雅窗口用完之后的兜底。
+//
+// Windows 上必须用 System32 下的绝对路径：裸名 taskkill 会先搜 cwd 与
+// PATH，一个同名的假 exe 就能把「杀进程」变成执行任意程序。taskkill
+// 也必须由活着的父进程发起：先 child.kill() 再 taskkill /T 时，父进程
+// 已经没了，/T 找不到子树（S3）。
+function forceKillOwnedChild(child) {
+  if (process.platform === 'win32') {
+    let status = null;
+    try {
+      const result = spawnSync(systemTaskkillPath(), ['/PID', String(child.pid), '/T', '/F'], {
+        windowsHide: true,
+        stdio: 'ignore',
+        timeout: 5000,
+      });
+      status = result && typeof result.status === 'number' ? result.status : null;
+    } catch {
+      status = null;
+    }
+    if (status !== 0) {
+      try {
+        child.kill();
+      } catch {
+        /* 已经退出。 */
+      }
+    }
+    return;
+  }
+  // Unix 上 serve 现在也监听 SIGTERM；先发 SIGTERM，10 秒后 Electron
+  // 进程退出会带走自己的子进程（desktop 只跑在 Windows，这里只是兜底）。
+  try {
+    child.kill('SIGTERM');
+  } catch {
+    /* 已经退出。 */
+  }
+}
+
+function systemTaskkillPath() {
+  const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+  return path.join(root, 'System32', 'taskkill.exe');
 }
 
 // failStartup 是「应用起不来」时用户看到的唯一一屏。
