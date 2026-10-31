@@ -113,6 +113,26 @@ func sqliteURIPath(path string) string {
 	return p
 }
 
+// sqliteDSNBase 返回拼 pragma 之前的那一段 DSN。
+//
+// 两种 Windows 路径需要特殊处理：
+//   - `\\?\` 前缀是 Win32 的长路径标记，SQLite 不认；剥掉后普通路径仍可打开；
+//   - `\\server\share` 用 file://server/... 形式会被 SQLite 当成非法的文件 URI
+//     authority，打不开；现代驱动接受不带 file: 的 UNC 路径（实测
+//     `//server/share/...?...` 可用），所以 UNC 走纯路径，其它走 file: URI。
+func sqliteDSNBase(path string) string {
+	p := path
+	if strings.HasPrefix(p, `\\?\UNC\`) || strings.HasPrefix(p, `\\?\unc\`) {
+		p = `\\` + p[len(`\\?\UNC\`):]
+	} else if strings.HasPrefix(p, `\\?\`) {
+		p = p[len(`\\?\`):]
+	}
+	if strings.HasPrefix(p, `\\`) {
+		return filepath.ToSlash(p)
+	}
+	return "file:" + sqliteURIPath(p)
+}
+
 // Open 打开（必要时创建）dataDir 下的 council.db，建立读写双句柄，
 // 跑完待应用的迁移，返回可用的 Store。dataDir 不存在时会以 0o755 创建。
 func Open(ctx context.Context, dataDir string) (*Store, error) {
@@ -159,7 +179,7 @@ func Open(ctx context.Context, dataDir string) (*Store, error) {
 	//
 	// WAL 必须真的开起来。只做串行化而不开 WAL 的配置虽然也能全过，但慢 178 倍，
 	// 因为退回了 delete 模式，每次提交要重写回滚日志。
-	writeDSN := "file:" + sqliteURIPath(dbPath) +
+	writeDSN := sqliteDSNBase(dbPath) +
 		"?_pragma=journal_mode(WAL)" +
 		"&_pragma=busy_timeout(5000)" +
 		"&_pragma=foreign_keys(1)" +
@@ -177,7 +197,7 @@ func Open(ctx context.Context, dataDir string) (*Store, error) {
 		return nil, fmt.Errorf("ping write db %s: %w", dbPath, err)
 	}
 
-	readDSN := "file:" + sqliteURIPath(dbPath) +
+	readDSN := sqliteDSNBase(dbPath) +
 		"?_pragma=journal_mode(WAL)" +
 		"&_pragma=busy_timeout(5000)" +
 		"&_pragma=foreign_keys(1)" +
