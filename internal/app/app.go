@@ -175,8 +175,9 @@ func Run(ctx context.Context, opts Options) error {
 			// 上面那份 layers 还是启动时「什么都没有」的快照。
 			layers, err = config.ResolveConfigLayers(opts.ConfigPath)
 			if err != nil {
-				fmt.Fprintf(errOut, "无法确定配置文件位置: %v\n", err)
-				fmt.Fprintf(errOut, "可以用 --config <path> 直接指定配置文件，或设置环境变量 %s 指向它。\n", config.EnvConfigPath)
+				fmt.Fprint(errOut, msg("cli.startup.configPathFailed", "无法确定配置文件位置: %v\n", err))
+				fmt.Fprint(errOut, msg("cli.startup.configPathHint",
+					"可以用 --config <path> 直接指定配置文件，或设置环境变量 %s 指向它。\n", config.EnvConfigPath))
 				return fmt.Errorf("解析配置文件路径失败: %w", err)
 			}
 		}
