@@ -45,8 +45,11 @@ func TestB8ReleaseWithoutDatabaseDoesNotCreateAnything(t *testing.T) {
 }
 
 func TestB8ReleaseWithoutDataDirReportsConfigError(t *testing.T) {
-	dir := t.TempDir()
-	_, errOut, code := releaseRun(t, leaseDeps{Open: store.Open}, "-config", filepath.Join(dir, "missing.toml"), "-lease", "x")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("COUNCIL_CONFIG", "")
+	_, errOut, code := releaseRun(t, leaseDeps{Open: store.Open}, "-lease", "x")
 	if code != exitConfigFailed {
 		t.Fatalf("没有 data_dir 时 code=%d，期望 %d；stderr=%s", code, exitConfigFailed, errOut)
 	}

@@ -293,6 +293,14 @@ func loadWhoConfig(configPath string) (localagent.Level, string, error) {
 	}
 	if _, statErr := os.Stat(layers[0].Path); statErr != nil {
 		if errors.Is(statErr, fs.ErrNotExist) {
+			// 没给 -config / COUNCIL_CONFIG 时，缺少默认全局配置是正常状态
+			// （本机还没 init），按 off 处理。显式点名的文件不存在则是配置错误，
+			// 不能静默当成 off（P2）。
+			explicit := strings.TrimSpace(configPath) != "" ||
+				strings.TrimSpace(os.Getenv(config.EnvConfigPath)) != ""
+			if explicit {
+				return localagent.LevelOff, "", fmt.Errorf("配置文件不存在: %s", layers[0].Path)
+			}
 			return localagent.LevelOff, "", nil
 		}
 		return localagent.LevelOff, "", statErr

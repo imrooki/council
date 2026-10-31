@@ -136,22 +136,19 @@ func TestWhoOffDoesNotEnumerateOrOpenDB(t *testing.T) {
 	}
 }
 
-// TestWhoMissingConfigMeansOff：一份配置都没有是出厂状态，等价于 off；
-// 不该报错，也不该因为「没有配置文件」就去枚举进程。
-func TestWhoMissingConfigMeansOff(t *testing.T) {
+// TestWhoExplicitMissingConfigIsAnError：没有配置是出厂状态，但显式 -config
+// 指向的文件不存在是配置错误，不能静默当成 off。
+func TestWhoExplicitMissingConfigIsAnError(t *testing.T) {
 	whoTestEnv(t)
 	missing := filepath.Join(t.TempDir(), "nope.toml")
 
 	var out, errOut bytes.Buffer
 	code := runWhoWith([]string{"-config", missing}, whoPanicDeps(t), &out, &errOut)
-	if code != exitOK {
-		t.Fatalf("退出码 = %d，期望 %d（stderr: %s）", code, exitOK, errOut.String())
+	if code != exitConfigFailed {
+		t.Fatalf("退出码 = %d，期望 %d（stderr: %s）", code, exitConfigFailed, errOut.String())
 	}
-	if !strings.Contains(out.String(), "未开启") {
-		t.Errorf("缺配置时应当提示未开启，实际: %s", out.String())
-	}
-	if errOut.Len() != 0 {
-		t.Errorf("缺配置不是错误，stderr 不该有内容: %s", errOut.String())
+	if !strings.Contains(errOut.String(), "不存在") {
+		t.Errorf("stderr 应当说明配置文件不存在，实际: %s", errOut.String())
 	}
 }
 
