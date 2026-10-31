@@ -23,11 +23,11 @@ func HasLaterCommandLine(text string) bool {
 	if len(lines) < 2 {
 		return false
 	}
-	if strings.TrimSpace(lines[0]) == "/say" {
+	if NormalizeCommandSlash(strings.TrimSpace(lines[0])) == "/say" {
 		return false
 	}
 	for _, line := range lines[1:] {
-		if strings.HasPrefix(strings.TrimLeftFunc(line, isTrimmable), "/") {
+		if strings.HasPrefix(NormalizeCommandSlash(strings.TrimLeftFunc(line, isTrimmable)), "/") {
 			return true
 		}
 	}

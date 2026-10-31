@@ -166,6 +166,7 @@ func copyCommandArgs(text string) (string, bool) {
 		return "", false
 	}
 	trimmed := strings.TrimSpace(text)
+	trimmed = repl.NormalizeCommandSlash(trimmed)
 	fields := strings.Fields(trimmed)
 	if len(fields) == 0 || fields[0] != "/copy" {
 		return "", false

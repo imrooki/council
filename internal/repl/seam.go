@@ -65,6 +65,7 @@ func (r *REPL) Submit(ctx context.Context, text string) error {
 	if text == "" {
 		return nil
 	}
+	text = NormalizeCommandSlash(text)
 	if !strings.HasPrefix(text, "/") {
 		// 交给 sayCmd 这个表项，而不是直接调 cmdSay：这样连前置条件一起复用，
 		// 「持久化没起来」「还没选会话」两种情况下，裸文本与 /say 的答复完全一致。

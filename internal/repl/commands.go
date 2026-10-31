@@ -130,6 +130,16 @@ var roundCmd = cmdEntry{
 // 改成直接以 user 身份发言（docs/08_STEP5_SPEC.md H 节「裸文本即发言」）。
 // 代价是 Canonical Conversation 只追加不回收，手滑敲错的一行也会成为永久记录；
 // 这一点已经当面告知用户并被接受。
+// NormalizeCommandSlash 把行首的全角斜杠（U+FF0F）换成半角。
+// 输入法在中文状态下很容易打出「／use」，如果只认半角，它会被当成裸文本
+// 落库，TUI 默认自动回复时还会问全员一轮、花钱（P2）。
+func NormalizeCommandSlash(text string) string {
+	if strings.HasPrefix(text, "／") {
+		return "/" + text[len("／"):]
+	}
+	return text
+}
+
 func (r *REPL) dispatch(ctx context.Context, line string) error {
 	payload, sawStart, sawEnd := splitPasteMarkers(line)
 
@@ -177,6 +187,7 @@ func (r *REPL) dispatch(ctx context.Context, line string) error {
 	if text == "" {
 		return nil
 	}
+	text = NormalizeCommandSlash(text)
 	if hasControlRune(text) {
 		return r.printf("%s\n", r.t("tui.repl.hasControl", msgHasControl))
 	}
@@ -417,7 +428,7 @@ func cmdTo(ctx context.Context, r *REPL, args cmdArgs) error {
 		return usage()
 	}
 
-	rawIDs := strings.Split(args.fields[0], ",")
+	rawIDs := strings.Split(strings.ReplaceAll(args.fields[0], "，", ","), ",")
 	ids := make([]string, 0, len(rawIDs))
 	seen := make(map[string]struct{}, len(rawIDs))
 	for _, raw := range rawIDs {
