@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"council/internal/config"
+	"council/internal/i18n"
 	"council/internal/provider"
 	"council/internal/repl"
 	"council/internal/turn"
@@ -99,8 +100,12 @@ func firstRunCheck(ctx context.Context, d config.DetectedProvider) firstRunRow {
 // 找到的里面有没登录或查不出的，打一句说明和那几家的登录办法；最后建文件。文件已存在
 // （检查期间被别人建了）就说一句、返回 nil，由 Run 加载那个文件；写不进去就把整段内容
 // 打出来、返回错误；写成了就打上手三步、返回 nil。
-func firstRun(ctx context.Context, w io.Writer, path string, noAuto bool) error {
-	fmt.Fprintf(w, "第一次运行：还没有配置文件 %s，council 来生成一份。\n", path)
+func firstRun(ctx context.Context, w io.Writer, path string, noAuto bool, lang i18n.Lang) error {
+	tr := func(key, fallback string, args ...any) string {
+		return i18n.TF(lang, key, fallback, args...)
+	}
+	fmt.Fprint(w, tr("cli.firstrun.head",
+		"第一次运行：还没有配置文件 %s，council 来生成一份。\n", path))
 	detected := config.DetectProviders()
 	var ids []string
 	for _, d := range detected {
@@ -110,13 +115,15 @@ func firstRun(ctx context.Context, w io.Writer, path string, noAuto bool) error 
 	}
 	if len(ids) == 0 {
 		for _, d := range detected {
-			fmt.Fprintf(w, "  %-6s  没找到\n", d.ID)
+			fmt.Fprint(w, tr("cli.firstrun.notFound", "  %-6s  没找到\n", d.ID))
 		}
-		_, _ = io.WriteString(w, msgFirstRunNoneFound)
+		_, _ = io.WriteString(w, tr("cli.firstrun.noneFound", msgFirstRunNoneFound))
 		return errors.New("首次运行：本机没找到 claude、grok、agy、codex 中的任何一个")
 	}
 
-	fmt.Fprintf(w, "正在检查 %s 能不能用（只让它们列出模型、报登录状态，不提问、不花钱；每家最多 %v）……\n", strings.Join(ids, "、"), firstRunTimeout)
+	fmt.Fprint(w, tr("cli.firstrun.checking",
+		"正在检查 %s 能不能用（只让它们列出模型、报登录状态，不提问、不花钱；每家最多 %v）……\n",
+		strings.Join(ids, "、"), firstRunTimeout))
 	rows := make([]firstRunRow, len(detected))
 	var wg sync.WaitGroup
 	for i, d := range detected {
@@ -132,7 +139,8 @@ func firstRun(ctx context.Context, w io.Writer, path string, noAuto bool) error 
 	}
 	wg.Wait()
 	if ctx.Err() != nil {
-		fmt.Fprintf(w, "识别被取消，没有生成配置文件；下次运行 council 会重新检查\n")
+		fmt.Fprint(w, tr("cli.firstrun.canceled",
+			"识别被取消，没有生成配置文件；下次运行 council 会重新检查\n"))
 		return errFirstRunCanceled
 	}
 
@@ -140,19 +148,24 @@ func firstRun(ctx context.Context, w io.Writer, path string, noAuto bool) error 
 	for _, row := range rows {
 		switch {
 		case row.d.Path == "":
-			fmt.Fprintf(w, "  %-6s  没找到\n", row.d.ID)
+			fmt.Fprint(w, tr("cli.firstrun.notFound", "  %-6s  没找到\n", row.d.ID))
 			continue
 		case row.err != nil:
-			fmt.Fprintf(w, "  %-6s  %s  识别失败：%s；%s\n", row.d.ID, row.d.Path, repl.DiscoveryFailureText(row.err, firstRunTimeout), firstRunLoginText(row.login))
+			fmt.Fprint(w, tr("cli.firstrun.rowError",
+				"  %-6s  %s  识别失败：%s；%s\n",
+				row.d.ID, row.d.Path, repl.DiscoveryFailureText(row.err, firstRunTimeout), firstRunLoginText(row.login)))
 		default:
-			fmt.Fprintf(w, "  %-6s  %s  识别到 %d 个模型；%s\n", row.d.ID, row.d.Path, row.models, firstRunLoginText(row.login))
+			fmt.Fprint(w, tr("cli.firstrun.rowModels",
+				"  %-6s  %s  识别到 %d 个模型；%s\n",
+				row.d.ID, row.d.Path, row.models, firstRunLoginText(row.login)))
 		}
 		if row.login.State != provider.LoginYes && row.login.State != provider.LoginAPIKey {
 			needLogin = append(needLogin, row.d.ID)
 		}
 	}
 	if len(needLogin) > 0 {
-		fmt.Fprintf(w, "能列出模型不代表已经登录：没登录的 claude、grok、codex 也会列出一部分模型。没登录或登录状态查不出的，要登录在终端里运行：\n")
+		fmt.Fprint(w, tr("cli.firstrun.loginHint",
+			"能列出模型不代表已经登录：没登录的 claude、grok、codex 也会列出一部分模型。没登录或登录状态查不出的，要登录在终端里运行：\n"))
 		for _, id := range needLogin {
 			fmt.Fprintf(w, "  %-6s  %s\n", id, repl.LoginCommand(id))
 		}
@@ -163,22 +176,27 @@ func firstRun(ctx context.Context, w io.Writer, path string, noAuto bool) error 
 	text := config.FirstRunTOML(filepath.Join(filepath.Dir(path), "data"), detected)
 	if err := config.CreateConfigFile(path, []byte(text)); err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			fmt.Fprintf(w, "配置文件在检查期间已经被建好了，改用它: %s\n\n", path)
+			fmt.Fprint(w, tr("cli.firstrun.exists",
+				"配置文件在检查期间已经被建好了，改用它: %s\n\n", path))
 			return nil
 		}
-		fmt.Fprintf(w, "写不进配置文件 %s: %v\n", path, err)
-		fmt.Fprintf(w, "下面是本来要写的内容，请自己存成 %s（UTF-8），再运行 council：\n\n", path)
+		fmt.Fprint(w, tr("cli.firstrun.writeFailed", "写不进配置文件 %s: %v\n", path, err))
+		fmt.Fprint(w, tr("cli.firstrun.writeContent",
+			"下面是本来要写的内容，请自己存成 %s（UTF-8），再运行 council：\n\n", path))
 		fmt.Fprintln(w, strings.TrimRight(text, "\n"))
 		return fmt.Errorf("首次运行：写不进配置文件 %s: %w", path, err)
 	}
-	fmt.Fprintf(w, "已生成配置文件: %s（只写了找到的工具，还没有成员）\n", path)
-	fmt.Fprintf(w, "上手三步：\n")
-	fmt.Fprintf(w, "  1. /new <标题>  开一个会话\n")
-	fmt.Fprintf(w, "  2. /add  看识别出的模型，再用 /add +编号 挑成员\n")
+	fmt.Fprint(w, tr("cli.firstrun.written",
+		"已生成配置文件: %s（只写了找到的工具，还没有成员）\n", path))
+	fmt.Fprint(w, tr("cli.firstrun.steps", "上手三步：\n"))
+	fmt.Fprint(w, tr("cli.firstrun.step1", "  1. /new <标题>  开一个会话\n"))
+	fmt.Fprint(w, tr("cli.firstrun.step2", "  2. /add  看识别出的模型，再用 /add +编号 挑成员\n"))
 	if noAuto {
-		fmt.Fprintf(w, "  3. 直接打字只记下（你用了 -no-auto）；/auto on 之后，直接打字会让会话里的成员回复\n")
+		fmt.Fprint(w, tr("cli.firstrun.step3NoAuto",
+			"  3. 直接打字只记下（你用了 -no-auto）；/auto on 之后，直接打字会让会话里的成员回复\n"))
 	} else {
-		fmt.Fprintf(w, "  3. 直接打字，会话里的成员都会回复；@<成员 id> 只问那一个\n")
+		fmt.Fprint(w, tr("cli.firstrun.step3Auto",
+			"  3. 直接打字，会话里的成员都会回复；@<成员 id> 只问那一个\n"))
 	}
 	fmt.Fprintln(w)
 	return nil

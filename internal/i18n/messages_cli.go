@@ -195,6 +195,30 @@ Flags:
 	"cli.serve.err.addrBadPort":     "地址 %q 的端口 %q 不合法，必须是 0 到 65535 的整数",
 	"cli.serve.err.addrNotLoopback": "只允许绑定回环地址（127.0.0.0/8、::1、localhost），%q 不是回环地址",
 
+	// ---- 首次运行自动配置 ----
+	"cli.firstrun.head":     "第一次运行：还没有配置文件 %s，council 来生成一份。\n",
+	"cli.firstrun.notFound": "  %-6s  没找到\n",
+	"cli.firstrun.noneFound": "一个都没找到，没有生成配置文件。至少装一个、在终端里登录好，再运行 council：\n" +
+		"  claude  npm install -g @anthropic-ai/claude-code，装好后运行 claude auth login\n" +
+		"  grok    照 grok 官方的说明安装，装好后运行 grok login\n" +
+		"  agy     照 agy 官方的说明安装，装好后运行 agy，按提示登录\n" +
+		"  codex   npm install -g @openai/codex，装好后运行 codex login\n" +
+		`council 找的是 PATH，以及这几处默认安装位置：%APPDATA%\npm、%USERPROFILE%\.grok\bin、%LOCALAPPDATA%\agy\bin` + "\n",
+	"cli.firstrun.checking":     "正在检查 %s 能不能用（只让它们列出模型、报登录状态，不提问、不花钱；每家最多 %v）……\n",
+	"cli.firstrun.canceled":     "识别被取消，没有生成配置文件；下次运行 council 会重新检查\n",
+	"cli.firstrun.rowError":     "  %-6s  %s  识别失败：%s；%s\n",
+	"cli.firstrun.rowModels":    "  %-6s  %s  识别到 %d 个模型；%s\n",
+	"cli.firstrun.loginHint":    "能列出模型不代表已经登录：没登录的 claude、grok、codex 也会列出一部分模型。没登录或登录状态查不出的，要登录在终端里运行：\n",
+	"cli.firstrun.exists":       "配置文件在检查期间已经被建好了，改用它: %s\n\n",
+	"cli.firstrun.writeFailed":  "写不进配置文件 %s: %v\n",
+	"cli.firstrun.writeContent": "下面是本来要写的内容，请自己存成 %s（UTF-8），再运行 council：\n\n",
+	"cli.firstrun.written":      "已生成配置文件: %s（只写了找到的工具，还没有成员）\n",
+	"cli.firstrun.steps":        "上手三步：\n",
+	"cli.firstrun.step1":        "  1. /new <标题>  开一个会话\n",
+	"cli.firstrun.step2":        "  2. /add  看识别出的模型，再用 /add +编号 挑成员\n",
+	"cli.firstrun.step3NoAuto":  "  3. 直接打字只记下（你用了 -no-auto）；/auto on 之后，直接打字会让会话里的成员回复\n",
+	"cli.firstrun.step3Auto":    "  3. 直接打字，会话里的成员都会回复；@<成员 id> 只问那一个\n",
+
 	// ---- council init（首次运行 / 桌面版设置向导） ----
 	"cli.init.flag.config":           "配置文件路径（默认 ~/.council/config.toml）；与全局 -config 含义相同",
 	"cli.init.flag.lang":             "输出语言：zh / en / auto（默认 auto）",
@@ -572,6 +596,30 @@ Flags:
 	"cli.serve.err.addrNoPort":      "address %q has no port",
 	"cli.serve.err.addrBadPort":     "address %q has an invalid port %q; it must be an integer from 0 to 65535",
 	"cli.serve.err.addrNotLoopback": "only loopback addresses are allowed (127.0.0.0/8, ::1, localhost); %q is not one",
+
+	// ---- first-run auto setup ----
+	"cli.firstrun.head":     "First run: no config file at %s yet; council will create one.\n",
+	"cli.firstrun.notFound": "  %-6s  not found\n",
+	"cli.firstrun.noneFound": "Nothing found, so no config file was created. Install at least one, log in from a terminal, then run council again:\n" +
+		"  claude  npm install -g @anthropic-ai/claude-code, then claude auth login\n" +
+		"  grok    install as described by grok, then grok login\n" +
+		"  agy     install as described by agy, then run agy and follow the login prompt\n" +
+		"  codex   npm install -g @openai/codex, then codex login\n" +
+		`council looks on PATH and in these default install locations: %APPDATA%\npm, %USERPROFILE%\.grok\bin, %LOCALAPPDATA%\agy\bin` + "\n",
+	"cli.firstrun.checking":     "Checking whether %s are usable (they only list models and report login status; no prompts, no cost; %v each)…\n",
+	"cli.firstrun.canceled":     "Detection canceled; no config file was created. council will check again next run.\n",
+	"cli.firstrun.rowError":     "  %-6s  %s  detection failed: %s; %s\n",
+	"cli.firstrun.rowModels":    "  %-6s  %s  %d models detected; %s\n",
+	"cli.firstrun.loginHint":    "Listing models does not mean logged in: claude, grok, and codex also list some models without a login. For any that are logged out or unknown, run this in a terminal:\n",
+	"cli.firstrun.exists":       "The config file was created during the check; using it: %s\n\n",
+	"cli.firstrun.writeFailed":  "Cannot write config file %s: %v\n",
+	"cli.firstrun.writeContent": "Below is what would have been written; save it as %s (UTF-8), then run council:\n\n",
+	"cli.firstrun.written":      "Wrote config file: %s (only the detected tools; no members yet)\n",
+	"cli.firstrun.steps":        "Three steps:\n",
+	"cli.firstrun.step1":        "  1. /new <title>  start a conversation\n",
+	"cli.firstrun.step2":        "  2. /add  inspect detected models, then /add +number to pick members\n",
+	"cli.firstrun.step3NoAuto":  "  3. Typing only records text (-no-auto); after /auto on, typing makes members reply\n",
+	"cli.firstrun.step3Auto":    "  3. Type; every member in the conversation replies; @<member id> asks only that one\n",
 
 	// ---- council init (first run / desktop setup wizard) ----
 	"cli.init.flag.config":           "Config file path (default ~/.council/config.toml); same meaning as the global -config",

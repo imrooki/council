@@ -165,7 +165,7 @@ func Run(ctx context.Context, opts Options) error {
 	// 报「找不到配置文件」；要自动生成，先跑一次 council。
 	if opts.MCP == nil && !explicit && filepath.IsAbs(path) && onlyDefaultLayer(layers, path) {
 		if _, statErr := os.Stat(path); errors.Is(statErr, fs.ErrNotExist) {
-			if frErr := firstRun(ctx, errOut, path, opts.NoAuto); frErr != nil {
+			if frErr := firstRun(ctx, errOut, path, opts.NoAuto, lang); frErr != nil {
 				if errors.Is(frErr, errFirstRunCanceled) {
 					return nil
 				}
