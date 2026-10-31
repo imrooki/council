@@ -1,3 +1,5 @@
+//go:build windows
+
 // council-launch 是桌面快捷方式的目标：双击才启动，不做服务、不开机自启。
 //
 // 为什么要单独一个 exe，而不是让快捷方式直接指向 council.exe：
