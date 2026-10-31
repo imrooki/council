@@ -55,3 +55,14 @@ test('B15：只读看板与未知版本不再静默 attach', () => {
   const attachBlock = mainSource.slice(attachStart, mainSource.indexOf('\n  }', attachStart));
   assert.match(attachBlock, /attachVersionMatches\(target\.attach\.health/, 'primary-retry 的 attach 也要做版本检查');
 });
+
+test('B17：便携版不注册协议、不启用更新器', () => {
+  const regStart = mainSource.indexOf('function registerProtocol');
+  assert.ok(regStart > 0);
+  const regBlock = mainSource.slice(regStart, mainSource.indexOf('\n}', regStart));
+  assert.match(regBlock, /PORTABLE_EXECUTABLE_DIR/, '便携版应在 registerProtocol 里直接跳过');
+  const updStart = mainSource.indexOf('function updatesSupported');
+  assert.ok(updStart > 0);
+  const updBlock = mainSource.slice(updStart, mainSource.indexOf('\n}', updStart));
+  assert.match(updBlock, /PORTABLE_EXECUTABLE_DIR/, '便携版应禁用 updater');
+});

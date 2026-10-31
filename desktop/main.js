@@ -1888,6 +1888,12 @@ function registerProtocol() {
     logEvent('protocol registration skipped (dev build)');
     return;
   }
+  if (process.env.PORTABLE_EXECUTABLE_DIR) {
+    // 便携版每次从临时目录解压，注册解压后的 exe 只会让 council:// 指向
+    // 一个随时会被删掉的路径，并覆盖安装版的注册（B17）。
+    logEvent('protocol registration skipped (portable build)');
+    return;
+  }
   try {
     if (app.setAsDefaultProtocolClient(PROTOCOL)) {
       logEvent(`protocol registered ${PROTOCOL}://`);
@@ -1960,6 +1966,8 @@ async function showAbout() {
 const UPDATE_CHECK_DELAY_MS = 8000;
 
 function updatesSupported() {
+  // 便携版没有安装目录，更新器会给它装一份 Setup；便携版本身永远停在旧版（B17）。
+  if (process.env.PORTABLE_EXECUTABLE_DIR) return false;
   return Boolean(autoUpdater) && app.isPackaged;
 }
 
