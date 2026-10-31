@@ -70,6 +70,10 @@ func (c *Config) Validate() error {
 				add(fmt.Sprintf("providers.%s.args[%d]", id, i), "must not contain NUL")
 				continue
 			}
+			if problem := providerArgProblem(id, pc.Args, i); problem != "" {
+				add(fmt.Sprintf("providers.%s.args[%d]", id, i), problem)
+				continue
+			}
 			if len(arg) > MaxProviderEntryBytes {
 				add(fmt.Sprintf("providers.%s.args[%d]", id, i), fmt.Sprintf(
 					"is %d bytes, exceeds the %d-byte limit", len(arg), MaxProviderEntryBytes))
@@ -216,6 +220,78 @@ func (c *Config) Validate() error {
 		return nil
 	}
 	return errs
+}
+
+// providerArgProblem 按 provider 的适配器维护一份「能改权限档」的 flag
+// 黑名单（S5）。
+//
+// 为什么必须在配置层拒绝、而不是起进程前再过滤：args 是用户写进配置的
+// 事实，如果启动时才偷偷丢掉，屏幕上看到的启动方式与实际跑的不是同一件
+// 事；而且设置页会把它当成合法值继续保存。拒绝时错误路径能指到具体
+// provider 的第几个参数。
+//
+// 只列各家的权限类 flag，不做「看起来像权限」的模糊匹配：普通参数
+// （--verbose、-c model_reasoning_effort=high、--deny Write(*)）必须继续
+// 可用，否则会逼用户绕过设置页。
+//
+// codex 的 -c/--config 是 key=value 形式，值可能与 flag 分开两个 argv
+// 元素；只在 key 是 sandbox_mode 时拒绝。approval_policy 不拒绝：适配器
+// 已经发 never，用户再写一次不会放大写盘边界。
+func providerArgProblem(providerID string, args []string, i int) string {
+	name, value, hasValue := splitProviderArg(args[i])
+	name = strings.ToLower(name)
+	reject := func() string {
+		return fmt.Sprintf("permission-widening flag %q is not allowed in provider args: the adapter's own permission flags must stay authoritative", args[i])
+	}
+
+	switch strings.ToLower(providerID) {
+	case "claude":
+		switch name {
+		case "--dangerously-skip-permissions", "--permission-mode", "--add-dir",
+			"--allowedtools", "--allowed-tools", "--settings":
+			return reject()
+		}
+	case "codex":
+		switch name {
+		case "--dangerously-bypass-approvals-and-sandbox", "--full-auto", "--yolo",
+			"--sandbox", "-s", "--add-dir":
+			return reject()
+		}
+		if name == "-c" || name == "--config" {
+			if !hasValue && i+1 < len(args) {
+				value = args[i+1]
+				hasValue = true
+			}
+			if hasValue {
+				normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), " ", ""))
+				if strings.HasPrefix(normalized, "sandbox_mode=") {
+					return reject()
+				}
+			}
+		}
+	case "grok":
+		switch name {
+		case "--dangerously-skip-permissions", "--permission-mode", "--allow",
+			"--tools", "--sandbox", "--add-dir":
+			return reject()
+		}
+	case "agy":
+		switch name {
+		case "--dangerously-skip-permissions", "--mode", "--add-dir", "--sandbox":
+			return reject()
+		}
+	}
+	return ""
+}
+
+// splitProviderArg 把 --flag=value 拆成名字与值；没有等号时 hasValue 为 false。
+// 不用 strings.SplitN(arg, "=", 2) 直接切割：有些 flag 的值本身带等号
+// （codex 的 sandbox_mode=... 就是），这里只切第一个。
+func splitProviderArg(arg string) (name, value string, hasValue bool) {
+	if i := strings.IndexByte(arg, '='); i >= 0 {
+		return arg[:i], arg[i+1:], true
+	}
+	return arg, "", false
 }
 
 func validPermission(p Permission) bool {
