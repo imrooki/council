@@ -109,7 +109,7 @@ function createHarness() {
   const killers = [];
   const spawn = (command, args, options) => {
     calls.push({ command, args, options });
-    if (command === 'taskkill') {
+    if (/\b(taskkill)(\.exe)?$/i.test(command)) {
       const killer = new EventEmitter();
       killer.unref = () => {};
       killers.push(killer);
@@ -131,7 +131,7 @@ function createHarness() {
       killSettleMs: 25,
       ...seam.deps,
     },
-    taskkillCalls: () => calls.filter((call) => call.command === 'taskkill'),
+    taskkillCalls: () => calls.filter((call) => /\b(taskkill)(\.exe)?$/i.test(call.command)),
   };
 }
 
@@ -224,6 +224,11 @@ test('startCouncilRun: timeout issues taskkill and force-settles without a close
   assert.equal(result.stopReason, 'error');
   assert.match(result.diagnostic, /timed out after 10 ms/);
   assert.equal(harness.taskkillCalls().length, 1);
+  assert.match(
+    harness.taskkillCalls()[0].command,
+    /[\\/]System32[\\/]taskkill\.exe$/i,
+    'taskkill 必须走 System32 绝对路径，不能搜 cwd',
+  );
   assert.ok(Date.now() - startedAt < 1000, 'force-settle timer released the seam');
 });
 

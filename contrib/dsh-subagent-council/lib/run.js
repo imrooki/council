@@ -10,6 +10,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { spawn as nodeSpawn } from 'node:child_process';
+import { win32 as pathWin32 } from 'node:path';
 import {
   buildAskCommand,
   formatCouncilOutput,
@@ -171,7 +172,9 @@ export function startCouncilRun(config, request, deps = {}) {
       if (directExited) return;
       if (platform === 'win32') {
         // `/T` walks the child tree; `/F` forces exit. argv form only, no shell.
-        const killer = spawn('taskkill', ['/T', '/F', '/PID', String(pid)], {
+        // 必须用 System32 下的绝对路径：裸名会先搜 cwd，一个同名的假
+        // taskkill.exe 就能把「杀进程」变成执行任意程序（P2）。
+        const killer = spawn(systemTaskkillPath(), ['/T', '/F', '/PID', String(pid)], {
           windowsHide: true,
           stdio: 'ignore',
         });
@@ -423,6 +426,11 @@ function resolveRequestCwd(request) {
   const inherited = request?.parent?.session?.header?.cwd;
   if (typeof inherited === 'string' && inherited.trim() !== '') return inherited;
   return undefined;
+}
+
+function systemTaskkillPath() {
+  const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+  return pathWin32.join(root, 'System32', 'taskkill.exe');
 }
 
 function spawnOptions(cwd, platform) {
