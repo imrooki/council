@@ -340,9 +340,15 @@ func settingsPendingRestart(run, display *config.Config, id string) (runnable bo
 
 // configWithoutAgents 拷一份去掉 Agents 的配置，用来比较顶层字段。
 // 浅拷贝够用：这里只读，不写 map / 切片内部。
+//
+// language 与 local_agent 有各自的热更端点，只更新展示配置 Cfg、不更新
+// RunCfg；它们不进 Runner，也不该让下一次 agent 保存退化成「需要重启」。
+// 比较前归零，避免把这两个 UI 键的旧值当成「磁盘上其它部分变了」。
 func configWithoutAgents(cfg *config.Config) config.Config {
 	clone := *cfg
 	clone.Agents = nil
+	clone.Language = ""
+	clone.LocalAgent = ""
 	return clone
 }
 

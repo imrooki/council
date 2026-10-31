@@ -1030,3 +1030,13 @@ func TestA2IndexSettingsReloadHints(t *testing.T) {
 		t.Errorf("index.html 里出现了 innerHTML，前端必须保持 0 处")
 	}
 }
+
+func TestSettingsRestartIgnoresUIOnlyTopLevelKeys(t *testing.T) {
+	base := a2Agent()
+	next := a2Cfg(base)
+	next.Language = "en"
+	next.LocalAgent = config.LocalAgentCoordinate
+	if reasons := settingsRestartReasons(a2Cfg(base), next, "p1"); len(reasons) != 0 {
+		t.Fatalf("只改 language/local_agent 的重启原因 = %v，期望空（两者有独立热更端点）", reasons)
+	}
+}
