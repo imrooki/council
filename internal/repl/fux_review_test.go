@@ -300,7 +300,12 @@ func fuxSeedStaleBoth(ctx context.Context, svc *conversation.Service, convID str
 // 这时两人最后一条都没有回复，打的是「总的来看：没有总结（这条 /round 没有成员回复）」、不起总结，整串红。
 func TestFuxSummaryRounds2AllRefusedLast(t *testing.T) {
 	g := smxSetup(t, "smx_s", []string{"smx_a", "smx_b"}, true, true)
-	w := g.installHook("甲（", func() error { return fuxSeedStaleBoth(context.Background(), g.svc, g.convID) })
+	// 在第 2 轮开始的那一行种陈旧在飞记录。不能在「甲（」出现时种：那一行
+	// 可能先于 smx_b 本轮结束写出，此时 smx_b 的 inflight 行还在，BeginTurn
+	// 会撞 UNIQUE（CI -race 实测）。第 2 轮开始时第 1 轮已收口，是确定的时点。
+	w := g.installHookAfter("本轮问 2 个", 1, func() error {
+		return fuxSeedStaleBoth(context.Background(), g.svc, g.convID)
+	})
 	g.submit(t, "/round smx_a smx_b --go --rounds 2")
 	if fired, _, err := w.state(); !fired || err != nil {
 		t.Fatalf("前提不成立：钩子应当触发且种记录成功，实际 触发=%v 错误=%v；输出:\n%s", fired, err, w.String())

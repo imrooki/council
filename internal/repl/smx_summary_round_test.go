@@ -256,6 +256,7 @@ func smxSeedStale(ctx context.Context, svc *conversation.Service, convID string)
 type smxHookWriter struct {
 	rbaBuf
 	prefix string
+	skip   int
 	hook   func() error
 
 	hmu     sync.Mutex
@@ -270,7 +271,7 @@ func (w *smxHookWriter) Write(p []byte) (int, error) {
 	w.hmu.Lock()
 	if strings.HasPrefix(string(p), w.prefix) {
 		w.matches++
-		if !w.fired {
+		if !w.fired && w.matches > w.skip {
 			w.fired = true
 			call = true
 		}
@@ -295,6 +296,13 @@ func (w *smxHookWriter) state() (bool, int, error) {
 // installHook 把 r.out 换成钩子写者（白盒，同包）。
 func (g *smxRig) installHook(prefix string, hook func() error) *smxHookWriter {
 	w := &smxHookWriter{prefix: prefix, hook: hook}
+	g.r.out = w
+	return w
+}
+
+// installHookAfter 跳过前 skip 次匹配再触发；用于「第 2 轮开始时」这类时序。
+func (g *smxRig) installHookAfter(prefix string, skip int, hook func() error) *smxHookWriter {
+	w := &smxHookWriter{prefix: prefix, skip: skip, hook: hook}
 	g.r.out = w
 	return w
 }
